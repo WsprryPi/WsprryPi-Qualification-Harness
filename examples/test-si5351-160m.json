@@ -11,10 +11,14 @@
     "reference_frequency_hz": 27000000,
     "drive_ma": 2
   },
+  "band": "160m",
   "frequency_hz": 1838100,
   "receiver_center_hz": 1863100,
   "receiver_gain_db": 10,
   "ppm": 2.353615654,
+  "frame_count": 3,
+  "bounded_duration_s": 370,
+  "random_offset_enabled": false,
   "identity": {
     "callsign": "AA0NT",
     "grid": "EM18",
@@ -24,5 +28,12 @@
     "carrier_offset_max_hz": 100,
     "best_20hz_share_min": 0.5,
     "required_consecutive_decodes": 3
+  },
+  "stopping_procedure": {
+    "transmitter_termination": "Use the future bounded transmitter process limit and preserve its return code.",
+    "receiver_termination": "Use the future exact-count receiver limit and preserve its return code.",
+    "operator_abort": "Request bounded supervisor cancellation; do not bypass cleanup.",
+    "cleanup_expectation": "Stop children, disable Si5351 outputs, restore intentionally changed services, and verify quiescence.",
+    "emergency_stop_note": "If bounded cleanup fails, use the separately reviewed bench emergency-stop procedure and classify cleanup_failed."
   }
 }

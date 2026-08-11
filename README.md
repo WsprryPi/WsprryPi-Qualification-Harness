@@ -30,8 +30,11 @@ future cross-platform interface.
 
 ## Current status
 
-Repository foundation only. Slice 1 is not yet implemented, and no live
-hardware path is qualified by this repository.
+Slice 1 provides a portable, offline-only Python foundation: schema-validated
+profiles, typed models, read-only capability reporting, deterministic UTC run
+IDs, exact WSPR-slot/sample calculations, result classification, SHA-256
+manifests, tests, packaging, and cross-platform CI. No live hardware path is
+qualified by this repository.
 
 The reviewed roadmap is:
 
@@ -47,7 +50,6 @@ The reviewed roadmap is:
 
 - `CONTRACT.md`: product, safety, evidence, portability, and acceptance contract.
 - `AGENTS.md`: repository instructions for future Codex work.
-- `START_NEW_CODEX_PROJECT.md`: directly usable implementation prompt.
 - `schemas/`: initial machine-readable profile and result contracts.
 - `examples/`: non-executable example bench and test profiles.
 - `historical/`: original helpers copied from `wspr5`; review before reuse.
@@ -55,6 +57,36 @@ The reviewed roadmap is:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes and
 [SECURITY.md](SECURITY.md) for reporting safety or security defects.
+
+## Install and validate
+
+Python 3.11 or newer is required.
+
+```text
+python -m venv .venv
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+python -m ruff format --check .
+python -m ruff check .
+python -m mypy
+python -m pytest
+python -m build
+```
+
+Safe Slice 1 commands are:
+
+```text
+wsprrypi-qualification version
+wsprrypi-qualification capabilities
+wsprrypi-qualification validate-profile bench examples/bench-wspr5-rsp1b.json
+wsprrypi-qualification validate-profile test examples/test-si5351-160m.json
+```
+
+The capability report locates future dependencies without executing them and
+reports hardware/transport adapters as unimplemented. Live RF remains disabled,
+and committed profiles cannot satisfy runtime operator confirmation. See
+[the Slice 1 development guide](docs/development/slice-1.md) for the complete
+behavior and validation contract.
 
 ## Important boundary
 
