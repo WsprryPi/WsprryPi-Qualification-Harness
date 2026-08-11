@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/wsprrypi-harness/bench-profile.schema.json",
+  "title": "WsprryPi qualification bench profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "bench_id", "receiver", "rf_path"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "bench_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]+$"},
+    "receiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transport", "driver", "sample_rate_hz", "bandwidth_hz", "sample_format", "agc"],
+      "properties": {
+        "transport": {"enum": ["local", "ssh"]},
+        "host": {"type": "string"},
+        "driver": {"type": "string"},
+        "serial": {"type": "string"},
+        "sample_rate_hz": {"type": "integer", "minimum": 1},
+        "bandwidth_hz": {"type": "integer", "minimum": 1},
+        "sample_format": {"const": "CF32"},
+        "agc": {"const": false},
+        "bias_tee": {"type": "boolean", "default": false}
+      }
+    },
+    "rf_path": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path_type", "antenna_connected", "termination_ohms", "attenuation_db"],
+      "properties": {
+        "path_type": {"const": "conducted"},
+        "antenna_connected": {"const": false},
+        "termination_ohms": {"const": 50},
+        "attenuation_db": {"type": "number", "exclusiveMinimum": 0},
+        "filter_description": {"type": "string"}
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/wsprrypi-harness/result.schema.json",
+  "title": "WsprryPi qualification result",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "run_id", "status", "started_utc", "cleanup_verified"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {"type": "string"},
+    "status": {
+      "enum": ["qualified", "unqualified_carrier", "unqualified_decode", "fixture_blocked", "preflight_failed", "aborted", "cleanup_failed", "inconclusive"]
+    },
+    "started_utc": {"type": "string", "format": "date-time"},
+    "completed_utc": {"type": "string", "format": "date-time"},
+    "cleanup_verified": {"type": "boolean"},
+    "reason": {"type": "string"},
+    "artifacts": {"type": "array", "items": {"type": "object"}}
+  }
+}

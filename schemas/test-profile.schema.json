@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/wsprrypi-harness/test-profile.schema.json",
+  "title": "WsprryPi qualification test profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "test_id", "transmitter", "frequency_hz", "receiver_center_hz", "receiver_gain_db", "identity", "gates"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "test_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]+$"},
+    "transmitter": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["transport", "host", "backend", "output"],
+      "properties": {
+        "transport": {"enum": ["local", "ssh"]},
+        "host": {"type": "string"},
+        "backend": {"enum": ["gpio", "si5351", "rp1_gpclk"]},
+        "output": {"type": "string"}
+      }
+    },
+    "frequency_hz": {"type": "number", "exclusiveMinimum": 0},
+    "receiver_center_hz": {"type": "number", "exclusiveMinimum": 0},
+    "receiver_gain_db": {"type": "number"},
+    "ppm": {"type": "number"},
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["callsign", "grid", "power_dbm"],
+      "properties": {
+        "callsign": {"type": "string"},
+        "grid": {"type": "string"},
+        "power_dbm": {"type": "integer"}
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["carrier_offset_max_hz", "best_20hz_share_min", "required_consecutive_decodes"],
+      "properties": {
+        "carrier_offset_max_hz": {"type": "number", "minimum": 0},
+        "best_20hz_share_min": {"type": "number", "minimum": 0, "maximum": 1},
+        "required_consecutive_decodes": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "bench_id": "wspr5-rsp1b-conducted",
+  "receiver": {
+    "transport": "ssh",
+    "host": "wspr5.local",
+    "driver": "sdrplay",
+    "serial": "2404058C60",
+    "sample_rate_hz": 250000,
+    "bandwidth_hz": 200000,
+    "sample_format": "CF32",
+    "agc": false,
+    "bias_tee": false
+  },
+  "rf_path": {
+    "path_type": "conducted",
+    "antenna_connected": false,
+    "termination_ohms": 50,
+    "attenuation_db": 30,
+    "filter_description": "Example historical value only. Replace with the installed band-appropriate filter and verify the complete RF path at runtime."
+  }
+}

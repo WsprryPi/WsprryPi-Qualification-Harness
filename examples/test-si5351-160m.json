@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "test_id": "si5351-160m-production-example",
+  "transmitter": {
+    "transport": "ssh",
+    "host": "wspr5.local",
+    "backend": "si5351",
+    "output": "CLK0",
+    "i2c_bus": 1,
+    "i2c_address": "0x60",
+    "reference_frequency_hz": 27000000,
+    "drive_ma": 2
+  },
+  "frequency_hz": 1838100,
+  "receiver_center_hz": 1863100,
+  "receiver_gain_db": 10,
+  "ppm": 2.353615654,
+  "identity": {
+    "callsign": "AA0NT",
+    "grid": "EM18",
+    "power_dbm": 20
+  },
+  "gates": {
+    "carrier_offset_max_hz": 100,
+    "best_20hz_share_min": 0.5,
+    "required_consecutive_decodes": 3
+  }
+}
