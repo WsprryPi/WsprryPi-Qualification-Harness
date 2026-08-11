@@ -33,12 +33,21 @@ def test_invalid_profile_returns_nonzero(
     assert str(path) in capsys.readouterr().err
 
 
+def test_validate_capture_metadata(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from tests.unit.test_capture_metadata import capture_document
+
+    path = tmp_path / "capture metadata.json"
+    path.write_text(json.dumps(capture_document()), encoding="utf-8")
+    assert main(["validate-capture-metadata", str(path)]) == 0
+    assert json.loads(capsys.readouterr().out)["valid"] is True
+
+
 def test_enable_rf_fails_closed(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["--enable-rf"]) == 2
-    assert "unavailable in Slice 1" in capsys.readouterr().err
+    assert "unavailable in Slice 2" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("command", ["run", "capture", "transmit", "tone"])
 def test_future_live_commands_fail_closed(command: str, capsys: pytest.CaptureFixture[str]) -> None:
     assert main([command]) == 2
-    assert "unavailable in Slice 1" in capsys.readouterr().err
+    assert "unavailable in Slice 2" in capsys.readouterr().err

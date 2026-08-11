@@ -30,11 +30,12 @@ future cross-platform interface.
 
 ## Current status
 
-Slice 1 provides a portable, offline-only Python foundation: schema-validated
+Slices 1 and 2 provide a portable, offline-only foundation: schema-validated
 profiles, typed models, read-only capability reporting, deterministic UTC run
 IDs, exact WSPR-slot/sample calculations, result classification, SHA-256
-manifests, tests, packaging, and cross-platform CI. No live hardware path is
-qualified by this repository.
+manifests, and a CMake-built exact-count CF32 capture engine exercised only by
+a deterministic mock source. No live hardware path is qualified by this
+repository.
 
 The reviewed roadmap is:
 
@@ -71,22 +72,27 @@ python -m ruff check .
 python -m mypy
 python -m pytest
 python -m build
+cmake -S . -B build-native -DWSPQ_BUILD_SOAPY=OFF
+cmake --build build-native --config Release
+ctest --test-dir build-native -C Release --output-on-failure
 ```
 
-Safe Slice 1 commands are:
+Safe Slice 1 and 2 Python commands are:
 
 ```text
 wsprrypi-qualification version
 wsprrypi-qualification capabilities
 wsprrypi-qualification validate-profile bench examples/bench-wspr5-rsp1b.json
 wsprrypi-qualification validate-profile test examples/test-si5351-160m.json
+wsprrypi-qualification validate-capture-metadata CAPTURE_METADATA.json
 ```
 
 The capability report locates future dependencies without executing them and
 reports hardware/transport adapters as unimplemented. Live RF remains disabled,
 and committed profiles cannot satisfy runtime operator confirmation. See
-[the Slice 1 development guide](docs/development/slice-1.md) for the complete
-behavior and validation contract.
+[Slice 1](docs/development/slice-1.md) and
+[Slice 2](docs/development/slice-2.md) development guides for their complete
+behavior and validation contracts.
 
 ## Important boundary
 

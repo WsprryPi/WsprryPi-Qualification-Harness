@@ -32,7 +32,7 @@ def capability_report() -> dict[str, Any]:
         CapabilityResult(
             name,
             CapabilityState.NOT_IMPLEMENTED,
-            "adapter is outside Slice 1",
+            "orchestration adapter is outside Slice 2",
         ).to_dict()
         for name in (
             "local_command",

@@ -19,6 +19,7 @@ htmlcov/
 .venv/
 venv/
 build/
+build-*/
 dist/
 *.egg-info/
 CMakeFiles/
@@ -30,6 +31,7 @@ local/
 profiles/local/
 runs/
 *.incomplete-*
+*.incomplete
 *.cf32
 *.cs16
 *.wav

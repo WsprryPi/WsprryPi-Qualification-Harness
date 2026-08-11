@@ -11,6 +11,7 @@ from pathlib import Path
 
 from wsprrypi_qualification import __version__
 from wsprrypi_qualification.capabilities import capability_report
+from wsprrypi_qualification.capture_metadata import CaptureMetadataError, load_capture_metadata
 from wsprrypi_qualification.profiles import ProfileError, load_profile
 
 LIVE_COMMANDS = {"run", "capture", "transmit", "tone", "enable-rf"}
@@ -24,13 +25,17 @@ def _parser() -> argparse.ArgumentParser:
     validate = subparsers.add_parser("validate-profile", help="validate a bench or test profile")
     validate.add_argument("kind", choices=("bench", "test"))
     validate.add_argument("path", type=Path)
+    capture_metadata = subparsers.add_parser(
+        "validate-capture-metadata", help="validate exact-count capture metadata"
+    )
+    capture_metadata.add_argument("path", type=Path)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if "--enable-rf" in arguments or LIVE_COMMANDS.intersection(arguments):
-        print("live RF actions are unavailable in Slice 1", file=sys.stderr)
+        print("live RF actions are unavailable in Slice 2", file=sys.stderr)
         return 2
     args = _parser().parse_args(arguments)
     if args.command == "version":
@@ -54,6 +59,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "valid": True,
                 },
                 default=str,
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+    if args.command == "validate-capture-metadata":
+        try:
+            metadata = load_capture_metadata(args.path)
+        except CaptureMetadataError as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(
+            json.dumps(
+                {"path": str(args.path), "capture": asdict(metadata), "valid": True},
                 indent=2,
                 sort_keys=True,
             )

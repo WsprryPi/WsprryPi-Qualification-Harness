@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WsprryPi/WsprryPi-Qualification-Harness/schemas/capture-metadata.schema.json",
+  "title": "Exact-count CF32 capture evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "helper_version", "evidence_type", "capture_id", "timestamps", "elapsed_duration_s", "limits", "requested_device", "resolved_device", "requested_settings", "actual_settings", "wire_format", "first_read", "requested_sample_count", "retained_sample_count", "read_call_count", "partial_read_count", "timeout_count", "overflow_count", "clipping", "output", "primary_outcome", "primary_failure_cause", "failure_causes", "cleanup", "process_exit_code"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "helper_version": {"type": "string", "minLength": 1},
+    "evidence_type": {"enum": ["capture_success", "capture_failure"]},
+    "capture_id": {"type": "string", "minLength": 1},
+    "timestamps": {
+      "type": "object", "additionalProperties": false,
+      "required": ["helper_start_utc", "configuration_start_utc", "configuration_complete_utc", "first_read_start_utc", "first_read_complete_utc", "retained_capture_start_utc", "retained_capture_complete_utc", "cleanup_start_utc", "cleanup_complete_utc", "helper_complete_utc"],
+      "properties": {
+        "helper_start_utc": {"$ref": "#/$defs/nullable_timestamp"},
+        "configuration_start_utc": {"$ref": "#/$defs/nullable_timestamp"},
+        "configuration_complete_utc": {"$ref": "#/$defs/nullable_timestamp"},
+        "first_read_start_utc": {"$ref": "#/$defs/nullable_timestamp"},
+        "first_read_complete_utc": {"$ref": "#/$defs/nullable_timestamp"},
+        "retained_capture_start_utc": {"$ref": "#/$defs/nullable_timestamp"},
+        "retained_capture_complete_utc": {"$ref": "#/$defs/nullable_timestamp"},
+        "cleanup_start_utc": {"$ref": "#/$defs/nullable_timestamp"},
+        "cleanup_complete_utc": {"$ref": "#/$defs/nullable_timestamp"},
+        "helper_complete_utc": {"$ref": "#/$defs/nullable_timestamp"}
+      }
+    },
+    "elapsed_duration_s": {"type": "number", "minimum": 0},
+    "limits": {
+      "type": "object", "additionalProperties": false,
+      "required": ["read_timeout_us", "max_elapsed_duration_s", "max_read_calls"],
+      "properties": {
+        "read_timeout_us": {"type": "integer", "minimum": 1},
+        "max_elapsed_duration_s": {"type": "number", "exclusiveMinimum": 0},
+        "max_read_calls": {"type": "integer", "minimum": 2}
+      }
+    },
+    "requested_device": {"$ref": "#/$defs/device"},
+    "resolved_device": {"oneOf": [{"$ref": "#/$defs/device"}, {"type": "null"}]},
+    "requested_settings": {"$ref": "#/$defs/settings"},
+    "actual_settings": {"oneOf": [{"$ref": "#/$defs/settings"}, {"type": "null"}]},
+    "wire_format": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sample_format", "component_type", "interleave", "byte_order", "bytes_per_complex_sample"],
+      "properties": {
+        "sample_format": {"const": "CF32"},
+        "component_type": {"const": "IEEE754_binary32"},
+        "interleave": {"const": "real_imaginary"},
+        "byte_order": {"const": "little_endian"},
+        "bytes_per_complex_sample": {"const": 8}
+      }
+    },
+    "first_read": {
+      "type": "object", "additionalProperties": false,
+      "required": ["attempted", "discarded", "sample_count", "included_in_overflow_and_clipping_statistics"],
+      "properties": {
+        "attempted": {"type": "boolean"},
+        "discarded": {"type": "boolean"},
+        "sample_count": {"type": "integer", "minimum": 0},
+        "included_in_overflow_and_clipping_statistics": {"const": false}
+      }
+    },
+    "requested_sample_count": {"type": "integer", "minimum": 1},
+    "retained_sample_count": {"type": "integer", "minimum": 0},
+    "read_call_count": {"type": "integer", "minimum": 0},
+    "partial_read_count": {"type": "integer", "minimum": 0},
+    "timeout_count": {"type": "integer", "minimum": 0},
+    "overflow_count": {"type": "integer", "minimum": 0},
+    "clipping": {
+      "type": "object", "additionalProperties": false,
+      "required": ["threshold", "sample_count"],
+      "properties": {
+        "threshold": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "sample_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "output": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "present", "complete", "size_bytes", "sha256", "removed_incomplete_size_bytes", "removed_incomplete_sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "present": {"type": "boolean"},
+        "complete": {"type": "boolean"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "sha256": {"oneOf": [{"type": "string", "pattern": "^[0-9a-f]{64}$"}, {"type": "null"}]},
+        "removed_incomplete_size_bytes": {"type": "integer", "minimum": 0},
+        "removed_incomplete_sha256": {"oneOf": [{"type": "string", "pattern": "^[0-9a-f]{64}$"}, {"type": "null"}]}
+      }
+    },
+    "primary_outcome": {"enum": ["success", "failed", "cancelled"]},
+    "primary_failure_cause": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+    "failure_causes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "cleanup": {
+      "type": "object", "additionalProperties": false,
+      "required": ["outcome", "attempted_steps", "failed_steps"],
+      "properties": {
+        "outcome": {"enum": ["verified", "failed", "unknown"]},
+        "attempted_steps": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "failed_steps": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "process_exit_code": {"type": "integer", "minimum": 0}
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "evidence_type": {"const": "capture_success"},
+        "primary_outcome": {"const": "success"},
+        "primary_failure_cause": {"type": "null"},
+        "failure_causes": {"maxItems": 0},
+        "cleanup": {"properties": {"outcome": {"const": "verified"}, "failed_steps": {"maxItems": 0}}},
+        "output": {"properties": {"present": {"const": true}, "complete": {"const": true}, "sha256": {"type": "string"}}},
+        "process_exit_code": {"const": 0}
+      }
+    },
+    {
+      "properties": {
+        "evidence_type": {"const": "capture_failure"},
+        "primary_outcome": {"enum": ["failed", "cancelled"]},
+        "primary_failure_cause": {"type": "string"},
+        "failure_causes": {"minItems": 1},
+        "output": {"properties": {"present": {"const": false}, "complete": {"const": false}, "size_bytes": {"const": 0}, "sha256": {"type": "null"}}},
+        "process_exit_code": {"minimum": 1}
+      }
+    }
+  ],
+  "$defs": {
+    "nullable_timestamp": {"oneOf": [{"type": "string", "format": "date-time", "pattern": "Z$"}, {"type": "null"}]},
+    "device": {
+      "type": "object", "additionalProperties": false,
+      "required": ["driver", "serial"],
+      "properties": {"driver": {"type": "string", "minLength": 1}, "serial": {"type": "string", "minLength": 1}}
+    },
+    "settings": {
+      "type": "object", "additionalProperties": false,
+      "required": ["format", "sample_rate_hz", "bandwidth_hz", "center_frequency_hz", "gain_db", "channel", "agc", "bias_tee"],
+      "properties": {
+        "format": {"const": "CF32"},
+        "sample_rate_hz": {"type": "number", "exclusiveMinimum": 0},
+        "bandwidth_hz": {"type": "number", "exclusiveMinimum": 0},
+        "center_frequency_hz": {"type": "number", "exclusiveMinimum": 0},
+        "gain_db": {"type": "number"},
+        "channel": {"type": "integer", "minimum": 0},
+        "agc": {"type": "boolean"},
+        "bias_tee": {"type": "boolean"}
+      }
+    }
+  }
+}

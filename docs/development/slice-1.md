@@ -103,7 +103,7 @@ documented by the implementation. Writing uses an fsynced temporary file and
 atomic replacement. A manifest name is one portable filename and cannot escape
 the evidence root. Raw-IQ retention or deletion is not implemented.
 
-## Next unfinished step
+## Subsequent completed step
 
-Slice 2 is the CMake-based exact-sample-count SoapySDR capture helper and mock
-capture contract. It remains separately gated and must not open a physical SDR.
+Slice 2 adds the CMake-based exact-sample-count capture engine and mock capture
+contract. Its tests do not open a physical SDR. See `slice-2.md`.

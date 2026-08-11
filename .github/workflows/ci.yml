@@ -31,6 +31,12 @@ jobs:
         run: python -m mypy
       - name: Unit tests
         run: python -m pytest
+      - name: Configure hardware-free native capture tests
+        run: cmake -S . -B build-native -DWSPQ_BUILD_SOAPY=OFF -DWSPQ_BUILD_TESTS=ON
+      - name: Build hardware-free native capture tests
+        run: cmake --build build-native --config Release
+      - name: Run hardware-free native capture tests
+        run: ctest --test-dir build-native -C Release --output-on-failure
       - name: Build distributions
         run: python -m build
       - name: Install wheel smoke test
