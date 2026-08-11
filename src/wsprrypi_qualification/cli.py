@@ -1,4 +1,4 @@
-"""Safe Slice 1 command-line interface."""
+"""Hardware-free command-line interface through Slice 3."""
 
 from __future__ import annotations
 
@@ -6,12 +6,18 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
+from contextlib import suppress
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 
 from wsprrypi_qualification import __version__
+from wsprrypi_qualification.audio import create_slot_wav_acquired
 from wsprrypi_qualification.capabilities import capability_report
 from wsprrypi_qualification.capture_metadata import CaptureMetadataError, load_capture_metadata
+from wsprrypi_qualification.carrier import analyze_carrier_acquired
+from wsprrypi_qualification.decoder import run_wsprd_acquired, summarize_decodes
+from wsprrypi_qualification.offline import OfflineAnalysisError, write_offline_failure
 from wsprrypi_qualification.profiles import ProfileError, load_profile
 
 LIVE_COMMANDS = {"run", "capture", "transmit", "tone", "enable-rf"}
@@ -29,13 +35,42 @@ def _parser() -> argparse.ArgumentParser:
         "validate-capture-metadata", help="validate exact-count capture metadata"
     )
     capture_metadata.add_argument("path", type=Path)
+    carrier = subparsers.add_parser("analyze-carrier", help="analyze offline RF-off/RF-on CF32")
+    carrier.add_argument("rf_off", type=Path)
+    carrier.add_argument("rf_on", type=Path)
+    carrier.add_argument("evidence", type=Path)
+    carrier.add_argument("--bench-profile", type=Path, required=True)
+    carrier.add_argument("--test-profile", type=Path, required=True)
+    carrier.add_argument("--fft-size", type=int, default=262_144)
+    carrier.add_argument("--dc-exclusion-hz", type=float, default=1_000.0)
+    carrier.add_argument("--rf-off-metadata", type=Path, required=True)
+    carrier.add_argument("--rf-on-metadata", type=Path, required=True)
+    audio = subparsers.add_parser("make-slot-wav", help="translate offline CF32 to a UTC-slot WAV")
+    audio.add_argument("iq", type=Path)
+    audio.add_argument("capture_metadata", type=Path)
+    audio.add_argument("output_directory", type=Path)
+    audio.add_argument("evidence", type=Path)
+    audio.add_argument("--slot", required=True)
+    audio.add_argument("--bench-profile", type=Path, required=True)
+    audio.add_argument("--test-profile", type=Path, required=True)
+    decode = subparsers.add_parser("decode-wspr", help="run wsprd on an offline WAV")
+    decode.add_argument("wav", type=Path)
+    decode.add_argument("audio_evidence", type=Path)
+    decode.add_argument("evidence", type=Path)
+    decode.add_argument("--wsprd", type=Path)
+    decode.add_argument("--timeout", type=float, default=60.0)
+    summary = subparsers.add_parser(
+        "summarize-decodes", help="validate consecutive decoder evidence"
+    )
+    summary.add_argument("evidence", type=Path)
+    summary.add_argument("slot_documents", nargs="+", type=Path)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if "--enable-rf" in arguments or LIVE_COMMANDS.intersection(arguments):
-        print("live RF actions are unavailable in Slice 2", file=sys.stderr)
+        print("live RF actions are unavailable in Slice 3", file=sys.stderr)
         return 2
     args = _parser().parse_args(arguments)
     if args.command == "version":
@@ -75,7 +110,51 @@ def main(argv: Sequence[str] | None = None) -> int:
                 {"path": str(args.path), "capture": asdict(metadata), "valid": True},
                 indent=2,
                 sort_keys=True,
+                default=str,
             )
         )
         return 0
-    raise AssertionError("unreachable command")
+    try:
+        if args.command == "analyze-carrier":
+            document = analyze_carrier_acquired(
+                args.rf_off,
+                args.rf_on,
+                args.rf_off_metadata,
+                args.rf_on_metadata,
+                args.bench_profile,
+                args.test_profile,
+                args.evidence,
+                fft_size=args.fft_size,
+                dc_exclusion_hz=args.dc_exclusion_hz,
+            )
+        elif args.command == "make-slot-wav":
+            document = create_slot_wav_acquired(
+                args.iq,
+                args.capture_metadata,
+                args.bench_profile,
+                args.test_profile,
+                datetime.fromisoformat(args.slot.replace("Z", "+00:00")),
+                args.output_directory,
+                args.evidence,
+            )
+        elif args.command == "decode-wspr":
+            document = run_wsprd_acquired(
+                args.wav,
+                args.audio_evidence,
+                args.evidence,
+                executable=args.wsprd,
+                timeout_s=args.timeout,
+            )
+        elif args.command == "summarize-decodes":
+            document = summarize_decodes(args.slot_documents, args.evidence)
+        else:
+            raise AssertionError("unreachable command")
+    except (OfflineAnalysisError, OSError, ValueError) as error:
+        evidence = getattr(args, "evidence", None)
+        if isinstance(evidence, Path) and not evidence.exists():
+            with suppress(OSError, OfflineAnalysisError):
+                write_offline_failure(evidence, args.command, error)
+        print(str(error), file=sys.stderr)
+        return 2
+    print(json.dumps(document, indent=2, sort_keys=True, default=str))
+    return 0

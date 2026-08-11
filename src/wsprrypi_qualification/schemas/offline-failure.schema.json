@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WsprryPi/WsprryPi-Qualification-Harness/schemas/offline-failure.schema.json",
+  "title": "Offline operation failure evidence", "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "evidence_type", "operation", "outcome", "gate_outcome", "failure_cause", "message", "publication"],
+  "properties": {
+    "schema_version": {"const": 1}, "evidence_type": {"const": "offline_failure"},
+    "operation": {"enum": ["analyze-carrier", "make-slot-wav", "decode-wspr", "summarize-decodes"]},
+    "outcome": {"const": "failed"}, "gate_outcome": {"enum": ["blocked", "inconclusive"]},
+    "failure_cause": {"enum": ["invalid_arguments", "invalid_fixture", "capture_incompatible", "dependency_unavailable", "decoder_failure", "output_conflict", "incomplete_evidence", "contradictory_evidence", "filesystem_failure"]},
+    "message": {"type": "string", "minLength": 1},
+    "publication": {"type": "object", "required": ["primary_output_complete", "cleanup"], "properties": {"primary_output_complete": {"const": false}, "cleanup": {"enum": ["verified", "unknown"]}}, "additionalProperties": false}
+  }
+}

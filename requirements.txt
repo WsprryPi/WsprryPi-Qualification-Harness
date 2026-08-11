@@ -1,0 +1,4 @@
+# Runtime dependencies for venv-based harness and fixture execution.
+# Keep these ranges synchronized with [project.dependencies] in pyproject.toml.
+jsonschema>=4.23,<5
+numpy>=2.0,<2.4

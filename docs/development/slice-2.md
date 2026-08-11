@@ -128,6 +128,6 @@ and SHA-256 belong in evidence.
 
 ## Next unfinished step
 
-Slice 3 is offline carrier analysis, CF32 translation and WAV generation,
-independent `wsprd` integration, and synthetic or separately approved replay
-fixtures. It remains separately gated.
+Slice 3 adds offline carrier analysis, CF32 translation and WAV generation,
+independent `wsprd` integration, and deterministic synthetic fixtures. See
+`slice-3.md`.

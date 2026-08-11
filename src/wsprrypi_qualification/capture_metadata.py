@@ -30,6 +30,7 @@ class CaptureArtifact:
 
 @dataclass(frozen=True)
 class CaptureMetadata:
+    helper_version: str
     evidence_type: str
     capture_id: str
     requested_sample_count: int
@@ -44,6 +45,13 @@ class CaptureMetadata:
     cleanup_outcome: str
     cleanup_failed_steps: tuple[str, ...]
     process_exit_code: int
+    resolved_device: dict[str, Any] | None
+    actual_settings: dict[str, Any] | None
+    requested_settings: dict[str, Any]
+    wire_format: dict[str, Any]
+    clipping_threshold: float
+    requested_device: dict[str, Any]
+    retained_capture_start_utc: datetime | None
 
 
 def _reject_constant(value: str) -> Never:
@@ -179,6 +187,7 @@ def validate_capture_metadata(document: dict[str, Any]) -> CaptureMetadata:
     cleanup = document["cleanup"]
     output = document["output"]
     return CaptureMetadata(
+        helper_version=document["helper_version"],
         evidence_type=document["evidence_type"],
         capture_id=document["capture_id"],
         requested_sample_count=document["requested_sample_count"],
@@ -201,6 +210,19 @@ def validate_capture_metadata(document: dict[str, Any]) -> CaptureMetadata:
         cleanup_outcome=cleanup["outcome"],
         cleanup_failed_steps=tuple(cleanup["failed_steps"]),
         process_exit_code=document["process_exit_code"],
+        resolved_device=document["resolved_device"],
+        actual_settings=document["actual_settings"],
+        requested_settings=document["requested_settings"],
+        wire_format=document["wire_format"],
+        clipping_threshold=document["clipping"]["threshold"],
+        requested_device=document["requested_device"],
+        retained_capture_start_utc=(
+            datetime.fromisoformat(
+                document["timestamps"]["retained_capture_start_utc"].replace("Z", "+00:00")
+            )
+            if document["timestamps"]["retained_capture_start_utc"] is not None
+            else None
+        ),
     )
 
 

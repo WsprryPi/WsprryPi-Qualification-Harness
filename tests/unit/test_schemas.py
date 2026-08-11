@@ -13,6 +13,11 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         "test-profile.schema.json",
         "result.schema.json",
         "capture-metadata.schema.json",
+        "carrier-analysis.schema.json",
+        "audio-conversion.schema.json",
+        "decoder-evidence.schema.json",
+        "decode-summary.schema.json",
+        "offline-failure.schema.json",
     ):
         packaged = json.loads(
             files("wsprrypi_qualification.schemas").joinpath(name).read_text(encoding="utf-8")

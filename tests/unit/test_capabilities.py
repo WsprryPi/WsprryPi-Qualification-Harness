@@ -13,6 +13,10 @@ def test_capability_report_is_read_only_and_truthful() -> None:
     for tool in report["external_tools"]:
         if "path" in tool:
             assert Path(tool["path"]).is_absolute()
+    wsprd = next(tool for tool in report["external_tools"] if tool["name"] == "wsprd")
+    if Path("/Applications/wsjtx.app/Contents/MacOS/wsprd").is_file():
+        assert wsprd["state"] == "available"
+        assert wsprd["path"] == "/Applications/wsjtx.app/Contents/MacOS/wsprd"
 
 
 def test_capability_report_does_not_probe_or_mutate_filesystem(monkeypatch) -> None:

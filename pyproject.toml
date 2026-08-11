@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = {file = "LICENSE"}
 authors = [{name = "Lee Bussy"}]
-dependencies = ["jsonschema>=4.23,<5"]
+dependencies = ["jsonschema>=4.23,<5", "numpy>=2.0,<2.4"]
 
 [project.optional-dependencies]
 dev = [
@@ -39,6 +39,8 @@ include = [
   "/schemas",
   "/docs",
   "/pyproject.toml",
+  "/requirements.txt",
+  "/scripts",
 ]
 
 [tool.pytest.ini_options]

@@ -4,25 +4,29 @@ from __future__ import annotations
 
 import os
 import platform
-import shutil
 import sys
 from pathlib import Path
 from typing import Any
 
 from wsprrypi_qualification.models import CapabilityResult, CapabilityState
+from wsprrypi_qualification.tool_discovery import discover_executable
 
 EXTERNAL_TOOLS = ("wsprd", "ffmpeg", "SoapySDRUtil", "cmake", "ssh")
 
 
 def _tool_capability(name: str) -> CapabilityResult:
-    found = shutil.which(name)
+    found = discover_executable(name)
     if found is None:
-        return CapabilityResult(name, CapabilityState.UNAVAILABLE, "executable not found on PATH")
+        return CapabilityResult(
+            name,
+            CapabilityState.UNAVAILABLE,
+            "executable not found on PATH or a supported platform bundle location",
+        )
     return CapabilityResult(
         name,
         CapabilityState.AVAILABLE,
         "absolute executable path discovered without execution",
-        Path(found).resolve(),
+        found,
     )
 
 
@@ -32,7 +36,7 @@ def capability_report() -> dict[str, Any]:
         CapabilityResult(
             name,
             CapabilityState.NOT_IMPLEMENTED,
-            "orchestration adapter is outside Slice 2",
+            "orchestration adapter is outside Slice 3",
         ).to_dict()
         for name in (
             "local_command",

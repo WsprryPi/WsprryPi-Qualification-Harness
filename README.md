@@ -30,12 +30,13 @@ future cross-platform interface.
 
 ## Current status
 
-Slices 1 and 2 provide a portable, offline-only foundation: schema-validated
+Slices 1 through 3 provide a portable, offline-only foundation: schema-validated
 profiles, typed models, read-only capability reporting, deterministic UTC run
 IDs, exact WSPR-slot/sample calculations, result classification, SHA-256
-manifests, and a CMake-built exact-count CF32 capture engine exercised only by
-a deterministic mock source. No live hardware path is qualified by this
-repository.
+manifests, a CMake-built exact-count CF32 capture engine exercised only by a
+deterministic mock source, RF-off-subtracted carrier analysis, timestamped
+CF32-to-WAV conversion, and bounded independent `wsprd` decoding. No live
+hardware path is qualified by this repository.
 
 The reviewed roadmap is:
 
@@ -66,6 +67,7 @@ Python 3.11 or newer is required.
 ```text
 python -m venv .venv
 python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 python -m pip install -e ".[dev]"
 python -m ruff format --check .
 python -m ruff check .
@@ -85,14 +87,32 @@ wsprrypi-qualification capabilities
 wsprrypi-qualification validate-profile bench examples/bench-wspr5-rsp1b.json
 wsprrypi-qualification validate-profile test examples/test-si5351-160m.json
 wsprrypi-qualification validate-capture-metadata CAPTURE_METADATA.json
+wsprrypi-qualification analyze-carrier RF_OFF.cf32 RF_ON.cf32 carrier.json --rf-off-metadata RF_OFF.json --rf-on-metadata RF_ON.json --bench-profile BENCH.json --test-profile TEST.json
+wsprrypi-qualification make-slot-wav CAPTURE.cf32 CAPTURE.json WAV_DIRECTORY audio.json --slot 2026-08-09T21:00:00Z --bench-profile BENCH.json --test-profile TEST.json
+wsprrypi-qualification decode-wspr SLOT.wav audio.json decoder.json
+wsprrypi-qualification summarize-decodes decode-summary.json slot-2100.json slot-2102.json slot-2104.json
 ```
 
 The capability report locates future dependencies without executing them and
 reports hardware/transport adapters as unimplemented. Live RF remains disabled,
 and committed profiles cannot satisfy runtime operator confirmation. See
 [Slice 1](docs/development/slice-1.md) and
-[Slice 2](docs/development/slice-2.md) development guides for their complete
+[Slice 2](docs/development/slice-2.md) and
+[Slice 3](docs/development/slice-3.md) development guides for their complete
 behavior and validation contracts.
+
+Slice 3 evidence records canonical absolute artifact paths so validation is
+independent of the caller's current working directory. Acquired audio and
+decoder evidence is authenticated against the retained profiles, capture
+metadata, exact sample timing, tool identity, and decoder-created artifacts.
+Carrier evidence similarly retains and revalidates hashed profile, capture,
+and IQ artifacts. Audio verification deterministically regenerates the full
+PCM payload, and decoder data directories are rolled back if evidence cannot
+be published.
+RF-off and RF-on must be distinct capture, metadata, and IQ artifacts, and each
+capture metadata output path must resolve to its authenticated IQ file.
+Decoder evidence separately records expected-identity presence and intended
+positive-target signal presence.
 
 ## Important boundary
 
