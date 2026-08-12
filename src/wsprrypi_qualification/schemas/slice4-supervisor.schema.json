@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","evidence_type","plan","outcome","cleanup_outcome","final_status","failure_causes","cleanup_installed_utc","events","ownership","cleanup_actions","service_delta","leak_verification","quiescence"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "slice4_supervisor"},
+    "plan": {"type": "object"},
+    "outcome": {"enum": ["completed","aborted","failed"]},
+    "cleanup_outcome": {"enum": ["verified","failed"]},
+    "final_status": {"enum": ["inconclusive","aborted","fixture_blocked","cleanup_failed"]},
+    "failure_causes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "cleanup_installed_utc": {"type": "string", "format": "date-time"},
+    "events": {"type": "array", "items": {"type": "object", "required": ["sequence","timestamp_utc","phase","component","action","outcome","detail"], "additionalProperties": false, "properties": {"sequence":{"type":"integer","minimum":1},"timestamp_utc":{"type":"string","format":"date-time"},"phase":{"enum":["prepare","acquire","start","monitor","cleanup","verify"]},"component":{"type":"string"},"action":{"type":"string"},"outcome":{"enum":["passed","failed","aborted"]},"detail":{"type":"string"}}}},
+    "ownership": {"type": "array"},
+    "cleanup_actions": {"type": "array"},
+    "service_delta": {"type": ["object","null"]},
+    "leak_verification": {"type": "object", "additionalProperties": false, "required": ["verified","remaining"], "properties": {"verified":{"type":"boolean"},"remaining":{"type":"array","items":{"type":"string"}}}},
+    "quiescence": {"type": ["object","null"]}
+  }
+}

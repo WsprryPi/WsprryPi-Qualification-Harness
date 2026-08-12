@@ -32,11 +32,20 @@ def _tool_capability(name: str) -> CapabilityResult:
 
 def capability_report() -> dict[str, Any]:
     tools = [_tool_capability(name).to_dict() for name in EXTERNAL_TOOLS]
+    mock_only = {"ssh_command", "service_inspection", "gpio_quiescence", "si5351_quiescence"}
     adapters = [
         CapabilityResult(
             name,
-            CapabilityState.NOT_IMPLEMENTED,
-            "orchestration adapter is outside Slice 3",
+            CapabilityState.AVAILABLE
+            if name == "local_command"
+            else CapabilityState.UNSUPPORTED
+            if name in mock_only
+            else CapabilityState.NOT_IMPLEMENTED,
+            "bounded local child execution is implemented"
+            if name == "local_command"
+            else "mock/fake contract is testable; real operation is disabled in Slice 4"
+            if name in mock_only
+            else "adapter is outside Slice 4",
         ).to_dict()
         for name in (
             "local_command",

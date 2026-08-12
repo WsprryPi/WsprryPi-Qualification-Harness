@@ -94,11 +94,13 @@ wsprrypi-qualification summarize-decodes decode-summary.json slot-2100.json slot
 ```
 
 The capability report locates future dependencies without executing them and
-reports hardware/transport adapters as unimplemented. Live RF remains disabled,
+reports hardware-free Slice 4 adapters separately from unavailable live
+capabilities. Live RF remains disabled,
 and committed profiles cannot satisfy runtime operator confirmation. See
 [Slice 1](docs/development/slice-1.md) and
 [Slice 2](docs/development/slice-2.md) and
-[Slice 3](docs/development/slice-3.md) development guides for their complete
+[Slice 3](docs/development/slice-3.md) and
+[Slice 4](docs/development/slice-4.md) development guides for their complete
 behavior and validation contracts.
 
 Slice 3 evidence records canonical absolute artifact paths so validation is
@@ -113,6 +115,12 @@ RF-off and RF-on must be distinct capture, metadata, and IQ artifacts, and each
 capture metadata output path must resolve to its authenticated IQ file.
 Decoder evidence separately records expected-identity presence and intended
 positive-target signal presence.
+
+Slice 4 adds bounded structured local child execution and ownership-aware mock
+lifecycle supervision. SSH behavior uses a deterministic in-process fake that
+cannot launch OpenSSH or connect; service and backend inspectors
+remain mocks. Successful orchestration is `inconclusive` and cannot qualify
+hardware.
 
 ## Important boundary
 

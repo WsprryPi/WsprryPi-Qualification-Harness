@@ -8,7 +8,12 @@ def test_capability_report_is_read_only_and_truthful() -> None:
     report = capability_report()
     assert report["read_only"] is True
     assert report["schema_version"] == 1
-    assert all(adapter["state"] == "not_implemented" for adapter in report["adapters"])
+    states = {adapter["name"]: adapter["state"] for adapter in report["adapters"]}
+    assert states["local_command"] == "available"
+    assert states["ssh_command"] == "unsupported"
+    assert states["service_inspection"] == "unsupported"
+    assert states["gpio_quiescence"] == "unsupported"
+    assert states["local_soapy_capture"] == "not_implemented"
     assert all(tool["state"] in {"available", "unavailable"} for tool in report["external_tools"])
     for tool in report["external_tools"]:
         if "path" in tool:

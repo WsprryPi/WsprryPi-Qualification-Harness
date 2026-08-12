@@ -1,4 +1,4 @@
-"""Hardware-free command-line interface through Slice 3."""
+"""Hardware-free command-line interface through Slice 4."""
 
 from __future__ import annotations
 
@@ -70,7 +70,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if "--enable-rf" in arguments or LIVE_COMMANDS.intersection(arguments):
-        print("live RF actions are unavailable in Slice 3", file=sys.stderr)
+        print("live RF and hardware actions are unavailable in Slice 4", file=sys.stderr)
         return 2
     args = _parser().parse_args(arguments)
     if args.command == "version":
