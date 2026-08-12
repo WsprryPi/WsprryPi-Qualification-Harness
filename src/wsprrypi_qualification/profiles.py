@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
 from typing import Any, Never, TypeAlias, cast
@@ -12,11 +13,15 @@ from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError
 
 from wsprrypi_qualification.models import (
+    AuthorizationScope,
     Backend,
     BenchProfile,
     PathType,
     QualificationGates,
     ReceiverConfig,
+    ReceiverRunAuthorization,
+    ReceiverRunLimits,
+    ReceiverRunProfile,
     RfPathConfig,
     StoppingProcedure,
     TestProfile,
@@ -25,7 +30,7 @@ from wsprrypi_qualification.models import (
     WsprIdentity,
 )
 
-Profile: TypeAlias = BenchProfile | TestProfile
+Profile: TypeAlias = BenchProfile | TestProfile | ReceiverRunProfile
 FORBIDDEN_CONFIRMATION_KEYS = {"confirmed", "operator_verified", "approved", "enable_rf"}
 
 
@@ -213,9 +218,78 @@ def load_test_profile(path: Path) -> TestProfile:
     )
 
 
+def load_receiver_run_profile(path: Path) -> ReceiverRunProfile:
+    document = _read_json(path)
+    _validate(document, "receiver-run", path)
+    receiver = document["receiver"]
+    rf_path = document["rf_path"]
+    limits = document["limits"]
+    authorization = document["authorization"]
+    from wsprrypi_qualification.run_ids import validate_identifier, validate_run_id
+
+    try:
+        validate_run_id(document["run_id"])
+        validate_identifier(document["bench_id"], "bench_id")
+    except ValueError as error:
+        raise ProfileError(f"{path}: {error}") from error
+    if receiver["bandwidth_hz"] > receiver["sample_rate_hz"]:
+        raise ProfileError(f"{path}: receiver bandwidth must not exceed sample rate")
+    if limits["sample_count"] != receiver["sample_rate_hz"] * document["duration_s"]:
+        raise ProfileError(f"{path}: sample count must equal sample rate times duration")
+    if limits["helper_deadline_s"] <= document["duration_s"]:
+        raise ProfileError(f"{path}: helper deadline must exceed capture duration")
+    if limits["external_deadline_s"] <= limits["helper_deadline_s"]:
+        raise ProfileError(f"{path}: external deadline must exceed helper deadline")
+
+    return ReceiverRunProfile(
+        schema_version=document["schema_version"],
+        run_id=document["run_id"],
+        bench_id=document["bench_id"],
+        receiver=ReceiverConfig(
+            transport=Transport(receiver["transport"]),
+            host=receiver.get("host"),
+            driver=receiver["driver"],
+            serial=receiver.get("serial"),
+            channel=receiver["channel"],
+            sample_rate_hz=receiver["sample_rate_hz"],
+            bandwidth_hz=receiver["bandwidth_hz"],
+            sample_format=receiver["sample_format"],
+            agc=receiver["agc"],
+            bias_tee=receiver["bias_tee"],
+        ),
+        center_frequency_hz=document["center_frequency_hz"],
+        gain_db=document["gain_db"],
+        duration_s=document["duration_s"],
+        rf_path=RfPathConfig(
+            path_type=PathType(rf_path["path_type"]),
+            antenna_connected=rf_path["antenna_connected"],
+            termination_ohms=rf_path.get("termination_ohms"),
+            attenuation_db=rf_path["attenuation_db"],
+            filter_description=rf_path["filter_description"],
+            safe_input_description=rf_path["safe_input_description"],
+        ),
+        limits=ReceiverRunLimits(
+            sample_count=limits["sample_count"],
+            read_timeout_us=limits["read_timeout_us"],
+            helper_deadline_s=limits["helper_deadline_s"],
+            external_deadline_s=limits["external_deadline_s"],
+        ),
+        authorization=ReceiverRunAuthorization(
+            scope=AuthorizationScope(authorization["scope"]),
+            reference=authorization["reference"],
+            recorded_utc=datetime.fromisoformat(
+                authorization["recorded_utc"].replace("Z", "+00:00")
+            ),
+        ),
+        ownership_and_cleanup=document["ownership_and_cleanup"],
+    )
+
+
 def load_profile(path: Path, kind: str) -> Profile:
     if kind == "bench":
         return load_bench_profile(path)
     if kind == "test":
         return load_test_profile(path)
+    if kind == "receiver-run":
+        return load_receiver_run_profile(path)
     raise ProfileError(f"unsupported profile kind: {kind}")

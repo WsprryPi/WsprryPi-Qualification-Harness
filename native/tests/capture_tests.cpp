@@ -42,6 +42,9 @@ public:
         : clock_(clock), events_(std::move(events)) {}
     wspq::Settings configure(const wspq::Settings& requested) override {
         clock_.advance(configure_advance_s);
+        if (configuration_identity_failure)
+            throw wspq::ConfigurationFailure(wspq::identity_mismatch, "wrong_device",
+                                             "injected identity failure");
         auto actual = requested;
         if (configure_mutation != nullptr) configure_mutation(actual);
         return actual;
@@ -61,6 +64,7 @@ public:
         return cleanup_report;
     }
     void (*configure_mutation)(wspq::Settings&) = nullptr;
+    bool configuration_identity_failure{false};
     double configure_advance_s{0.0};
     double cleanup_advance_s{0.0};
     std::size_t cleanup_calls{0};
@@ -191,6 +195,13 @@ void failure_contracts() {
         expect_failure("identity",source,request(root.path,clock,"identity"),wspq::identity_mismatch,"wrong_device");
     }
     {
+        FakeClock clock; ScriptSource source(clock, {});
+        source.configuration_identity_failure = true;
+        expect_failure("configuration identity", source,
+                       request(root.path, clock, "configuration-identity"),
+                       wspq::identity_mismatch, "wrong_device");
+    }
+    {
         FakeClock clock; ScriptSource source(clock, {{wspq::ReadKind::samples,1}});
         source.configure_mutation=[](wspq::Settings& settings){settings.gain_db+=1.0;};
         expect_failure("gain",source,request(root.path,clock,"gain"),wspq::settings_mismatch,"settings_mismatch");
@@ -204,6 +215,31 @@ void failure_contracts() {
         FakeClock clock; ScriptSource source(clock, {{wspq::ReadKind::samples,1},{wspq::ReadKind::samples,99}});
         expect_failure("impossible",source,request(root.path,clock,"impossible"),wspq::capture_failed,
                        "impossible_read_count");
+    }
+}
+
+void device_identity_resolution() {
+    wspq::Settings requested;
+    requested.driver = "sdrplay";
+    requested.serial = "2404058C60";
+
+    const auto resolved = wspq::resolve_device_identity(requested, {requested});
+    require(resolved.driver == requested.driver && resolved.serial == requested.serial,
+            "unique receiver identity did not resolve");
+
+    auto wrong_driver = requested;
+    wrong_driver.driver = "SDRplay";
+    auto wrong_serial = requested;
+    wrong_serial.serial = "OTHER";
+    for (const auto& candidates : std::vector<std::vector<wspq::Settings>>{
+             {}, {requested, requested}, {wrong_driver}, {wrong_serial}}) {
+        try {
+            (void)wspq::resolve_device_identity(requested, candidates);
+            throw std::runtime_error("invalid receiver identity was accepted");
+        } catch (const wspq::ConfigurationFailure& error) {
+            require(error.exit_code == wspq::identity_mismatch && error.cause == "wrong_device",
+                    "identity resolution lost typed wrong-device semantics");
+        }
     }
 }
 
@@ -340,6 +376,7 @@ int main() {
         golden_little_endian_cf32();
         paths_with_spaces_and_deterministic_hash();
         failure_contracts();
+        device_identity_resolution();
         deadline_checkpoints();
         cleanup_sequencing();
         cleanup_precedence();

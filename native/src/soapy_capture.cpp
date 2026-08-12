@@ -20,7 +20,21 @@ public:
         SoapySDR::Kwargs selector;
         selector["driver"] = requested.driver;
         if (!requested.serial.empty()) selector["serial"] = requested.serial;
-        device_ = SoapySDR::Device::make(selector);
+        const auto matches = SoapySDR::Device::enumerate(selector);
+        std::vector<wspq::Settings> identities;
+        identities.reserve(matches.size());
+        for (const auto& match : matches) {
+            auto identity = requested;
+            const auto driver = match.find("driver");
+            const auto serial = match.find("serial");
+            identity.driver = driver == match.end() ? "" : driver->second;
+            identity.serial = serial == match.end() ? "" : serial->second;
+            identities.push_back(identity);
+        }
+        const auto resolved_identity = wspq::resolve_device_identity(requested, identities);
+        const auto& resolved = matches.front();
+
+        device_ = SoapySDR::Device::make(resolved);
         if (device_ == nullptr) throw std::runtime_error("SoapySDR did not open the requested device");
         const auto direction = SOAPY_SDR_RX;
         const auto channel = static_cast<std::size_t>(requested.channel);
@@ -36,11 +50,8 @@ public:
         active_ = true;
 
         wspq::Settings actual = requested;
-        actual.driver = device_->getDriverKey();
-        actual.serial.clear();
-        const auto hardware = device_->getHardwareInfo();
-        if (const auto serial = hardware.find("serial"); serial != hardware.end())
-            actual.serial = serial->second;
+        actual.driver = resolved_identity.driver;
+        actual.serial = resolved_identity.serial;
         actual.sample_rate_hz = device_->getSampleRate(direction, channel);
         actual.bandwidth_hz = device_->getBandwidth(direction, channel);
         actual.center_frequency_hz = device_->getFrequency(direction, channel);
@@ -97,9 +108,10 @@ private:
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 12 || std::string(argv[1]) != "--enable-physical-sdr") {
+    if (argc != 17 || std::string(argv[1]) != "--enable-physical-sdr") {
         std::cerr << "usage: wspq-capture-soapy --enable-physical-sdr DRIVER SERIAL CENTER_HZ "
-                     "SAMPLE_COUNT GAIN_DB READ_TIMEOUT_US DEADLINE_S OUTPUT METADATA CAPTURE_ID\n";
+                     "SAMPLE_COUNT GAIN_DB SAMPLE_RATE_HZ BANDWIDTH_HZ CHANNEL AGC BIAS_TEE "
+                     "READ_TIMEOUT_US DEADLINE_S OUTPUT METADATA CAPTURE_ID\n";
         return wspq::invalid_arguments;
     }
     try {
@@ -109,12 +121,21 @@ int main(int argc, char** argv) {
         request.requested.center_frequency_hz = std::stod(argv[4]);
         request.sample_count = static_cast<std::size_t>(std::stoull(argv[5]));
         request.requested.gain_db = std::stod(argv[6]);
-        request.read_timeout_us = std::stol(argv[7]);
-        request.max_elapsed_duration_s = std::stod(argv[8]);
-        request.output_path = argv[9];
-        request.metadata_path = argv[10];
-        request.failure_metadata_path = std::string(argv[10]) + ".failure.json";
-        request.capture_id = argv[11];
+        request.requested.sample_rate_hz = std::stod(argv[7]);
+        request.requested.bandwidth_hz = std::stod(argv[8]);
+        request.requested.channel = std::stoi(argv[9]);
+        const std::string agc = argv[10];
+        const std::string bias_tee = argv[11];
+        if ((agc != "true" && agc != "false") || (bias_tee != "true" && bias_tee != "false"))
+            throw std::invalid_argument("AGC and BIAS_TEE must be true or false");
+        request.requested.agc = agc == "true";
+        request.requested.bias_tee = bias_tee == "true";
+        request.read_timeout_us = std::stol(argv[12]);
+        request.max_elapsed_duration_s = std::stod(argv[13]);
+        request.output_path = argv[14];
+        request.metadata_path = argv[15];
+        request.failure_metadata_path = std::string(argv[15]) + ".failure.json";
+        request.capture_id = argv[16];
         SoapySource source(request.read_timeout_us);
         const auto result = wspq::capture_exact(source, request);
         if (result.exit_code != 0) {

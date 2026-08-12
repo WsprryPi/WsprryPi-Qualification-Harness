@@ -66,6 +66,12 @@ device-specific PPM, attenuation, gain, or safe input level.
 Operator confirmation is runtime evidence and must never be satisfied by a
 committed `confirmed: true` or similar profile value.
 
+Receiver authorization and RF-path resolution are separate. An operator may
+record either single-run or universal authorization for receiver-only access,
+but every live run must still record the current antenna state, termination,
+attenuation, filter state, and safe-input basis. Universal authorization never
+imports stale RF-path facts and never authorizes transmitter operation.
+
 ## 5. Safety invariants
 
 Live RF is disabled by default. It requires all of the following:

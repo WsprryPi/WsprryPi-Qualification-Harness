@@ -7,6 +7,7 @@ from wsprrypi_qualification.timing import require_aware_utc
 
 IDENTIFIER_PATTERN_TEXT = r"^[a-z0-9](?:[a-z0-9._-]{0,61}[a-z0-9_-])$"
 IDENTIFIER_PATTERN = re.compile(IDENTIFIER_PATTERN_TEXT)
+RUN_ID_PATTERN = re.compile(r"^(?P<utc>[0-9]{8}T[0-9]{6}Z)-(?P<test_id>.+)$")
 WINDOWS_RESERVED_NAMES = {
     "con",
     "prn",
@@ -33,6 +34,14 @@ def validate_identifier(identifier: str, field_name: str = "identifier") -> str:
 
 def validate_test_id(test_id: str) -> str:
     return validate_identifier(test_id, "test_id")
+
+
+def validate_run_id(run_id: str) -> str:
+    match = RUN_ID_PATTERN.fullmatch(run_id)
+    if match is None:
+        raise ValueError("run_id must begin with a UTC YYYYMMDDTHHMMSSZ timestamp")
+    validate_test_id(match.group("test_id"))
+    return run_id
 
 
 def generate_run_id(started: datetime, test_id: str) -> str:

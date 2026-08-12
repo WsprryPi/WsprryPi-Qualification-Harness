@@ -25,6 +25,11 @@ class PathType(StrEnum):
     RADIATED = "radiated"
 
 
+class AuthorizationScope(StrEnum):
+    SINGLE_RUN = "single_run"
+    UNIVERSAL = "universal"
+
+
 class CapabilityState(StrEnum):
     AVAILABLE = "available"
     UNAVAILABLE = "unavailable"
@@ -105,6 +110,36 @@ class BenchProfile:
     bench_id: str
     receiver: ReceiverConfig
     rf_path: RfPathConfig
+
+
+@dataclass(frozen=True)
+class ReceiverRunAuthorization:
+    scope: AuthorizationScope
+    reference: str
+    recorded_utc: datetime
+
+
+@dataclass(frozen=True)
+class ReceiverRunLimits:
+    sample_count: int
+    read_timeout_us: int
+    helper_deadline_s: float
+    external_deadline_s: float
+
+
+@dataclass(frozen=True)
+class ReceiverRunProfile:
+    schema_version: int
+    run_id: str
+    bench_id: str
+    receiver: ReceiverConfig
+    center_frequency_hz: float
+    gain_db: float
+    duration_s: int
+    rf_path: RfPathConfig
+    limits: ReceiverRunLimits
+    authorization: ReceiverRunAuthorization
+    ownership_and_cleanup: str
 
 
 @dataclass(frozen=True)

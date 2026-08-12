@@ -4,8 +4,13 @@ from typing import Any
 
 import pytest
 
-from wsprrypi_qualification.models import Backend, PathType
-from wsprrypi_qualification.profiles import ProfileError, load_bench_profile, load_test_profile
+from wsprrypi_qualification.models import AuthorizationScope, Backend, PathType
+from wsprrypi_qualification.profiles import (
+    ProfileError,
+    load_bench_profile,
+    load_receiver_run_profile,
+    load_test_profile,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -19,6 +24,48 @@ def write_json(path: Path, value: dict[str, Any]) -> Path:
     return path
 
 
+def receiver_run_document() -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "run_id": "20260812T122910Z-slice5-rsp1b-receiver",
+        "bench_id": "wspr5-rsp1b",
+        "receiver": {
+            "transport": "ssh",
+            "host": "wspr5",
+            "driver": "sdrplay",
+            "serial": "2404058C60",
+            "channel": 0,
+            "sample_rate_hz": 250000,
+            "bandwidth_hz": 200000,
+            "sample_format": "CF32",
+            "agc": False,
+            "bias_tee": False,
+        },
+        "center_frequency_hz": 1863100,
+        "gain_db": 10,
+        "duration_s": 10,
+        "rf_path": {
+            "path_type": "radiated",
+            "antenna_connected": True,
+            "attenuation_db": 0,
+            "filter_description": "No inline filter; receiver-only ambient capture.",
+            "safe_input_description": "No local transmitter operated; zero clipping verified.",
+        },
+        "limits": {
+            "sample_count": 2500000,
+            "read_timeout_us": 2000000,
+            "helper_deadline_s": 15,
+            "external_deadline_s": 20,
+        },
+        "authorization": {
+            "scope": "single_run",
+            "reference": "interactive operator authorization",
+            "recorded_utc": "2026-08-12T12:00:00Z",
+        },
+        "ownership_and_cleanup": "Stop and restore only soapyremote-server.service.",
+    }
+
+
 def test_valid_bench_profile() -> None:
     profile = load_bench_profile(ROOT / "examples" / "bench-wspr5-rsp1b.json")
     assert profile.rf_path.path_type is PathType.CONDUCTED
@@ -30,6 +77,39 @@ def test_valid_test_profile() -> None:
     assert profile.transmitter.backend is Backend.SI5351
     assert profile.identity.callsign == "AA0NT"
     assert "quiescence" in profile.stopping_procedure.cleanup_expectation.lower()
+
+
+@pytest.mark.parametrize("scope", ["single_run", "universal"])
+def test_valid_runtime_receiver_run_profile(tmp_path: Path, scope: str) -> None:
+    document = receiver_run_document()
+    document["authorization"]["scope"] = scope
+    profile = load_receiver_run_profile(write_json(tmp_path / f"{scope}.json", document))
+    assert profile.authorization.scope is AuthorizationScope(scope)
+    assert profile.limits.sample_count == 2_500_000
+
+
+def test_receiver_run_requires_current_rf_path(tmp_path: Path) -> None:
+    document = receiver_run_document()
+    del document["rf_path"]["safe_input_description"]
+    with pytest.raises(ProfileError, match="safe_input_description"):
+        load_receiver_run_profile(write_json(tmp_path / "missing-path.json", document))
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("sample_count", 1, "sample count"),
+        ("helper_deadline_s", 10, "helper deadline"),
+        ("external_deadline_s", 15, "external deadline"),
+    ],
+)
+def test_receiver_run_limit_consistency(
+    tmp_path: Path, field: str, value: int, message: str
+) -> None:
+    document = receiver_run_document()
+    document["limits"][field] = value
+    with pytest.raises(ProfileError, match=message):
+        load_receiver_run_profile(write_json(tmp_path / f"bad-{field}.json", document))
 
 
 def test_invalid_profile_has_source_and_location(tmp_path: Path) -> None:

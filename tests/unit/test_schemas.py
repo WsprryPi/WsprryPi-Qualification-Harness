@@ -11,6 +11,7 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
     for name in (
         "bench-profile.schema.json",
         "test-profile.schema.json",
+        "receiver-run-profile.schema.json",
         "result.schema.json",
         "capture-metadata.schema.json",
         "carrier-analysis.schema.json",

@@ -32,7 +32,13 @@ def _tool_capability(name: str) -> CapabilityResult:
 
 def capability_report() -> dict[str, Any]:
     tools = [_tool_capability(name).to_dict() for name in EXTERNAL_TOOLS]
-    mock_only = {"ssh_command", "service_inspection", "gpio_quiescence", "si5351_quiescence"}
+    mock_only = {
+        "ssh_command",
+        "local_soapy_capture",
+        "service_inspection",
+        "gpio_quiescence",
+        "si5351_quiescence",
+    }
     adapters = [
         CapabilityResult(
             name,
@@ -43,6 +49,11 @@ def capability_report() -> dict[str, Any]:
             else CapabilityState.NOT_IMPLEMENTED,
             "bounded local child execution is implemented"
             if name == "local_command"
+            else (
+                "native capture helper is implemented and wspr5-validated; "
+                "portable live orchestration remains unsupported"
+            )
+            if name == "local_soapy_capture"
             else "mock/fake contract is testable; real operation is disabled in Slice 4"
             if name in mock_only
             else "adapter is outside Slice 4",

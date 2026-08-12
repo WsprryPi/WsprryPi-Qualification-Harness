@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WsprryPi/WsprryPi-Qualification-Harness/schemas/receiver-run-profile.schema.json",
+  "title": "Runtime receiver-only run request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "bench_id", "receiver", "center_frequency_hz", "gain_db", "duration_s", "rf_path", "limits", "authorization", "ownership_and_cleanup"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {"type": "string", "pattern": "^[0-9]{8}T[0-9]{6}Z-[a-z0-9](?:[a-z0-9._-]{0,61}[a-z0-9_-])$", "not": {"pattern": "\\.\\."}},
+    "bench_id": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,61}[a-z0-9_-])$", "not": {"pattern": "\\.\\."}},
+    "receiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transport", "host", "driver", "serial", "channel", "sample_rate_hz", "bandwidth_hz", "sample_format", "agc", "bias_tee"],
+      "properties": {
+        "transport": {"enum": ["local", "ssh"]},
+        "host": {"type": "string", "minLength": 1},
+        "driver": {"type": "string", "minLength": 1},
+        "serial": {"type": "string", "minLength": 1},
+        "channel": {"type": "integer", "minimum": 0},
+        "sample_rate_hz": {"type": "integer", "minimum": 1},
+        "bandwidth_hz": {"type": "integer", "minimum": 1},
+        "sample_format": {"const": "CF32"},
+        "agc": {"const": false},
+        "bias_tee": {"const": false}
+      }
+    },
+    "center_frequency_hz": {"type": "number", "exclusiveMinimum": 0},
+    "gain_db": {"type": "number"},
+    "duration_s": {"type": "integer", "minimum": 1},
+    "rf_path": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path_type", "antenna_connected", "attenuation_db", "filter_description", "safe_input_description"],
+      "properties": {
+        "path_type": {"enum": ["conducted", "radiated"]},
+        "antenna_connected": {"type": "boolean"},
+        "termination_ohms": {"type": "number", "exclusiveMinimum": 0},
+        "attenuation_db": {"type": "number", "minimum": 0},
+        "filter_description": {"type": "string", "minLength": 1},
+        "safe_input_description": {"type": "string", "minLength": 1}
+      },
+      "allOf": [{"if": {"properties": {"path_type": {"const": "conducted"}}}, "then": {"properties": {"antenna_connected": {"const": false}}, "required": ["termination_ohms"]}}]
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sample_count", "read_timeout_us", "helper_deadline_s", "external_deadline_s"],
+      "properties": {
+        "sample_count": {"type": "integer", "minimum": 1},
+        "read_timeout_us": {"type": "integer", "minimum": 1},
+        "helper_deadline_s": {"type": "number", "exclusiveMinimum": 0},
+        "external_deadline_s": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "reference", "recorded_utc"],
+      "properties": {
+        "scope": {"enum": ["single_run", "universal"]},
+        "reference": {"type": "string", "minLength": 1},
+        "recorded_utc": {"type": "string", "format": "date-time", "pattern": "Z$"}
+      }
+    },
+    "ownership_and_cleanup": {"type": "string", "minLength": 1}
+  }
+}

@@ -3,7 +3,9 @@
 #include <complex>
 #include <cstddef>
 #include <filesystem>
+#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace wspq {
@@ -142,6 +144,17 @@ enum ExitCode {
     output_invalid = 10,
     evidence_failed = 11,
 };
+
+class ConfigurationFailure final : public std::runtime_error {
+public:
+    ConfigurationFailure(int exit_code, std::string cause, const std::string& message)
+        : std::runtime_error(message), exit_code(exit_code), cause(std::move(cause)) {}
+    int exit_code;
+    std::string cause;
+};
+
+Settings resolve_device_identity(const Settings& requested,
+                                 const std::vector<Settings>& candidates);
 
 CaptureResult capture_exact(SampleSource& source, const CaptureRequest& request);
 std::string sha256_file(const std::filesystem::path& path);

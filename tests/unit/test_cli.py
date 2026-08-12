@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.test_profiles import receiver_run_document
 from wsprrypi_qualification.cli import main
 from wsprrypi_qualification.offline import (
     FailureCause,
@@ -29,6 +30,17 @@ def test_validate_profile(capsys: pytest.CaptureFixture[str]) -> None:
     assert json.loads(capsys.readouterr().out)["valid"] is True
 
 
+def test_validate_runtime_receiver_run_profile(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "receiver run.json"
+    path.write_text(json.dumps(receiver_run_document()), encoding="utf-8")
+    assert main(["validate-profile", "receiver-run", str(path)]) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["valid"] is True
+    assert output["profile"]["authorization"]["scope"] == "single_run"
+
+
 def test_invalid_profile_returns_nonzero(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -49,13 +61,13 @@ def test_validate_capture_metadata(tmp_path: Path, capsys: pytest.CaptureFixture
 
 def test_enable_rf_fails_closed(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["--enable-rf"]) == 2
-    assert "unavailable in Slice 4" in capsys.readouterr().err
+    assert "unavailable in the portable CLI" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("command", ["run", "capture", "transmit", "tone"])
 def test_future_live_commands_fail_closed(command: str, capsys: pytest.CaptureFixture[str]) -> None:
     assert main([command]) == 2
-    assert "unavailable in Slice 4" in capsys.readouterr().err
+    assert "unavailable in the portable CLI" in capsys.readouterr().err
 
 
 def test_offline_rejection_writes_failure_evidence(

@@ -19,6 +19,18 @@ static_assert(std::numeric_limits<float>::is_iec559,
               "CF32 wire format requires IEEE-754 binary32 float");
 
 namespace wspq {
+
+Settings resolve_device_identity(const Settings& requested,
+                                 const std::vector<Settings>& candidates) {
+    if (candidates.size() != 1)
+        throw ConfigurationFailure(identity_mismatch, "wrong_device",
+                                   "device selector did not resolve exactly one receiver");
+    const auto& candidate = candidates.front();
+    if (candidate.driver != requested.driver || candidate.serial != requested.serial)
+        throw ConfigurationFailure(identity_mismatch, "wrong_device",
+                                   "resolved receiver identity differs from request");
+    return candidate;
+}
 namespace {
 
 bool close(double left, double right) {
@@ -408,6 +420,8 @@ CaptureResult capture_exact(SampleSource& source, const CaptureRequest& request)
                 result.output_sha256 = sha256_file(request.output_path);
             }
         }
+    } catch (const ConfigurationFailure& error) {
+        fail(error.exit_code, error.cause);
     } catch (const std::exception&) {
         fail(finalizing_output ? output_invalid : capture_failed,
              finalizing_output ? "output_finalization_failed" : "io_or_source_error");

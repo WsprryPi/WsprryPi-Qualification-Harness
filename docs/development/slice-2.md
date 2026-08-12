@@ -25,6 +25,18 @@ and compilation do not authorize executing that adapter. Before any execution
 that could enumerate, open, configure, or stream from an SDR, stop and obtain
 new approval for the exact device and bounded plan.
 
+The physical helper interface is fully explicit:
+
+```text
+wspq-capture-soapy --enable-physical-sdr DRIVER SERIAL CENTER_HZ SAMPLE_COUNT GAIN_DB SAMPLE_RATE_HZ BANDWIDTH_HZ CHANNEL AGC BIAS_TEE READ_TIMEOUT_US DEADLINE_S OUTPUT METADATA CAPTURE_ID
+```
+
+`AGC` and `BIAS_TEE` accept only `true` or `false`. The helper enumerates the
+exact driver/serial selector, requires one matching receiver, and records a
+typed `wrong_device` failure before device creation if identity resolution is
+missing, ambiguous, or different. The physical target remains excluded from
+normal CI execution.
+
 The deterministic mock executable accepts structured process arguments:
 
 ```text

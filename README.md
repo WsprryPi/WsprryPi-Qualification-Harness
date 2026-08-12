@@ -3,13 +3,14 @@
 Cross-platform, evidence-producing WsprryPi RF qualification harness maintained
 as an independent project.
 
-The project currently provides the reviewed, hardware-free implementation from
-Slices 1 through 4: its governing contract, portable package and schemas,
-mock-tested exact-count capture helper, offline carrier and WSPR decoding
-pipeline, structured local-process transport, and failure-injected lifecycle
-supervisor. Preserved Issue 379 capture and analysis sources remain provenance,
-not production code. Live receiver and transmitter validation are still
-separately authorized future slices.
+The project currently provides the reviewed implementation from Slices 1
+through 5: its governing contract, portable package and schemas, mock-tested
+exact-count capture helper, offline carrier and WSPR decoding pipeline,
+structured local-process transport, failure-injected lifecycle supervisor, and
+one bounded receiver-only validation of the native helper on the recorded
+`wspr5` SDRplay RSP1B configuration. Preserved Issue 379 sources remain
+provenance, not production code. Transmitter validation remains a separately
+authorized future slice.
 
 ## Intended outcome
 
@@ -39,8 +40,10 @@ manifests, a CMake-built exact-count CF32 capture engine exercised only by a
 deterministic mock source, RF-off-subtracted carrier analysis, timestamped
 CF32-to-WAV conversion, bounded independent `wsprd` decoding, structured local
 child execution, mock transport and capability adapters, and lifecycle cleanup
-supervision with injected failure tests. No live receiver, transmitter, or RF
-path is qualified by this repository.
+supervision with injected failure tests. Slice 5 adds a bounded receiver-only
+exact-count validation on `wspr5`; it validates only the recorded RSP1B capture
+and cleanup configuration. No transmitter or RF path is qualified by this
+repository.
 
 The reviewed roadmap is:
 
@@ -90,6 +93,7 @@ wsprrypi-qualification version
 wsprrypi-qualification capabilities
 wsprrypi-qualification validate-profile bench examples/bench-wspr5-rsp1b.json
 wsprrypi-qualification validate-profile test examples/test-si5351-160m.json
+wsprrypi-qualification validate-profile receiver-run RUNTIME_RECEIVER_RUN.json
 wsprrypi-qualification validate-capture-metadata CAPTURE_METADATA.json
 wsprrypi-qualification analyze-carrier RF_OFF.cf32 RF_ON.cf32 carrier.json --rf-off-metadata RF_OFF.json --rf-on-metadata RF_ON.json --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification make-slot-wav CAPTURE.cf32 CAPTURE.json WAV_DIRECTORY audio.json --slot 2026-08-09T21:00:00Z --bench-profile BENCH.json --test-profile TEST.json
@@ -104,7 +108,8 @@ and committed profiles cannot satisfy runtime operator confirmation. See
 [Slice 1](docs/development/slice-1.md) and
 [Slice 2](docs/development/slice-2.md) and
 [Slice 3](docs/development/slice-3.md) and
-[Slice 4](docs/development/slice-4.md) development guides for their complete
+[Slice 4](docs/development/slice-4.md) and
+[Slice 5](docs/development/slice-5.md) development guides for their complete
 behavior and validation contracts.
 
 Slice 3 evidence records canonical absolute artifact paths so validation is

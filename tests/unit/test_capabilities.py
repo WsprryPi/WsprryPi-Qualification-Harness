@@ -13,7 +13,12 @@ def test_capability_report_is_read_only_and_truthful() -> None:
     assert states["ssh_command"] == "unsupported"
     assert states["service_inspection"] == "unsupported"
     assert states["gpio_quiescence"] == "unsupported"
-    assert states["local_soapy_capture"] == "not_implemented"
+    assert states["local_soapy_capture"] == "unsupported"
+    local_soapy = next(
+        adapter for adapter in report["adapters"] if adapter["name"] == "local_soapy_capture"
+    )
+    assert "wspr5-validated" in local_soapy["reason"]
+    assert "orchestration remains unsupported" in local_soapy["reason"]
     assert all(tool["state"] in {"available", "unavailable"} for tool in report["external_tools"])
     for tool in report["external_tools"]:
         if "path" in tool:
