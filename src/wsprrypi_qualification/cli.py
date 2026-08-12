@@ -21,6 +21,7 @@ from wsprrypi_qualification.capabilities import capability_report
 from wsprrypi_qualification.capture_metadata import CaptureMetadataError, load_capture_metadata
 from wsprrypi_qualification.carrier import analyze_carrier_acquired
 from wsprrypi_qualification.decoder import run_wsprd_acquired, summarize_decodes
+from wsprrypi_qualification.deployment import DeploymentError, load_deployment_config
 from wsprrypi_qualification.offline import OfflineAnalysisError, write_offline_failure
 from wsprrypi_qualification.profiles import ProfileError, load_profile
 from wsprrypi_qualification.real_session import (
@@ -49,6 +50,10 @@ def _parser() -> argparse.ArgumentParser:
         "validate-application-plan", help="validate a hardware-free application plan"
     )
     application_plan.add_argument("path", type=Path)
+    deployment = subparsers.add_parser(
+        "validate-helper-deployment", help="validate helper deployment configuration offline"
+    )
+    deployment.add_argument("path", type=Path)
     real_session = subparsers.add_parser(
         "real-session", help="validate and display a real-session plan without executing it"
     )
@@ -143,6 +148,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(str(error), file=sys.stderr)
             return 2
         print(json.dumps({"path": str(args.path), "valid": True}, indent=2, sort_keys=True))
+        return 0
+    if args.command == "validate-helper-deployment":
+        try:
+            document = load_deployment_config(args.path)
+        except (DeploymentError, OfflineAnalysisError, OSError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(
+            json.dumps(
+                {"path": str(args.path), "valid": True, "target_host": document["target_host"]},
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
     if args.command == "real-session":
         try:

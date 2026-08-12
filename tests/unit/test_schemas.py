@@ -44,6 +44,9 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         "resolved-real-session-plan.schema.json",
         "real-session-stage-evidence.schema.json",
         "real-qualification-session.schema.json",
+        "helper-deployment-config.schema.json",
+        "deployment-provider-evidence.schema.json",
+        "systemd-transaction-evidence.schema.json",
     ):
         packaged = json.loads(
             files("wsprrypi_qualification.schemas").joinpath(name).read_text(encoding="utf-8")

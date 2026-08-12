@@ -141,6 +141,14 @@ surface is `real-session PLAN.json --plan-only`; it performs zero external
 calls. Live execution remains unavailable, and mock/fake evidence can produce
 only `inconclusive`, never `qualified`.
 
+Hardware-free Raspberry Pi OS deployment preparation provides a strict helper
+deployment configuration, pinned systemd/GPIO/Si5351 command-provider evidence,
+an optional uninstalled service-unit template, and fake-only cross-platform
+tests. See [helper deployment](docs/development/helper-deployment.md). The
+`validate-helper-deployment` command reads local configuration and hashes local
+fake or staged files only; it performs no SSH, service, GPIO, I2C, SDR, or RF
+operation. Actual Raspberry Pi OS behavior remains an actual-host gate.
+
 Slice 3 evidence records canonical absolute artifact paths so validation is
 independent of the caller's current working directory. Acquired audio and
 decoder evidence is authenticated against the retained profiles, capture

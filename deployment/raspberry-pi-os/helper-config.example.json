@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "protocol_version": 1,
+  "helper_identity": "REPLACE_WITH_DEPLOYMENT_IDENTITY",
+  "plan_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "target_host": "REPLACE_WITH_HOST",
+  "venv_path": "/opt/wsprrypi-qualification/venv",
+  "config_path": "/etc/wsprrypi-qualification/helper.json",
+  "state_directory": "/var/lib/wsprrypi-qualification",
+  "allowed_services": ["wsprrypi.service"],
+  "executables": {
+    "python": {"path": "/opt/wsprrypi-qualification/venv/bin/python", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "helper": {"path": "/opt/wsprrypi-qualification/venv/bin/wspq-capability-helper", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "systemctl": {"path": "/usr/bin/systemctl", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "gpio": {"path": "/usr/local/libexec/wspq-gpio-inspect", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "si5351": {"path": "/usr/local/libexec/wspq-si5351-inspect", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+  },
+  "gpio_contract": {"chip": "gpiochip0", "line": 4, "direction": "input", "function": "input"},
+  "si5351_contract": {"bus": 1, "address": "0x60", "device": "Si5351", "required_outputs": ["CLK0", "CLK1", "CLK2"]}
+}

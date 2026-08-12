@@ -1,0 +1,14 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,
+  "required":["schema_version","evidence_type","host","plan_sha256","service","allowed_services","initial_state","requested_state","mutation_attempted","mutation_effect","restoration_required","cleanup_outcome","cleanup_failure_causes","completed","steps"],
+  "properties":{
+    "schema_version":{"const":1},"evidence_type":{"const":"systemd_restoration_transaction"},
+    "host":{"type":"string","minLength":1},"plan_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "service":{"type":"string","minLength":1},"allowed_services":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"string","minLength":1}},
+    "initial_state":{"enum":["active","inactive","failed"]},"requested_state":{"enum":["active","inactive"]},
+    "mutation_attempted":{"const":true},"mutation_effect":{"enum":["confirmed_changed","confirmed_unchanged","uncertain"]},
+    "restoration_required":{"type":"boolean"},"cleanup_outcome":{"enum":["required","verified","failed"]},
+    "cleanup_failure_causes":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"completed":{"type":"boolean"},
+    "steps":{"type":"array","minItems":2,"items":{"type":"object","additionalProperties":false,"required":["phase","evidence"],"properties":{"phase":{"enum":["initial_inspection","change_command","post_change_inspection","pre_restore_inspection","restore_command","post_restore_inspection"]},"evidence":{"$ref":"deployment-provider-evidence.schema.json"}}}}
+  }
+}
