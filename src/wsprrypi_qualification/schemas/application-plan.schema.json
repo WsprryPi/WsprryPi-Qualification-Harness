@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","evidence_type","plan_id","identity","backend","protocol","protocol_contract","arguments","self_terminating_request","supervisor_required","random_offset_enabled","execution_authorized","stopping_contract","cleanup_contract"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "application_plan"},
+    "plan_id": {"type": "string", "minLength": 1},
+    "identity": {"type":"object","additionalProperties":false,"required":["application","executable","source_revision","submodule_revision"],"properties":{"application":{"const":"wsprrypi"},"executable":{"type":"string","minLength":1},"source_revision":{"type":"string","minLength":1},"submodule_revision":{"type":"string","minLength":1}}},
+    "backend": {"enum":["gpio","si5351"]},
+    "protocol": {"enum":["wspr","qrss","fskcw","dfcw"]},
+    "protocol_contract": {"type":"object"},
+    "arguments": {"type":"array","minItems":5,"items":{"type":"string"}},
+    "self_terminating_request": {"const":true},
+    "supervisor_required": {"const":true},
+    "random_offset_enabled": {"const":false},
+    "execution_authorized": {"const":false},
+    "stopping_contract": {"type":"string","minLength":1},
+    "cleanup_contract": {"type":"string","minLength":1}
+  },
+  "allOf": [
+    {"if":{"properties":{"protocol":{"const":"wspr"}}},"then":{"properties":{"protocol_contract":{"type":"object","additionalProperties":false,"required":["callsign","grid","power_dbm","frame_count","dial_frequency_hz","audio_offset_hz","requested_rf_frequency_hz"],"properties":{"callsign":{"type":"string","minLength":1},"grid":{"type":"string","minLength":1},"power_dbm":{"type":"integer"},"frame_count":{"type":"integer","minimum":1},"dial_frequency_hz":{"type":"number","exclusiveMinimum":0},"audio_offset_hz":{"const":1500.0},"requested_rf_frequency_hz":{"type":"number","exclusiveMinimum":0}}}}}},
+    {"if":{"properties":{"protocol":{"const":"qrss"}}},"then":{"properties":{"protocol_contract":{"type":"object","additionalProperties":false,"required":["message","dot_seconds","primary_frequency_hz","secondary_frequency_hz"],"properties":{"message":{"type":"string","minLength":1},"dot_seconds":{"type":"number","exclusiveMinimum":0},"primary_frequency_hz":{"type":"number","exclusiveMinimum":0},"secondary_frequency_hz":{"type":"null"}}}}}},
+    {"if":{"properties":{"protocol":{"enum":["fskcw","dfcw"]}}},"then":{"properties":{"protocol_contract":{"type":"object","additionalProperties":false,"required":["message","dot_seconds","primary_frequency_hz","secondary_frequency_hz"],"properties":{"message":{"type":"string","minLength":1},"dot_seconds":{"type":"number","exclusiveMinimum":0},"primary_frequency_hz":{"type":"number","exclusiveMinimum":0},"secondary_frequency_hz":{"type":"number","exclusiveMinimum":0}}}}}}
+  ]
+}

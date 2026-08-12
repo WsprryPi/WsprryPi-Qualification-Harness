@@ -1,0 +1,40 @@
+{
+  "arguments": [
+    "/opt/wsprrypi/wsprrypi",
+    "--backend",
+    "si5351",
+    "--no-offset",
+    "--terminate",
+    "3",
+    "AA0NT",
+    "EM18",
+    "20",
+    "144489000"
+  ],
+  "backend": "si5351",
+  "cleanup_contract": "future backend-specific disable and verified quiescence",
+  "evidence_type": "application_plan",
+  "execution_authorized": false,
+  "identity": {
+    "application": "wsprrypi",
+    "executable": "/opt/wsprrypi/wsprrypi",
+    "source_revision": "RECORD_AT_RUNTIME",
+    "submodule_revision": "RECORD_AT_RUNTIME"
+  },
+  "plan_id": "example-three-wspr-frames",
+  "protocol": "wspr",
+  "protocol_contract": {
+    "audio_offset_hz": 1500.0,
+    "callsign": "AA0NT",
+    "dial_frequency_hz": 144489000.0,
+    "frame_count": 3,
+    "grid": "EM18",
+    "power_dbm": 20,
+    "requested_rf_frequency_hz": 144490500.0
+  },
+  "random_offset_enabled": false,
+  "schema_version": 1,
+  "self_terminating_request": true,
+  "stopping_contract": "future supervisor deadline and application termination",
+  "supervisor_required": true
+}

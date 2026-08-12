@@ -12,6 +12,10 @@ from datetime import datetime
 from pathlib import Path
 
 from wsprrypi_qualification import __version__
+from wsprrypi_qualification.application_shims import (
+    ApplicationPlanError,
+    validate_application_plan,
+)
 from wsprrypi_qualification.audio import create_slot_wav_acquired
 from wsprrypi_qualification.capabilities import capability_report
 from wsprrypi_qualification.capture_metadata import CaptureMetadataError, load_capture_metadata
@@ -37,6 +41,10 @@ def _parser() -> argparse.ArgumentParser:
         "validate-capture-metadata", help="validate exact-count capture metadata"
     )
     capture_metadata.add_argument("path", type=Path)
+    application_plan = subparsers.add_parser(
+        "validate-application-plan", help="validate a hardware-free application plan"
+    )
+    application_plan.add_argument("path", type=Path)
     carrier = subparsers.add_parser("analyze-carrier", help="analyze offline RF-off/RF-on CF32")
     carrier.add_argument("rf_off", type=Path)
     carrier.add_argument("rf_on", type=Path)
@@ -115,6 +123,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 default=str,
             )
         )
+        return 0
+    if args.command == "validate-application-plan":
+        try:
+            document = json.loads(args.path.read_text(encoding="utf-8"))
+            if not isinstance(document, dict):
+                raise ApplicationPlanError("application plan must be a JSON object")
+            validate_application_plan(document)
+        except (ApplicationPlanError, OSError, json.JSONDecodeError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps({"path": str(args.path), "valid": True}, indent=2, sort_keys=True))
         return 0
     try:
         if args.command == "analyze-carrier":
