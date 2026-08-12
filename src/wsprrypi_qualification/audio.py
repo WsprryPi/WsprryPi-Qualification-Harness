@@ -139,7 +139,9 @@ def create_slot_wav(
             wav.setsampwidth(2)
             wav.setframerate(parameters.output_rate_hz)
             wav.writeframes(pcm_bytes)
-        with temporary.open("rb") as handle:
+        # Windows requires a writable descriptor for FlushFileBuffers, which
+        # backs os.fsync(). No bytes are modified through this handle.
+        with temporary.open("rb+") as handle:
             os.fsync(handle.fileno())
         with wave.open(str(temporary), "rb") as wav:
             if (

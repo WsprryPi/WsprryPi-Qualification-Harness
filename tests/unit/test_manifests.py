@@ -15,8 +15,8 @@ from wsprrypi_qualification.manifests import (
 def test_deterministic_order_hashes_and_spaces(tmp_path: Path) -> None:
     root = tmp_path / "run with spaces"
     (root / "nested").mkdir(parents=True)
-    (root / "z.txt").write_text("z\n", encoding="utf-8")
-    (root / "nested" / "a file.txt").write_text("a\n", encoding="utf-8")
+    (root / "z.txt").write_bytes(b"z\n")
+    (root / "nested" / "a file.txt").write_bytes(b"a\n")
     records = build_manifest(root)
     assert [record.path for record in records] == ["nested/a file.txt", "z.txt"]
     assert records[0].sha256 == hashlib.sha256(b"a\n").hexdigest()

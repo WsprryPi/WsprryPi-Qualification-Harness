@@ -1,13 +1,15 @@
 # WsprryPi Qualification Harness
 
-Foundation for a future cross-platform, evidence-producing WsprryPi RF
-qualification harness maintained as an independent project.
+Cross-platform, evidence-producing WsprryPi RF qualification harness maintained
+as an independent project.
 
-The project currently contains its governing contract, initial data schemas,
-non-executable example profiles, and preserved Issue 379 capture and analysis
-sources. The production harness has not yet been implemented. Development is
-organized into reviewed slices, beginning with an offline-only portable
-foundation.
+The project currently provides the reviewed, hardware-free implementation from
+Slices 1 through 4: its governing contract, portable package and schemas,
+mock-tested exact-count capture helper, offline carrier and WSPR decoding
+pipeline, structured local-process transport, and failure-injected lifecycle
+supervisor. Preserved Issue 379 capture and analysis sources remain provenance,
+not production code. Live receiver and transmitter validation are still
+separately authorized future slices.
 
 ## Intended outcome
 
@@ -30,13 +32,15 @@ future cross-platform interface.
 
 ## Current status
 
-Slices 1 through 3 provide a portable, offline-only foundation: schema-validated
+Slices 1 through 4 provide a portable, hardware-free foundation: schema-validated
 profiles, typed models, read-only capability reporting, deterministic UTC run
 IDs, exact WSPR-slot/sample calculations, result classification, SHA-256
 manifests, a CMake-built exact-count CF32 capture engine exercised only by a
 deterministic mock source, RF-off-subtracted carrier analysis, timestamped
-CF32-to-WAV conversion, and bounded independent `wsprd` decoding. No live
-hardware path is qualified by this repository.
+CF32-to-WAV conversion, bounded independent `wsprd` decoding, structured local
+child execution, mock transport and capability adapters, and lifecycle cleanup
+supervision with injected failure tests. No live receiver, transmitter, or RF
+path is qualified by this repository.
 
 The reviewed roadmap is:
 

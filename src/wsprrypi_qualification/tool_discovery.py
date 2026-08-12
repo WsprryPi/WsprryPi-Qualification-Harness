@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-from pathlib import Path, PurePath, PureWindowsPath
+from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 
 
 def bundled_candidates(name: str, *, platform_name: str | None = None) -> tuple[PurePath, ...]:
@@ -13,24 +13,31 @@ def bundled_candidates(name: str, *, platform_name: str | None = None) -> tuple[
     if name != "wsprd":
         return ()
     if platform_name == "darwin":
-        return (
-            Path("/Applications/wsjtx.app/Contents/MacOS/wsprd"),
-            Path("/Applications/WSJT-X.app/Contents/MacOS/wsprd"),
-            Path.home() / "Applications/wsjtx.app/Contents/MacOS/wsprd",
-            Path.home() / "Applications/WSJT-X.app/Contents/MacOS/wsprd",
-        )
+        macos_candidates: list[PurePath] = [
+            PurePosixPath("/Applications/wsjtx.app/Contents/MacOS/wsprd"),
+            PurePosixPath("/Applications/WSJT-X.app/Contents/MacOS/wsprd"),
+        ]
+        if sys.platform == "darwin":
+            home = PurePosixPath(Path.home())
+            macos_candidates.extend(
+                [
+                    home / "Applications/wsjtx.app/Contents/MacOS/wsprd",
+                    home / "Applications/WSJT-X.app/Contents/MacOS/wsprd",
+                ]
+            )
+        return tuple(macos_candidates)
     if platform_name == "win32":
-        candidates: list[PurePath] = [PureWindowsPath(r"C:\WSJT\wsjtx\bin\wsprd.exe")]
+        windows_candidates: list[PurePath] = [PureWindowsPath(r"C:\WSJT\wsjtx\bin\wsprd.exe")]
         for variable in ("ProgramFiles", "ProgramFiles(x86)"):
             root = os.environ.get(variable)
             if root:
-                candidates.extend(
+                windows_candidates.extend(
                     [
                         PureWindowsPath(root) / "WSJT" / "wsjtx" / "bin" / "wsprd.exe",
                         PureWindowsPath(root) / "wsjtx" / "bin" / "wsprd.exe",
                     ]
                 )
-        return tuple(candidates)
+        return tuple(windows_candidates)
     return ()
 
 
