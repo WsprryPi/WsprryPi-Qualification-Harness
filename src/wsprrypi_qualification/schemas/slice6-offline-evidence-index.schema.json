@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_type", "artifacts"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "slice6_offline_evidence_index"},
+    "artifacts": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["role", "source", "disposition", "retained_path"],
+        "properties": {
+          "role": {"type": "string", "minLength": 1},
+          "source": {"$ref": "#/$defs/artifact"},
+          "disposition": {"enum": ["bundled", "external"]},
+          "retained_path": {"type": ["string", "null"]},
+          "retained": {"$ref": "#/$defs/artifact"}
+          ,"format": {"const": "CF32"}
+          ,"sample_count": {"type": "integer", "minimum": 1}
+        },
+        "allOf": [
+          {"if": {"properties": {"disposition": {"const": "external"}}}, "then": {"properties": {"retained_path": {"type": "null"}}, "required": ["format", "sample_count"], "not": {"required": ["retained"]}}},
+          {"if": {"properties": {"disposition": {"const": "bundled"}}}, "then": {"required": ["retained"], "properties": {"retained_path": {"type": "string", "minLength": 1}}}}
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "size_bytes", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

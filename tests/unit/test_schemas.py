@@ -20,6 +20,9 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         "decode-summary.schema.json",
         "offline-failure.schema.json",
         "application-plan.schema.json",
+        "slice6-session-plan.schema.json",
+        "slice6-session.schema.json",
+        "slice6-offline-evidence-index.schema.json",
     ):
         packaged = json.loads(
             files("wsprrypi_qualification.schemas").joinpath(name).read_text(encoding="utf-8")

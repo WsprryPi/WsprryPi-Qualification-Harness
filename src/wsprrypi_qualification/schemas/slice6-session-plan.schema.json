@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_type", "run_id", "mock_only", "bench", "test", "receiver_run", "application", "first_slot_utc", "slots_utc", "coherent_capture", "deadlines", "offline_evidence"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "slice6_session_plan"},
+    "run_id": {"type": "string", "minLength": 1},
+    "mock_only": {"const": true},
+    "bench": {"$ref": "bench-profile.schema.json"},
+    "test": {"$ref": "test-profile.schema.json"},
+    "receiver_run": {"$ref": "receiver-run-profile.schema.json"},
+    "application": {"$ref": "application-plan.schema.json"},
+    "first_slot_utc": {"type": "string", "format": "date-time"},
+    "slots_utc": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "string", "format": "date-time"}},
+    "coherent_capture": {
+      "type": "object", "additionalProperties": false,
+      "required": ["duration_s", "sample_rate_hz", "sample_count"],
+      "properties": {
+        "duration_s": {"const": 370},
+        "sample_rate_hz": {"type": "integer", "minimum": 1},
+        "sample_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "deadlines": {
+      "type": "object", "additionalProperties": false,
+      "required": ["transmitter_s", "receiver_s"],
+      "properties": {
+        "transmitter_s": {"type": "number", "exclusiveMinimum": 0},
+        "receiver_s": {"type": "number", "exclusiveMinimum": 370}
+      }
+    },
+    "offline_evidence": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["carrier_analysis", "audio_conversions", "decoder_evidence", "decode_summary"],
+          "properties": {
+            "carrier_analysis": {"type": "string", "minLength": 1},
+            "audio_conversions": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "string", "minLength": 1}},
+            "decoder_evidence": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "string", "minLength": 1}},
+            "decode_summary": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    }
+  }
+}

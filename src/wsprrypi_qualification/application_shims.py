@@ -56,10 +56,22 @@ ProtocolPlan = WsprProtocol | CwProtocol
 
 
 @dataclass(frozen=True)
+class WsprryPiBackendConfig:
+    output: str
+    ppm: float
+    i2c_bus: int | None = None
+    i2c_address: str | None = None
+    reference_frequency_hz: int | None = None
+    drive_or_power_level: int | None = None
+    gpio_pin: int | None = None
+
+
+@dataclass(frozen=True)
 class ApplicationPlan:
     plan_id: str
     identity: ApplicationIdentity
     backend: str
+    backend_contract: dict[str, object] | None
     protocol: ProtocolMode
     protocol_contract: dict[str, object]
     arguments: tuple[str, ...]
@@ -79,6 +91,7 @@ class ApplicationPlan:
             "plan_id": self.plan_id,
             "identity": identity,
             "backend": self.backend,
+            "backend_contract": self.backend_contract,
             "protocol": self.protocol.value,
             "protocol_contract": self.protocol_contract,
             "arguments": list(self.arguments),
@@ -109,13 +122,59 @@ class WsprryPiShim:
         {0, 3, 7, 10, 13, 17, 20, 23, 27, 30, 33, 37, 40, 43, 47, 50, 53, 57, 60}
     )
 
-    def __init__(self, identity: ApplicationIdentity, *, backend: str) -> None:
+    def __init__(
+        self,
+        identity: ApplicationIdentity,
+        *,
+        backend: str,
+        backend_config: WsprryPiBackendConfig | None = None,
+    ) -> None:
         if identity.application != "wsprrypi":
             raise ApplicationPlanError("WsprryPi shim requires application identity 'wsprrypi'")
         if backend not in {"gpio", "si5351"}:
             raise ApplicationPlanError("WsprryPi backend must be 'gpio' or 'si5351'")
         self.identity = identity
         self.backend = backend
+        self.backend_config = backend_config
+
+    def _backend_arguments(self) -> tuple[str, ...]:
+        config = self.backend_config
+        if config is None:
+            return ()
+        if not math.isfinite(config.ppm) or not -200 <= config.ppm <= 200:
+            raise ApplicationPlanError("backend PPM must be finite and within +/-200")
+        if self.backend == "si5351":
+            if None in (
+                config.i2c_bus,
+                config.i2c_address,
+                config.reference_frequency_hz,
+                config.drive_or_power_level,
+            ):
+                raise ApplicationPlanError("complete Si5351 transient configuration is required")
+            return (
+                "--si5351-i2c-bus",
+                str(config.i2c_bus),
+                "--si5351-i2c-address",
+                str(config.i2c_address),
+                "--si5351-reference-frequency",
+                str(config.reference_frequency_hz),
+                "--si5351-tx-output",
+                config.output,
+                "--si5351-power-level",
+                str(config.drive_or_power_level),
+                "--si5351-ppm",
+                self._number(config.ppm) if config.ppm > 0 else str(config.ppm),
+            )
+        if config.gpio_pin is None or config.drive_or_power_level is None:
+            raise ApplicationPlanError("complete GPIO transient configuration is required")
+        return (
+            "--transmit-gpio",
+            str(config.gpio_pin),
+            "--gpio-power-level",
+            str(config.drive_or_power_level),
+            "--gpio-manual-ppm",
+            self._number(config.ppm) if config.ppm > 0 else str(config.ppm),
+        )
 
     def supported_protocols(self) -> frozenset[ProtocolMode]:
         return self._SUPPORTED
@@ -129,7 +188,13 @@ class WsprryPiShim:
     def resolve_plan(self, plan_id: str, protocol: ProtocolPlan) -> ApplicationPlan:
         if not plan_id.strip():
             raise ApplicationPlanError("plan_id must not be empty")
-        common = (str(self.identity.executable), "--backend", self.backend, "--no-offset")
+        common = (
+            str(self.identity.executable),
+            "--backend",
+            self.backend,
+            *self._backend_arguments(),
+            "--no-offset",
+        )
         arguments: tuple[str, ...]
         if isinstance(protocol, WsprProtocol):
             if protocol.frame_count <= 0:
@@ -229,6 +294,15 @@ class WsprryPiShim:
             plan_id=plan_id,
             identity=self.identity,
             backend=self.backend,
+            backend_contract=(
+                None
+                if self.backend_config is None
+                else {
+                    key: value
+                    for key, value in asdict(self.backend_config).items()
+                    if value is not None
+                }
+            ),
             protocol=mode,
             protocol_contract=protocol_contract,
             arguments=arguments,
@@ -255,13 +329,8 @@ def validate_application_plan(document: dict[str, object]) -> None:
     identity = document["identity"]
     if not isinstance(arguments, list) or not isinstance(identity, dict):
         raise ApplicationPlanError("application plan has invalid structured fields")
-    expected_prefix = [
-        identity["executable"],
-        "--backend",
-        document["backend"],
-        "--no-offset",
-    ]
-    if arguments[:4] != expected_prefix:
+    expected_prefix = [identity["executable"], "--backend", document["backend"]]
+    if arguments[:3] != expected_prefix or "--no-offset" not in arguments:
         raise ApplicationPlanError("arguments do not match executable/backend safety contract")
     protocol = document["protocol"]
     contract = document["protocol_contract"]
@@ -301,14 +370,28 @@ def validate_application_plan(document: dict[str, object]) -> None:
                 if contract["secondary_frequency_hz"] is None
                 else float(contract["secondary_frequency_hz"]),
             )
+        backend_contract = document.get("backend_contract")
+        if backend_contract is not None and not isinstance(backend_contract, dict):
+            raise ApplicationPlanError("backend contract must be an object or null")
+        backend_config = (
+            None if backend_contract is None else WsprryPiBackendConfig(**backend_contract)
+        )
+        backend_index = arguments.index("--no-offset")
         reconstructed = WsprryPiShim(
-            application_identity, backend=str(document["backend"])
+            application_identity,
+            backend=str(document["backend"]),
+            backend_config=backend_config,
         ).resolve_plan(str(document["plan_id"]), requested_protocol)
     except (KeyError, TypeError, ValueError) as error:
         if isinstance(error, ApplicationPlanError):
             raise
         raise ApplicationPlanError(f"invalid protocol contract: {error}") from error
-    if list(reconstructed.arguments) != arguments:
+    if backend_contract is not None and list(reconstructed.arguments) != arguments:
+        raise ApplicationPlanError("arguments do not match the declared backend contract")
+    if (
+        backend_contract is None
+        and list(reconstructed.arguments[4:]) != arguments[backend_index + 1 :]
+    ):
         raise ApplicationPlanError("arguments do not match the declared protocol contract")
     if reconstructed.protocol_contract != contract:
         raise ApplicationPlanError("protocol contract contains lossy or contradictory values")

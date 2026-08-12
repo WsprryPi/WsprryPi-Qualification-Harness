@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_type", "run_id", "mock_only", "injection", "events", "frames_started", "runtime_confirmation", "final_status", "supervisors"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "slice6_mock_session"},
+    "run_id": {"type": "string", "minLength": 1},
+    "mock_only": {"const": true},
+    "injection": {"enum": ["none", "invalid_plan", "missing_capability", "missing_dependency", "confirmation_mismatch", "unsafe_rf_path", "source_mismatch", "receiver_mismatch", "ownership_conflict", "rf_idle_failure", "cancelled", "cleanup_failed", "quiescence_failed", "service_restore_failed", "receiver_launch_failed", "transmitter_launch_failed", "child_timeout", "copy_failed", "index_failed", "manifest_failed", "promotion_failed"]},
+    "events": {
+      "type": "array", "minItems": 3,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["sequence", "timestamp_utc", "phase", "outcome", "detail"],
+        "properties": {
+          "sequence": {"type": "integer", "minimum": 1},
+          "timestamp_utc": {"type": "string", "format": "date-time"},
+          "phase": {"enum": ["requested", "validated", "runtime_confirmed", "preflight", "cleanup_installed", "rf_idle_verified", "carrier_gate", "wspr_frames", "cleanup", "quiescence", "published"]},
+          "outcome": {"enum": ["recorded", "started", "passed", "failed", "blocked", "not_run", "verified", "inconclusive"]},
+          "detail": {"type": "string"}
+        }
+      }
+    },
+    "frames_started": {"type": "boolean"},
+    "runtime_confirmation": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["recorded_utc", "operator", "resolved_plan_sha256", "confirmed", "resolved_plan"],
+          "properties": {
+            "recorded_utc": {"type": "string", "format": "date-time"},
+            "operator": {"type": "string", "minLength": 1},
+            "resolved_plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "confirmed": {"type": "boolean"},
+            "resolved_plan": {"$ref": "slice6-session-plan.schema.json"}
+          }
+        }
+      ]
+    },
+    "final_status": {"enum": ["qualified", "unqualified_carrier", "unqualified_decode", "fixture_blocked", "preflight_failed", "aborted", "cleanup_failed", "inconclusive"]},
+    "supervisors": {"type": "array", "maxItems": 2, "items": {"$ref": "slice4-supervisor.schema.json"}}
+  }
+}

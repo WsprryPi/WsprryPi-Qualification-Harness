@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
+from referencing import Registry, Resource
 
 
 class FailureCause(StrEnum):
@@ -71,11 +72,20 @@ def validate_document(document: Any, schema_name: str) -> dict[str, Any]:
         raise OfflineAnalysisError(
             "evidence is not a finite JSON object", cause=FailureCause.INCOMPLETE_EVIDENCE
         )
-    schema = json.loads(
-        files("wsprrypi_qualification.schemas").joinpath(schema_name).read_text(encoding="utf-8")
-    )
+    schema_root = files("wsprrypi_qualification.schemas")
+    schema = json.loads(schema_root.joinpath(schema_name).read_text(encoding="utf-8"))
+    registry = Registry()
+    for entry in schema_root.iterdir():
+        if entry.name.endswith(".schema.json"):
+            referenced_schema = json.loads(entry.read_text(encoding="utf-8"))
+            resource = Resource.from_contents(referenced_schema)
+            registry = registry.with_resource(entry.name, resource)
+            if isinstance(referenced_schema.get("$id"), str):
+                registry = registry.with_resource(referenced_schema["$id"], resource)
     errors = sorted(
-        Draft202012Validator(schema, format_checker=FormatChecker()).iter_errors(document),
+        Draft202012Validator(schema, format_checker=FormatChecker(), registry=registry).iter_errors(
+            document
+        ),
         key=lambda error: list(error.absolute_path),
     )
     if errors:

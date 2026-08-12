@@ -8,6 +8,7 @@ from wsprrypi_qualification.application_shims import (
     CwProtocol,
     ProtocolMode,
     WsprProtocol,
+    WsprryPiBackendConfig,
     WsprryPiShim,
     validate_application_plan,
 )
@@ -38,6 +39,37 @@ def test_wspr_plan_is_bounded_and_not_authorized() -> None:
     assert plan.protocol_contract["requested_rf_frequency_hz"] == 144_490_500
     assert plan.protocol_contract["dial_frequency_hz"] == 144_489_000
     validate_application_plan(plan.to_document())
+
+
+@pytest.mark.parametrize(
+    ("backend", "config", "expected"),
+    (
+        (
+            "si5351",
+            WsprryPiBackendConfig("CLK0", 2.5, 1, "0x60", 27_000_000, 1),
+            ("--si5351-tx-output", "CLK0", "--si5351-power-level", "1"),
+        ),
+        (
+            "gpio",
+            WsprryPiBackendConfig("GPIO4", -1.25, drive_or_power_level=7, gpio_pin=4),
+            ("--transmit-gpio", "4", "--gpio-power-level", "7"),
+        ),
+    ),
+)
+def test_resolved_backend_contract_authenticates_complete_arguments(
+    backend: str, config: WsprryPiBackendConfig, expected: tuple[str, ...]
+) -> None:
+    plan = WsprryPiShim(identity(), backend=backend, backend_config=config).resolve_plan(
+        "resolved", WsprProtocol("AA0NT", "EM18", 20, 10_140_200, 3, 1500)
+    )
+    assert all(item in plan.arguments for item in expected)
+    validate_application_plan(plan.to_document())
+    changed = plan.to_document()
+    arguments = list(changed["arguments"])
+    arguments[arguments.index(expected[-1])] = "99"
+    changed["arguments"] = arguments
+    with pytest.raises(ApplicationPlanError, match="backend contract"):
+        validate_application_plan(changed)
 
 
 @pytest.mark.parametrize(

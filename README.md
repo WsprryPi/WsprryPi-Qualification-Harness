@@ -4,13 +4,15 @@ Cross-platform, evidence-producing WsprryPi RF qualification harness maintained
 as an independent project.
 
 The project currently provides the reviewed implementation from Slices 1
-through 5: its governing contract, portable package and schemas, mock-tested
+through 5 plus hardware-free Slice 6 preparation: its governing contract, portable package and schemas, mock-tested
 exact-count capture helper, offline carrier and WSPR decoding pipeline,
 structured local-process transport, failure-injected lifecycle supervisor, and
 one bounded receiver-only validation of the native helper on the recorded
 `wspr5` SDRplay RSP1B configuration. Preserved Issue 379 sources remain
-provenance, not production code. Transmitter validation remains a separately
-authorized future slice.
+provenance, not production code. Slice 6 preparation reconciles complete
+WsprryPi backend arguments and authenticates retained carrier/audio/decoder
+evidence in a mock-only coordinator. Transmitter validation remains a
+separately authorized future action.
 
 ## Intended outcome
 
@@ -117,6 +119,12 @@ Hardware-free application-shim and WSPR/QRSS-family protocol planning is
 documented in [application shims](docs/development/application-shims.md). It
 constructs reviewable WsprryPi argument vectors but cannot execute them or
 authorize RF.
+
+Hardware-free Slice 6 preparation now composes WsprryPi plans, runtime
+confirmation, the mock lifecycle supervisor, WSPR gate sequencing, result
+classification, and immutable evidence packaging. See
+[Slice 6 preparation](docs/development/slice-6-preparation.md). It exposes no
+live execution command and cannot produce hardware qualification.
 
 Slice 3 evidence records canonical absolute artifact paths so validation is
 independent of the caller's current working directory. Acquired audio and
