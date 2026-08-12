@@ -135,6 +135,12 @@ validation.
 The packaged remote helper is also disabled without explicit provider and
 allowlist configuration; installing it does not inspect or mutate a host.
 
+A separate real-session coordinator now composes these adapter boundaries in
+the required qualification order while remaining hardware-free. The only CLI
+surface is `real-session PLAN.json --plan-only`; it performs zero external
+calls. Live execution remains unavailable, and mock/fake evidence can produce
+only `inconclusive`, never `qualified`.
+
 Slice 3 evidence records canonical absolute artifact paths so validation is
 independent of the caller's current working directory. Acquired audio and
 decoder evidence is authenticated against the retained profiles, capture

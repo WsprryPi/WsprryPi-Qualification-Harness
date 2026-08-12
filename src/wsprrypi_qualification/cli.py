@@ -23,6 +23,10 @@ from wsprrypi_qualification.carrier import analyze_carrier_acquired
 from wsprrypi_qualification.decoder import run_wsprd_acquired, summarize_decodes
 from wsprrypi_qualification.offline import OfflineAnalysisError, write_offline_failure
 from wsprrypi_qualification.profiles import ProfileError, load_profile
+from wsprrypi_qualification.real_session import (
+    RealSessionError,
+    ResolvedRealSessionPlan,
+)
 
 LIVE_COMMANDS = {"run", "capture", "transmit", "tone", "enable-rf"}
 
@@ -45,6 +49,11 @@ def _parser() -> argparse.ArgumentParser:
         "validate-application-plan", help="validate a hardware-free application plan"
     )
     application_plan.add_argument("path", type=Path)
+    real_session = subparsers.add_parser(
+        "real-session", help="validate and display a real-session plan without executing it"
+    )
+    real_session.add_argument("plan", type=Path)
+    real_session.add_argument("--plan-only", action="store_true", required=True)
     carrier = subparsers.add_parser("analyze-carrier", help="analyze offline RF-off/RF-on CF32")
     carrier.add_argument("rf_off", type=Path)
     carrier.add_argument("rf_on", type=Path)
@@ -134,6 +143,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(str(error), file=sys.stderr)
             return 2
         print(json.dumps({"path": str(args.path), "valid": True}, indent=2, sort_keys=True))
+        return 0
+    if args.command == "real-session":
+        try:
+            document = json.loads(args.plan.read_text(encoding="utf-8"))
+            if not isinstance(document, dict):
+                raise RealSessionError("real-session plan must be a JSON object")
+            plan = ResolvedRealSessionPlan(document)
+            resolved = plan.validated()
+        except (OSError, json.JSONDecodeError, RealSessionError, OfflineAnalysisError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(
+            json.dumps(
+                {
+                    "plan_only": True,
+                    "external_calls": 0,
+                    "resolved_plan_sha256": plan.sha256,
+                    "resolved_plan": resolved,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
     try:
         if args.command == "analyze-carrier":

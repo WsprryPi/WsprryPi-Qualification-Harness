@@ -101,8 +101,36 @@ workflow. Hellschreiber and RP1 remain unsupported.
 
 ## Next gate
 
-The next unfinished step is a separately authorized, precisely bounded live
-Slice 6 run. Before it, maintainers must add and review real capability adapters
-that bind the complete backend/output/calibration and per-run RF path to the
-existing supervisor. Actual macOS, Ubuntu, Windows, and Raspberry Pi OS behavior
-remains a host-validation gate. No mock result is transmitter qualification.
+The mock coordinator remains unchanged in meaning. A distinct
+`RealQualificationSession` now composes the reviewed production adapter
+boundaries using an explicit resolved plan and ephemeral external-access and RF
+authorizations. Its only public command is `real-session --plan-only`, which
+validates and prints a plan digest and performs zero adapter calls. The portable
+CLI still refuses `--enable-rf`, `transmit`, and other live commands.
+
+This integration was implemented and tested only with sealed fake adapters. A
+hardware-free success is forced to `inconclusive`; it cannot qualify a
+transmitter. The next unfinished step is a separately authorized read-only
+real-capability preflight. It must pause before the first SSH connection, SDR
+enumeration/open, service inspection, GPIO inspection, or I2C transaction.
+Transmitter launch and RF remain a later, separately authorized gate. Actual
+macOS, Ubuntu, Windows, and Raspberry Pi OS behavior remains host validation.
+
+The real-session plan uses a path-safe UTC run ID and, for this prepared WSPR
+workflow, fixes the preserved coherent-capture contract at 250,000 CF32
+samples/second for 370 seconds (exactly 92,500,000 samples). Requested and
+resolved profile artifacts, executable and provider hashes, receiver identity,
+current RF path, backend/output, calibration, drive, deadlines, and stopping
+procedure are explicit. Adapter records carry the complete plan digest and are
+schema- and semantics-checked; a bare claimed gate outcome is not accepted.
+Cleanup is attempted after any cleanup-registration attempt, including partial
+failure, and evidence publication rolls back its harness-created incomplete
+directory on failure.
+
+`execution_mode` is fixed to `hardware_free_validation` in the current schema.
+There is no supported way to relabel mock evidence as live evidence, and this
+coordinator cannot return `qualified`. Stage records include elapsed and hard
+deadline values, and carrier pass/fail is recomputed from the historical
+100-Hz offset and 50-percent best-20-Hz thresholds instead of trusting an
+adapter's claimed gate. Retained physical IQ, WAV, and decoder-log packaging is
+therefore still a live-phase acceptance gate, not a claim made by this phase.

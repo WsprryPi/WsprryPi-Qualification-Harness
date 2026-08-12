@@ -40,6 +40,10 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         "gpio-helper-result.schema.json",
         "si5351-helper-result.schema.json",
         "helper-config.schema.json",
+        "real-runtime-authorization.schema.json",
+        "resolved-real-session-plan.schema.json",
+        "real-session-stage-evidence.schema.json",
+        "real-qualification-session.schema.json",
     ):
         packaged = json.loads(
             files("wsprrypi_qualification.schemas").joinpath(name).read_text(encoding="utf-8")
