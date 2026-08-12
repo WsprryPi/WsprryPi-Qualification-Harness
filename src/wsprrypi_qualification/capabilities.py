@@ -51,10 +51,14 @@ def capability_report() -> dict[str, Any]:
             if name == "local_command"
             else (
                 "native capture helper is implemented and wspr5-validated; "
-                "portable live orchestration remains unsupported"
+                "production adapter contract exists but no live provider is configured, so "
+                "orchestration remains unsupported"
             )
             if name == "local_soapy_capture"
-            else "mock/fake contract is testable; real operation is disabled in Slice 4"
+            else (
+                "production adapter contract exists; provider configuration and live "
+                "validation remain unsupported"
+            )
             if name in mock_only
             else "adapter is outside Slice 4",
         ).to_dict()

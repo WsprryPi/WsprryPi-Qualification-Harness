@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plan_type", "run_id", "transport", "receiver_enabled", "transmitter_enabled", "service_names", "quiescence_backend", "overall_timeout_s", "capability_bindings", "external_access_enabled", "rf_enabled"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "plan_type": {"const": "resolved_real_capability_plan"},
+    "run_id": {"type": "string", "minLength": 1},
+    "transport": {"enum": ["local", "ssh"]},
+    "receiver_enabled": {"type": "boolean"},
+    "transmitter_enabled": {"type": "boolean"},
+    "service_names": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "quiescence_backend": {"enum": ["none", "gpio", "si5351"]},
+    "overall_timeout_s": {"type": "number", "exclusiveMinimum": 0},
+    "capability_bindings": {"type": "array", "items": {"type": "string", "pattern": "^[a-z0-9_]+:[0-9a-f]{64}$"}, "uniqueItems": true},
+    "external_access_enabled": {"type": "boolean"},
+    "rf_enabled": {"type": "boolean"}
+  }
+}

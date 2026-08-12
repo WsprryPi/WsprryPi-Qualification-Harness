@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["handle_id","child_identity","cleanup_verified"],"properties":{"handle_id":{"type":"string","minLength":1},"child_identity":{"type":"string","minLength":1},"cleanup_verified":{"const":false}}}

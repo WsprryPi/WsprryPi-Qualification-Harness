@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_type", "plan", "arguments", "helper", "return_code", "stdout", "stderr", "cleanup_verified", "capture_metadata", "output", "outcome"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "soapy_capture_capability"},
+    "plan": {"$ref": "#/$defs/plan"},
+    "arguments": {"type": "array", "items": {"type": "string"}, "minItems": 20},
+    "helper": {"$ref": "#/$defs/artifact"},
+    "return_code": {"const": 0},
+    "stdout": {"type": "string"},
+    "stderr": {"type": "string"},
+    "cleanup_verified": {"const": true},
+    "capture_metadata": {"$ref": "#/$defs/artifact"},
+    "output": {"$ref": "#/$defs/artifact"},
+    "outcome": {"const": "completed"}
+  },
+  "$defs": {
+    "artifact": {"type": "object", "additionalProperties": false, "required": ["path", "size_bytes", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "size_bytes": {"type": "integer", "minimum": 0}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["helper", "metadata_path", "output_path", "driver", "serial", "channel", "sample_rate_hz", "bandwidth_hz", "center_frequency_hz", "gain_db", "sample_count", "read_timeout_us", "maximum_elapsed_s", "clipping_threshold", "agc", "bias_tee", "sample_format"],
+      "properties": {
+        "helper": {"type": "string", "minLength": 1}, "metadata_path": {"type": "string", "minLength": 1}, "output_path": {"type": "string", "minLength": 1},
+        "driver": {"type": "string", "minLength": 1}, "serial": {"type": "string", "minLength": 1}, "channel": {"type": "integer", "minimum": 0},
+        "sample_rate_hz": {"type": "integer", "minimum": 1}, "bandwidth_hz": {"type": "integer", "minimum": 1}, "center_frequency_hz": {"type": "number", "exclusiveMinimum": 0}, "gain_db": {"type": "number"},
+        "sample_count": {"type": "integer", "minimum": 1}, "read_timeout_us": {"type": "integer", "minimum": 1}, "maximum_elapsed_s": {"type": "number", "exclusiveMinimum": 0}, "clipping_threshold": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "agc": {"const": false}, "bias_tee": {"const": false}, "sample_format": {"const": "CF32"}
+      }
+    }
+  }
+}

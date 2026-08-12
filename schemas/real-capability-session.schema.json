@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_type", "plan", "plan_sha256", "capabilities", "cleanup_verified", "qualification_status"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "real_capability_session"},
+    "plan": {"$ref": "resolved-capability-plan.schema.json"},
+    "plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "capabilities": {"type": "array", "items": {"oneOf": [
+      {"$ref": "ssh-capability.schema.json"}, {"$ref": "soapy-capability.schema.json"},
+      {"$ref": "wsprrypi-process-capability.schema.json"}, {"$ref": "service-capability.schema.json"},
+      {"$ref": "gpio-quiescence-capability.schema.json"}, {"$ref": "si5351-quiescence-capability.schema.json"}
+    ]}},
+    "cleanup_verified": {"type": "boolean"},
+    "qualification_status": {"const": "inconclusive"}
+  }
+}

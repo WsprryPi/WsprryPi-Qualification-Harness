@@ -23,6 +23,23 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         "slice6-session-plan.schema.json",
         "slice6-session.schema.json",
         "slice6-offline-evidence-index.schema.json",
+        "ssh-capability.schema.json",
+        "soapy-capability.schema.json",
+        "wsprrypi-process-capability.schema.json",
+        "service-capability.schema.json",
+        "gpio-quiescence-capability.schema.json",
+        "si5351-quiescence-capability.schema.json",
+        "resolved-capability-plan.schema.json",
+        "real-capability-session.schema.json",
+        "helper-request.schema.json",
+        "helper-response.schema.json",
+        "process-start-result.schema.json",
+        "process-wait-result.schema.json",
+        "process-stop-result.schema.json",
+        "service-helper-result.schema.json",
+        "gpio-helper-result.schema.json",
+        "si5351-helper-result.schema.json",
+        "helper-config.schema.json",
     ):
         packaged = json.loads(
             files("wsprrypi_qualification.schemas").joinpath(name).read_text(encoding="utf-8")

@@ -126,6 +126,15 @@ classification, and immutable evidence packaging. See
 [Slice 6 preparation](docs/development/slice-6-preparation.md). It exposes no
 live execution command and cannot produce hardware qualification.
 
+Fail-closed production capability contracts now exist for OpenSSH, the native
+SoapySDR capture helper, WsprryPi process ownership, narrow service restoration,
+and GPIO/Si5351 quiescence. They are documented in
+[real capability adapters](docs/development/real-capability-adapters.md). No
+provider is enabled by the CLI, and their implementation is not live hardware
+validation.
+The packaged remote helper is also disabled without explicit provider and
+allowlist configuration; installing it does not inspect or mutate a host.
+
 Slice 3 evidence records canonical absolute artifact paths so validation is
 independent of the caller's current working directory. Acquired audio and
 decoder evidence is authenticated against the retained profiles, capture
