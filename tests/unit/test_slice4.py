@@ -114,7 +114,7 @@ def test_local_process_timeout_finalizes_and_retains_output() -> None:
             (
                 "-c",
                 "import sys,time; print('OUT', flush=True); "
-                "print('ERR', file=sys.stderr, flush=True); time.sleep(2)",
+                "print('ERR', file=sys.stderr, flush=True); time.sleep(10)",
             ),
             timeout_s=5,
         ),
@@ -122,7 +122,10 @@ def test_local_process_timeout_finalizes_and_retains_output() -> None:
         "monitor",
     )
     result = Supervisor(MockReceiverAdapter("r"), MockTransmitterAdapter("t")).run(
-        ResolvedPlan("timeout-output", OperationDeadlines(monitor_s=0.03)),
+        # Native Windows process startup can exceed tens of milliseconds.
+        # Allow startup and flushed output, while remaining far below the
+        # child's sleep so this still exercises forced timeout finalization.
+        ResolvedPlan("timeout-output", OperationDeadlines(monitor_s=2.0)),
         execution=operation,
     )
     record = next(item for item in result.ownership if item.handle_id == operation.handle_id)
