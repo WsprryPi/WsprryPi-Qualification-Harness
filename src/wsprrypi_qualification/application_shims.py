@@ -7,7 +7,6 @@ import math
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from importlib.resources import files
-from pathlib import Path
 from typing import Protocol
 
 from jsonschema import Draft202012Validator
@@ -28,7 +27,7 @@ class ProtocolMode(StrEnum):
 @dataclass(frozen=True)
 class ApplicationIdentity:
     application: str
-    executable: Path
+    executable: str
     source_revision: str
     submodule_revision: str
 
@@ -274,7 +273,7 @@ def validate_application_plan(document: dict[str, object]) -> None:
     try:
         application_identity = ApplicationIdentity(
             str(identity["application"]),
-            Path(str(identity["executable"])),
+            str(identity["executable"]),
             str(identity["source_revision"]),
             str(identity["submodule_revision"]),
         )

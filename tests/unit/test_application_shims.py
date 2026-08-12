@@ -1,5 +1,3 @@
-from pathlib import Path, PureWindowsPath
-
 import pytest
 
 from wsprrypi_qualification.application_shims import (
@@ -13,8 +11,8 @@ from wsprrypi_qualification.application_shims import (
 )
 
 
-def identity(executable: object = Path("/opt/Wsprry Pi/wsprrypi")) -> ApplicationIdentity:
-    return ApplicationIdentity("wsprrypi", Path(str(executable)), "parent-sha", "submodule-sha")
+def identity(executable: str = "/opt/Wsprry Pi/wsprrypi") -> ApplicationIdentity:
+    return ApplicationIdentity("wsprrypi", executable, "parent-sha", "submodule-sha")
 
 
 def test_wspr_plan_is_bounded_and_not_authorized() -> None:
@@ -114,12 +112,26 @@ def test_unimplemented_backend_is_rejected() -> None:
 
 
 def test_windows_path_with_spaces_is_preserved_as_one_argument() -> None:
-    executable = PureWindowsPath(r"C:\Program Files\WsprryPi\wsprrypi.exe")
+    executable = r"C:\Program Files\WsprryPi\wsprrypi.exe"
     plan = WsprryPiShim(identity(executable), backend="si5351").resolve_plan(
         "windows", WsprProtocol("AA0NT", "EM18", 20, 10_140_200, 3, 1500)
     )
-    assert plan.arguments[0] == str(executable)
+    document = plan.to_document()
+    assert document["identity"]["executable"] == executable
+    assert plan.arguments[0] == executable
     assert len([item for item in plan.arguments if "Program Files" in item]) == 1
+    validate_application_plan(document)
+
+
+def test_posix_path_with_spaces_round_trips_without_host_normalization() -> None:
+    executable = "/opt/Wsprry Pi/wsprrypi"
+    plan = WsprryPiShim(identity(executable), backend="si5351").resolve_plan(
+        "posix", WsprProtocol("AA0NT", "EM18", 20, 10_140_200, 3, 1500)
+    )
+    document = plan.to_document()
+    assert document["identity"]["executable"] == executable
+    assert document["arguments"][0] == executable
+    validate_application_plan(document)
 
 
 def test_schema_rejects_execution_authorization() -> None:
