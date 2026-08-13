@@ -163,6 +163,11 @@ authenticates exact-count RF-off evidence, and can never qualify a transmitter.
 See [receiver integration](docs/development/receiver-integration.md). SSH and
 physical SDR operations remain unavailable until separately authorized.
 
+A sealed hardware-free transmitter lifecycle now prepares owned-process,
+service-restoration, and GPIO/Si5351 quiescence evidence without launching
+WsprryPi or touching a host. It always records no RF and no qualification
+claim. See [transmitter lifecycle](docs/development/transmitter-lifecycle.md).
+
 Slice 3 evidence records canonical absolute artifact paths so validation is
 independent of the caller's current working directory. Acquired audio and
 decoder evidence is authenticated against the retained profiles, capture
