@@ -8,7 +8,7 @@ import sys
 from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import asdict
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from wsprrypi_qualification import __version__
@@ -25,6 +25,8 @@ from wsprrypi_qualification.deployment import DeploymentError, load_deployment_c
 from wsprrypi_qualification.offline import OfflineAnalysisError, write_offline_failure
 from wsprrypi_qualification.profiles import ProfileError, load_profile
 from wsprrypi_qualification.real_session import (
+    RealQualificationSession,
+    RealRuntimeAuthorization,
     RealSessionError,
     ResolvedRealSessionPlan,
 )
@@ -60,6 +62,16 @@ def _parser() -> argparse.ArgumentParser:
     )
     real_session.add_argument("plan", type=Path)
     real_session.add_argument("--plan-only", action="store_true", required=True)
+    live_session = subparsers.add_parser(
+        "run-live-session", help="run the fail-closed split-host qualification lifecycle"
+    )
+    live_session.add_argument("plan", type=Path)
+    live_session.add_argument("output_parent", type=Path)
+    live_session.add_argument("--work-directory", type=Path, required=True)
+    live_session.add_argument("--ssh", type=Path, required=True)
+    live_session.add_argument("--operator", required=True)
+    live_session.add_argument("--enable-live-session", action="store_true", required=True)
+    live_session.add_argument("--enable-rf", action="store_true", required=True)
     simulator = subparsers.add_parser(
         "simulate-qualification", help="run the bounded hardware-free lifecycle simulator"
     )
@@ -120,7 +132,9 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
-    if "--enable-rf" in arguments or LIVE_COMMANDS.intersection(arguments):
+    if (
+        LIVE_COMMANDS.intersection(arguments) or "--enable-rf" in arguments
+    ) and "run-live-session" not in arguments:
         print("live RF and hardware actions are unavailable in the portable CLI", file=sys.stderr)
         return 2
     args = _parser().parse_args(arguments)
@@ -213,6 +227,41 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         return 0
+    if args.command == "run-live-session":
+        try:
+            document = json.loads(args.plan.read_text(encoding="utf-8"))
+            if not isinstance(document, dict):
+                raise RealSessionError("real-session plan must be a JSON object")
+            plan = ResolvedRealSessionPlan(document)
+            resolved = plan.validated()
+            if resolved["execution_mode"] != "live":
+                raise RealSessionError("live command requires a live resolved plan")
+            print(json.dumps(resolved, indent=2, sort_keys=True))
+            response = input(
+                f"Type the resolved plan SHA-256 {plan.sha256} to authorize this run: "
+            )
+            confirmed_at = datetime.now(UTC)
+            if response.strip() != plan.sha256:
+                raise RealSessionError("runtime operator confirmation did not match the plan")
+            from wsprrypi_qualification.live_adapters import build_production_adapters
+
+            adapters = build_production_adapters(
+                resolved,
+                ssh_executable=args.ssh.resolve(),
+                work_directory=args.work_directory.resolve(),
+            )
+            external = RealRuntimeAuthorization(
+                "external_access", args.operator, confirmed_at, plan.sha256, True
+            )
+            rf = RealRuntimeAuthorization("rf", args.operator, confirmed_at, plan.sha256, True)
+            result = RealQualificationSession(plan, adapters, now=confirmed_at).run(
+                external, rf, args.output_parent
+            )
+        except (OSError, json.JSONDecodeError, RealSessionError, OfflineAnalysisError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["final_status"] == "qualified" else 1
     if args.command == "simulate-qualification":
         try:
             result = run_simulation(

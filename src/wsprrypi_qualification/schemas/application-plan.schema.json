@@ -16,10 +16,10 @@
         {"type":"object","additionalProperties":false,"required":["output","ppm","drive_or_power_level","gpio_pin"],"properties":{"output":{"type":"string","minLength":1},"ppm":{"type":"number","minimum":-200,"maximum":200},"drive_or_power_level":{"type":"integer","minimum":1},"gpio_pin":{"type":"integer","minimum":0}}}
       ]
     },
-    "protocol": {"enum":["wspr","qrss","fskcw","dfcw"]},
+    "protocol": {"enum":["wspr","qrss","fskcw","dfcw","tone"]},
     "protocol_contract": {"type":"object"},
     "arguments": {"type":"array","minItems":5,"items":{"type":"string"}},
-    "self_terminating_request": {"const":true},
+    "self_terminating_request": {"type":"boolean"},
     "supervisor_required": {"const":true},
     "random_offset_enabled": {"const":false},
     "execution_authorized": {"const":false},
@@ -29,6 +29,8 @@
   "allOf": [
     {"if":{"properties":{"protocol":{"const":"wspr"}}},"then":{"properties":{"protocol_contract":{"type":"object","additionalProperties":false,"required":["callsign","grid","power_dbm","frame_count","dial_frequency_hz","audio_offset_hz","requested_rf_frequency_hz"],"properties":{"callsign":{"type":"string","minLength":1},"grid":{"type":"string","minLength":1},"power_dbm":{"type":"integer"},"frame_count":{"type":"integer","minimum":1},"dial_frequency_hz":{"type":"number","exclusiveMinimum":0},"audio_offset_hz":{"const":1500.0},"requested_rf_frequency_hz":{"type":"number","exclusiveMinimum":0}}}}}},
     {"if":{"properties":{"protocol":{"const":"qrss"}}},"then":{"properties":{"protocol_contract":{"type":"object","additionalProperties":false,"required":["message","dot_seconds","primary_frequency_hz","secondary_frequency_hz"],"properties":{"message":{"type":"string","minLength":1},"dot_seconds":{"type":"number","exclusiveMinimum":0},"primary_frequency_hz":{"type":"number","exclusiveMinimum":0},"secondary_frequency_hz":{"type":"null"}}}}}},
-    {"if":{"properties":{"protocol":{"enum":["fskcw","dfcw"]}}},"then":{"properties":{"protocol_contract":{"type":"object","additionalProperties":false,"required":["message","dot_seconds","primary_frequency_hz","secondary_frequency_hz"],"properties":{"message":{"type":"string","minLength":1},"dot_seconds":{"type":"number","exclusiveMinimum":0},"primary_frequency_hz":{"type":"number","exclusiveMinimum":0},"secondary_frequency_hz":{"type":"number","exclusiveMinimum":0}}}}}}
+    {"if":{"properties":{"protocol":{"enum":["fskcw","dfcw"]}}},"then":{"properties":{"protocol_contract":{"type":"object","additionalProperties":false,"required":["message","dot_seconds","primary_frequency_hz","secondary_frequency_hz"],"properties":{"message":{"type":"string","minLength":1},"dot_seconds":{"type":"number","exclusiveMinimum":0},"primary_frequency_hz":{"type":"number","exclusiveMinimum":0},"secondary_frequency_hz":{"type":"number","exclusiveMinimum":0}}}}}},
+    {"if":{"properties":{"protocol":{"const":"tone"}}},"then":{"properties":{"self_terminating_request":{"const":false},"protocol_contract":{"type":"object","additionalProperties":false,"required":["requested_rf_frequency_hz"],"properties":{"requested_rf_frequency_hz":{"type":"number","exclusiveMinimum":0}}}}}},
+    {"if":{"properties":{"protocol":{"enum":["wspr","qrss","fskcw","dfcw"]}}},"then":{"properties":{"self_terminating_request":{"const":true}}}}
   ]
 }

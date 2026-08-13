@@ -5,6 +5,7 @@ from wsprrypi_qualification.application_shims import (
     ApplicationPlanError,
     CwProtocol,
     ProtocolMode,
+    ToneProtocol,
     WsprProtocol,
     WsprryPiBackendConfig,
     WsprryPiShim,
@@ -36,6 +37,17 @@ def test_wspr_plan_is_bounded_and_not_authorized() -> None:
     assert plan.supervisor_required
     assert plan.protocol_contract["requested_rf_frequency_hz"] == 144_490_500
     assert plan.protocol_contract["dial_frequency_hz"] == 144_489_000
+    validate_application_plan(plan.to_document())
+
+
+def test_carrier_tone_plan_requires_external_supervisor() -> None:
+    plan = WsprryPiShim(identity(), backend="si5351").resolve_plan(
+        "carrier", ToneProtocol(1_838_100)
+    )
+    assert plan.arguments[-2:] == ("--test-tone", "1838100")
+    assert not plan.self_terminating_request
+    assert plan.supervisor_required
+    assert not plan.execution_authorized
     validate_application_plan(plan.to_document())
 
 

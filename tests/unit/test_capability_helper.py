@@ -17,6 +17,7 @@ from wsprrypi_qualification.capability_helper import (
     encode_request,
 )
 from wsprrypi_qualification.real_capabilities import (
+    CapabilityError,
     HelperGpioProvider,
     HelperServiceProvider,
     HelperSi5351Provider,
@@ -26,6 +27,26 @@ from wsprrypi_qualification.real_capabilities import (
 )
 
 PLAN = "a" * 64
+
+
+def test_persistent_response_timeout_uses_one_absolute_budget(tmp_path: Path):
+    executable = Path(sys.executable).resolve()
+    transport = PersistentHelperTransport(
+        (
+            str(executable),
+            "-c",
+            "import sys,time; sys.stdin.readline(); time.sleep(5)",
+        ),
+        cleanup_timeout_s=1.0,
+    )
+    started = time.monotonic()
+    try:
+        with pytest.raises(CapabilityError, match="cleanup remains owned"):
+            transport.exchange("request", 0.05)
+        assert time.monotonic() - started < 0.25
+    finally:
+        transport._process.kill()
+        transport._process.wait(timeout=1)
 
 
 class Services:

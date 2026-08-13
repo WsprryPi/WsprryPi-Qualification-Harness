@@ -104,10 +104,9 @@ wsprrypi-qualification decode-wspr SLOT.wav audio.json decoder.json
 wsprrypi-qualification summarize-decodes decode-summary.json slot-2100.json slot-2102.json slot-2104.json
 ```
 
-The capability report locates future dependencies without executing them and
-reports hardware-free Slice 4 adapters separately from unavailable live
-capabilities. Live RF remains disabled,
-and committed profiles cannot satisfy runtime operator confirmation. See
+The capability report locates future dependencies without executing them. Live
+RF remains unavailable by default, and committed profiles cannot satisfy
+runtime operator confirmation. See
 [Slice 1](docs/development/slice-1.md) and
 [Slice 2](docs/development/slice-2.md) and
 [Slice 3](docs/development/slice-3.md) and
@@ -120,11 +119,11 @@ documented in [application shims](docs/development/application-shims.md). It
 constructs reviewable WsprryPi argument vectors but cannot execute them or
 authorize RF.
 
-Hardware-free Slice 6 preparation now composes WsprryPi plans, runtime
+Hardware-free Slice 6 preparation composes WsprryPi plans, runtime
 confirmation, the mock lifecycle supervisor, WSPR gate sequencing, result
 classification, and immutable evidence packaging. See
-[Slice 6 preparation](docs/development/slice-6-preparation.md). It exposes no
-live execution command and cannot produce hardware qualification.
+[Slice 6 preparation](docs/development/slice-6-preparation.md). Its mock path
+cannot produce hardware qualification.
 
 Fail-closed production capability contracts now exist for OpenSSH, the native
 SoapySDR capture helper, WsprryPi process ownership, narrow service restoration,
@@ -136,10 +135,11 @@ The packaged remote helper is also disabled without explicit provider and
 allowlist configuration; installing it does not inspect or mutate a host.
 
 A separate real-session coordinator now composes these adapter boundaries in
-the required qualification order while remaining hardware-free. The only CLI
-surface is `real-session PLAN.json --plan-only`; it performs zero external
-calls. Live execution remains unavailable, and mock/fake evidence can produce
-only `inconclusive`, never `qualified`.
+the required qualification order. `real-session PLAN.json --plan-only` remains
+the zero-external-call review surface. The deliberately unavailable-by-default
+`run-live-session` path accepts only the sealed production composition, a
+split wspr4/wspr5 plan, both enable flags, and an exact ephemeral plan-digest
+confirmation. See [split-host live qualification](docs/development/live-three-frame.md).
 
 Hardware-free Raspberry Pi OS deployment preparation provides a strict helper
 deployment configuration, pinned systemd/GPIO/Si5351 command-provider evidence,

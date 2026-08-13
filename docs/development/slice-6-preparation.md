@@ -94,8 +94,9 @@ cmake --build BUILD --config Release
 ctest --test-dir BUILD -C Release --output-on-failure
 ```
 
-No CLI capable of executing a qualification plan exists. `--enable-rf`, live
-commands, physical SDR access, and real SSH remain refused by the portable CLI.
+The original preparation coordinator remains hardware-free. A later, distinct
+split-host production composition is documented in `live-three-frame.md`; it
+does not weaken or relabel this mock-only evidence.
 QRSS, FSKCW, and DFCW retain application-plan support but have no qualification
 workflow. Hellschreiber and RP1 remain unsupported.
 
@@ -104,9 +105,9 @@ workflow. Hellschreiber and RP1 remain unsupported.
 The mock coordinator remains unchanged in meaning. A distinct
 `RealQualificationSession` now composes the reviewed production adapter
 boundaries using an explicit resolved plan and ephemeral external-access and RF
-authorizations. Its only public command is `real-session --plan-only`, which
-validates and prints a plan digest and performs zero adapter calls. The portable
-CLI still refuses `--enable-rf`, `transmit`, and other live commands.
+authorizations. Its review command is `real-session --plan-only`, which
+validates and prints a plan digest and performs zero adapter calls. The later
+live command has its own two-flag and runtime-digest authorization boundary.
 
 This integration was implemented and tested only with sealed fake adapters. A
 hardware-free success is forced to `inconclusive`; it cannot qualify a
@@ -127,9 +128,9 @@ Cleanup is attempted after any cleanup-registration attempt, including partial
 failure, and evidence publication rolls back its harness-created incomplete
 directory on failure.
 
-`execution_mode` is fixed to `hardware_free_validation` in the current schema.
-There is no supported way to relabel mock evidence as live evidence, and this
-coordinator cannot return `qualified`. Stage records include elapsed and hard
+Hardware-free plans remain bound to hardware-free adapters; live plans require
+the exact sealed production adapter. There is no supported way to relabel mock
+evidence as live evidence. Stage records include elapsed and hard
 deadline values, and carrier pass/fail is recomputed from the historical
 100-Hz offset and 50-percent best-20-Hz thresholds instead of trusting an
 adapter's claimed gate. Retained physical IQ, WAV, and decoder-log packaging is

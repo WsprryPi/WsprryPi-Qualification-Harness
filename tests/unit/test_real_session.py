@@ -11,11 +11,25 @@ from wsprrypi_qualification.real_session import (
     RealRuntimeAuthorization,
     RealSessionError,
     ResolvedRealSessionPlan,
+    _validate_stage,
     resolved_real_plan_sha256,
     validate_real_session_document,
 )
 
 NOW = datetime(2026, 8, 12, 20, 0, tzinfo=UTC)
+
+
+def test_failed_cleanup_retains_actual_deadline_overrun():
+    document = {
+        "schema_version": 1,
+        "evidence_type": "cleanup",
+        "plan_sha256": "a" * 64,
+        "outcome": "failed",
+        "elapsed_s": 6.0,
+        "deadline_s": 5.0,
+        "details": {"actions_complete": False, "helper_absent": False},
+    }
+    _validate_stage(document, "cleanup", "a" * 64, "failed", 5.0)
 
 
 def plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
@@ -42,30 +56,66 @@ def plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
             name: {"id": f"resolved-{name}", "path": f"resolved-{name}.json", "sha256": "2" * 64}
             for name in ("bench", "test", "receiver_run")
         },
-        "host": "wspr5.local",
+        "host": "wspr4.local",
         "transport": "ssh",
-        "remote_helper": executable,
-        "wsprrypi": {**executable, "identity": "wsprrypi"},
-        "source": {"parent_revision": "parent", "submodule_revision": "submodule"},
+        "transport_identity": {
+            "controller_hostname": "wspr5",
+            "known_hosts_path": "/etc/wsprrypi-qualification/known_hosts",
+            "known_hosts_sha256": "e" * 64,
+            "transmitter_host_key_sha256": "SHA256:" + "A" * 43,
+            "ssh_keygen_path": "/usr/bin/ssh-keygen",
+            "ssh_keygen_sha256": "0" * 64,
+        },
+        "remote_helper": {
+            **executable,
+            "host": "wspr4.local",
+            "config_path": "/etc/wsprrypi-qualification/helper.json",
+            "config_sha256": "c" * 64,
+        },
+        "receiver_helper": {
+            **executable,
+            "identity": "receiver-helper",
+            "config_path": "/etc/wsprrypi-qualification/helper.json",
+            "config_sha256": "d" * 64,
+        },
+        "capture_helper": {**executable, "identity": "soapy-capture", "sha256": "5" * 64},
+        "wsprd": {**executable, "identity": "wsprd", "sha256": "6" * 64},
+        "wsprrypi": {**executable, "host": "wspr4.local", "identity": "wsprrypi"},
+        "source": {
+            "parent_revision": "1" * 40,
+            "submodule_revision": "2" * 40,
+            "repository_path": "/home/pi/WsprryPi",
+            "submodule_path": "WiringPi",
+            "git_path": "/usr/bin/git",
+            "git_sha256": "f" * 64,
+        },
         "backend": "si5351",
         "output": "CLK0",
         "backend_contract": {
             "backend": "si5351",
             "output": "CLK0",
+            "i2c_bus": 1,
+            "i2c_address": "0x60",
+            "reference_frequency_hz": 25000000,
+            "drive_or_power_level": 2,
             "quiescence_provider_sha256": "3" * 64,
         },
-        "services": ["wsprrypi"],
+        "services": {"transmitter": ["wsprrypi"], "receiver": ["SoapySDRServer"]},
         "receiver": {
             "host": "wspr5.local",
+            "observed_local_hostname": "wspr5",
             "driver": "sdrplay",
             "serial": "SERIAL",
             "channel": 0,
             "sample_format": "CF32",
             "sample_rate_hz": 250000,
             "bandwidth_hz": 200000,
+            "center_frequency_hz": 1838100,
             "gain_db": 10,
             "agc": False,
             "bias_tee": False,
+            "read_timeout_us": 500000,
+            "clipping_threshold": 0.999,
         },
         "rf_path": {
             "path_type": "radiated",
@@ -84,11 +134,17 @@ def plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
         "mode": "WSPR",
         "frame_count": 3,
         "random_offset_enabled": False,
-        "carrier": {"rf_off_sample_count": 2500000, "rf_on_sample_count": 2500000},
+        "carrier": {
+            "rf_off_sample_count": 2500000,
+            "rf_on_sample_count": 2500000,
+            "offset_gate_hz": 100,
+            "best_20hz_share_min": 0.5,
+        },
         "coherent_capture": {
             "duration_s": 370,
             "sample_rate_hz": 250000,
             "sample_count": 92500000,
+            "margin_before_first_slot_s": 5,
         },
         "slots_utc": [
             "2026-08-12T20:00:00Z",
@@ -109,23 +165,34 @@ def plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
         },
         "raw_iq_retention": "retain",
         "capability_bindings": {
-            "ssh": "4" * 64,
+            "transmitter_ssh": "4" * 64,
+            "receiver_transport": "9" * 64,
             "soapy": "5" * 64,
             "wsprrypi": "a" * 64,
-            "service": "7" * 64,
+            "transmitter_service": "7" * 64,
+            "receiver_service": "8" * 64,
             "quiescence": "3" * 64,
+            "decoder": "6" * 64,
         },
         "external_access_enabled": True,
         "rf_enabled": True,
     }
-    document["remote_helper"]["plan_sha256"] = resolved_real_plan_sha256(document)
+    digest = resolved_real_plan_sha256(document)
+    for field in ("remote_helper", "receiver_helper", "capture_helper", "wsprd", "wsprrypi"):
+        document[field]["plan_sha256"] = digest
     return document
 
 
 class FakeAdapters:
+    execution_mode = "hardware_free_validation"
+
     def __init__(self, *, carrier="passed", decode="passed", fail=None):
         self.calls = []
         self.carrier, self.decode, self.fail = carrier, decode, fail
+
+    def close(self):
+        self.calls.append("close")
+        return True
 
     def _call(self, name, outcome="passed", evidence_type=None, details=None, deadline_s=5):
         self.calls.append(name)
@@ -156,7 +223,21 @@ class FakeAdapters:
             "helper",
             evidence_type="helper",
             details={
-                key: plan["remote_helper"][key] for key in ("host", "path", "sha256", "identity")
+                side: {
+                    key: plan[field][key]
+                    for key in (
+                        "host",
+                        "path",
+                        "sha256",
+                        "identity",
+                        "config_path",
+                        "config_sha256",
+                    )
+                }
+                for side, field in (
+                    ("transmitter", "remote_helper"),
+                    ("receiver", "receiver_helper"),
+                )
             },
         )
 
@@ -164,7 +245,18 @@ class FakeAdapters:
         return self._call(
             "ownership",
             evidence_type="ownership",
-            details={"host": plan["host"], "services": plan["services"], "conflicts": []},
+            details={
+                "transmitter": {
+                    "host": plan["host"],
+                    "services": plan["services"]["transmitter"],
+                    "conflicts": [],
+                },
+                "receiver": {
+                    "host": plan["receiver"]["host"],
+                    "services": plan["services"]["receiver"],
+                    "conflicts": [],
+                },
+            },
         )
 
     def verify_rf_idle(self, plan):
@@ -294,6 +386,27 @@ def run(tmp_path: Path, adapters: FakeAdapters):
     return RealQualificationSession(plan, adapters, now=NOW).run(external, rf, tmp_path)
 
 
+def test_run_chronology_uses_current_clock_not_confirmation_time(tmp_path: Path):
+    plan = ResolvedRealSessionPlan(plan_document())
+    external, rf = authorizations(plan)
+    tick = 0
+
+    def clock() -> datetime:
+        nonlocal tick
+        tick += 1
+        return NOW.replace(second=tick)
+
+    document = RealQualificationSession(plan, FakeAdapters(), now=NOW, clock=clock).run(
+        external, rf, tmp_path
+    )
+    timestamps = [item["timestamp_utc"] for item in document["events"]]
+    assert len(set(timestamps)) == len(timestamps)
+    result = json.loads(
+        (tmp_path / plan.validated()["run_id"] / "result.json").read_text(encoding="utf-8")
+    )
+    assert result["completed_utc"] > result["started_utc"]
+
+
 def test_hardware_free_success_remains_inconclusive_and_is_packaged(tmp_path: Path):
     adapters = FakeAdapters()
     document = run(tmp_path, adapters)
@@ -338,9 +451,38 @@ def test_blocked_decode_is_fixture_blocked(tmp_path: Path):
     assert document["final_status"] == "fixture_blocked"
 
 
-def test_live_execution_mode_is_not_available():
-    with pytest.raises(OfflineAnalysisError):
-        ResolvedRealSessionPlan(plan_document(execution_mode="live")).validated()
+def test_live_plan_refuses_hardware_free_adapter(tmp_path: Path):
+    plan = ResolvedRealSessionPlan(plan_document(execution_mode="live"))
+    with pytest.raises(RealSessionError, match="adapter execution mode"):
+        RealQualificationSession(plan, FakeAdapters(), now=NOW).run(None, None, tmp_path)
+
+
+def test_live_plan_refuses_self_declared_fake_adapter(tmp_path: Path):
+    class SelfDeclaredLive(FakeAdapters):
+        execution_mode = "live"
+
+    plan = ResolvedRealSessionPlan(plan_document(execution_mode="live"))
+    with pytest.raises(RealSessionError, match="sealed production adapter"):
+        RealQualificationSession(plan, SelfDeclaredLive(), now=NOW).run(None, None, tmp_path)
+
+
+def test_live_cli_is_unavailable_without_every_enable_flag(tmp_path: Path):
+    path = tmp_path / "live plan.json"
+    path.write_text(json.dumps(plan_document(execution_mode="live")), encoding="utf-8")
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "run-live-session",
+                str(path),
+                str(tmp_path / "runs"),
+                "--work-directory",
+                str(tmp_path / "work"),
+                "--ssh",
+                "/usr/bin/ssh",
+                "--operator",
+                "operator",
+            ]
+        )
 
 
 def test_stage_cannot_select_a_deadline_larger_than_resolved_plan(tmp_path: Path):
@@ -480,7 +622,12 @@ def test_plan_only_cli_makes_no_external_calls(tmp_path: Path, capsys):
 def test_run_id_cannot_escape_evidence_parent(run_id: str):
     document = plan_document()
     document["run_id"] = run_id
-    document["remote_helper"]["plan_sha256"] = resolved_real_plan_sha256(document)
+    digest = resolved_real_plan_sha256(document)
+    document["remote_helper"]["plan_sha256"] = digest
+    document["receiver_helper"]["plan_sha256"] = digest
+    document["capture_helper"]["plan_sha256"] = digest
+    document["wsprd"]["plan_sha256"] = digest
+    document["wsprrypi"]["plan_sha256"] = digest
     with pytest.raises(OfflineAnalysisError):
         ResolvedRealSessionPlan(document).validated()
 
@@ -491,9 +638,29 @@ def test_preserved_wspr_sample_contract_is_exact():
         "duration_s": 370,
         "sample_rate_hz": 1000,
         "sample_count": 370000,
+        "margin_before_first_slot_s": 5,
     }
-    document["remote_helper"]["plan_sha256"] = resolved_real_plan_sha256(document)
+    digest = resolved_real_plan_sha256(document)
+    document["remote_helper"]["plan_sha256"] = digest
+    document["receiver_helper"]["plan_sha256"] = digest
+    document["capture_helper"]["plan_sha256"] = digest
+    document["wsprd"]["plan_sha256"] = digest
+    document["wsprrypi"]["plan_sha256"] = digest
     with pytest.raises(OfflineAnalysisError):
+        ResolvedRealSessionPlan(document).validated()
+
+
+def test_split_transmitter_and_receiver_hosts_are_explicitly_supported():
+    document = plan_document()
+    assert document["host"] == "wspr4.local"
+    assert document["receiver"]["host"] == "wspr5.local"
+    ResolvedRealSessionPlan(document).validated()
+
+
+def test_receiver_tools_must_bind_to_receiver_host():
+    document = plan_document()
+    document["capture_helper"]["host"] = "wspr4.local"
+    with pytest.raises(RealSessionError, match="receiver tool host"):
         ResolvedRealSessionPlan(document).validated()
 
 
@@ -518,7 +685,7 @@ def test_one_decoder_invocation_cannot_pass(tmp_path: Path):
 def test_partial_cleanup_install_failure_still_runs_cleanup_and_quiescence(tmp_path: Path):
     adapters = FakeAdapters(fail="install_cleanup")
     document = run(tmp_path, adapters)
-    assert document["final_status"] == "aborted"
+    assert document["final_status"] == "preflight_failed"
     assert adapters.calls[-2:] == ["cleanup", "quiescence"]
 
 

@@ -22,6 +22,7 @@ class ProtocolMode(StrEnum):
     FSKCW = "fskcw"
     DFCW = "dfcw"
     HELLSCHREIBER = "hellschreiber"
+    TONE = "tone"
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,12 @@ class CwProtocol:
     secondary_frequency_hz: float | None = None
 
 
-ProtocolPlan = WsprProtocol | CwProtocol
+@dataclass(frozen=True)
+class ToneProtocol:
+    requested_rf_frequency_hz: float
+
+
+ProtocolPlan = WsprProtocol | CwProtocol | ToneProtocol
 
 
 @dataclass(frozen=True)
@@ -233,6 +239,11 @@ class WsprryPiShim:
                 str(protocol.power_dbm),
                 self._number(dial_frequency_hz),
             )
+        elif isinstance(protocol, ToneProtocol):
+            mode = ProtocolMode.TONE
+            frequency = self._number(protocol.requested_rf_frequency_hz)
+            protocol_contract = {"requested_rf_frequency_hz": protocol.requested_rf_frequency_hz}
+            arguments = (*common, "--test-tone", frequency)
         else:
             mode = protocol.mode
             if mode not in self._SUPPORTED:
@@ -305,7 +316,7 @@ class WsprryPiShim:
             protocol=mode,
             protocol_contract=protocol_contract,
             arguments=arguments,
-            self_terminating_request=True,
+            self_terminating_request=mode is not ProtocolMode.TONE,
             supervisor_required=True,
             random_offset_enabled=False,
             execution_authorized=False,
@@ -359,6 +370,8 @@ def validate_application_plan(document: dict[str, object]) -> None:
                 int(contract["frame_count"]),
                 offset,
             )
+        elif protocol == "tone":
+            requested_protocol = ToneProtocol(float(contract["requested_rf_frequency_hz"]))
         else:
             requested_protocol = CwProtocol(
                 ProtocolMode(str(protocol)),

@@ -1,0 +1,1141 @@
+"""Concrete split-host adapter composition for the reviewed real-session lifecycle.
+
+The coordinator is intended to run on the receiver host.  Receiver capture and
+offline processing are local; the transmitter is owned through the persistent
+SSH capability helper.  Construction is explicit so a CLI cannot silently
+substitute mocks or a different transport.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import Any, cast
+
+from wsprrypi_qualification.application_shims import (
+    ApplicationIdentity,
+    ApplicationPlan,
+    ToneProtocol,
+    WsprProtocol,
+    WsprryPiBackendConfig,
+    WsprryPiShim,
+)
+from wsprrypi_qualification.offline import artifact, load_json_document
+from wsprrypi_qualification.offline_context import load_profile_context
+from wsprrypi_qualification.real_capabilities import (
+    CaptureCapabilityPlan,
+    GpioQuiescenceCapability,
+    HelperServiceProvider,
+    JsonHelperClient,
+    LocalTransportLauncher,
+    OwnedProcess,
+    PersistentHelperTransport,
+    RuntimeAuthorization,
+    Si5351QuiescenceCapability,
+    SoapyCaptureCapability,
+    SshOwnedProcessLauncher,
+    capability_plan_sha256,
+)
+from wsprrypi_qualification.real_session import RealSessionError, resolved_real_plan_sha256
+
+
+@dataclass(frozen=True)
+class LiveAdapterPaths:
+    work_directory: Path
+    bench_profile: Path
+    test_profile: Path
+    receiver_run_profile: Path
+    capture_helper: Path
+    wsprd: Path
+
+
+def _artifact_references(value: object) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+    if isinstance(value, dict):
+        if {"path", "size_bytes", "sha256"} <= value.keys():
+            records.append(value)
+        for child in value.values():
+            records.extend(_artifact_references(child))
+    elif isinstance(value, list):
+        for child in value:
+            records.extend(_artifact_references(child))
+    return records
+
+
+class ProductionRealSessionAdapters:
+    """Sealed production adapter; no subclass or fake may opt into live mode."""
+
+    execution_mode = "live"
+
+    def __init__(
+        self,
+        *,
+        transmitter_client: JsonHelperClient,
+        receiver_client: JsonHelperClient,
+        transmitter_launcher: SshOwnedProcessLauncher,
+        source_launcher: SshOwnedProcessLauncher,
+        capture_capability: SoapyCaptureCapability,
+        paths: LiveAdapterPaths,
+    ) -> None:
+        if type(self) is not ProductionRealSessionAdapters:
+            raise TypeError("production real-session adapter is sealed")
+        for path in (
+            paths.bench_profile,
+            paths.test_profile,
+            paths.receiver_run_profile,
+            paths.capture_helper,
+            paths.wsprd,
+        ):
+            if not path.is_absolute() or not path.is_file():
+                raise RealSessionError("production adapter paths must be existing absolute files")
+        if not paths.work_directory.is_absolute():
+            raise RealSessionError("production adapter work directory must be absolute")
+        self.tx_client = transmitter_client
+        self.rx_client = receiver_client
+        self.tx_launcher = transmitter_launcher
+        self.source_launcher = source_launcher
+        self.capture_capability = capture_capability
+        self.paths = paths
+        self.tx_services = HelperServiceProvider(transmitter_client, "systemd")
+        self.rx_services = HelperServiceProvider(receiver_client, "systemd")
+        self._initial_services: dict[tuple[str, str], bool] = {}
+        self._changed_services: list[tuple[str, str]] = []
+        self._owned: list[OwnedProcess] = []
+        self._capture_tasks: list[tuple[threading.Thread, threading.Event]] = []
+        self._cleanup_installed = False
+        self._artifacts: list[Path] = [
+            paths.bench_profile,
+            paths.test_profile,
+            paths.receiver_run_profile,
+            paths.capture_helper,
+            paths.wsprd,
+        ]
+        self._final_quiescence: bool | None = None
+        self._session_deadline: float | None = None
+        self._cleanup_reserve_s = 0.0
+        self._closed = False
+
+    def begin_session(self, plan: dict[str, Any]) -> None:
+        if self._session_deadline is not None:
+            raise RealSessionError("production adapter session already began")
+        self._session_deadline = time.monotonic() + plan["deadlines"]["overall_s"]
+        self._cleanup_reserve_s = plan["deadlines"]["cleanup_s"]
+
+    def _remaining(self, requested: float, *, reserve_cleanup: bool = False) -> float:
+        if self._session_deadline is None:
+            raise RealSessionError("production adapter session deadline is not installed")
+        remaining = (
+            self._session_deadline
+            - time.monotonic()
+            - (self._cleanup_reserve_s if reserve_cleanup else 0.0)
+        )
+        if remaining <= 0:
+            raise RealSessionError("real qualification overall deadline expired")
+        return min(requested, remaining)
+
+    def _stage(
+        self,
+        plan: dict[str, Any],
+        kind: str,
+        outcome: str,
+        details: dict[str, object],
+        deadline: float,
+        started: float,
+    ) -> dict[str, object]:
+        elapsed = time.monotonic() - started
+        if elapsed > deadline:
+            raise RealSessionError(f"{kind} exceeded its hard deadline")
+        return {
+            "schema_version": 1,
+            "evidence_type": kind,
+            "plan_sha256": resolved_real_plan_sha256(plan),
+            "outcome": outcome,
+            "elapsed_s": elapsed,
+            "deadline_s": deadline,
+            "details": details,
+        }
+
+    def discover_capabilities(self, plan: dict[str, Any]) -> dict[str, object]:
+        started = time.monotonic()
+        if socket.gethostname() != plan["receiver"]["observed_local_hostname"]:
+            raise RealSessionError("controller host differs from the resolved receiver host")
+        expected = {
+            "soapy": artifact(self.paths.capture_helper)["sha256"],
+            "decoder": artifact(self.paths.wsprd)["sha256"],
+        }
+        if any(plan["capability_bindings"][key] != value for key, value in expected.items()):
+            raise RealSessionError("local capture or decoder executable identity changed")
+        for name, path in (
+            ("bench", self.paths.bench_profile),
+            ("test", self.paths.test_profile),
+            ("receiver_run", self.paths.receiver_run_profile),
+        ):
+            if artifact(path)["sha256"] != plan["resolved_profiles"][name]["sha256"]:
+                raise RealSessionError(f"resolved {name} profile identity changed")
+        context = load_profile_context(self.paths.bench_profile, self.paths.test_profile)
+        if (
+            context.test.frequency_hz != plan["frequency_hz"]
+            or context.test.receiver_center_hz != plan["receiver"]["center_frequency_hz"]
+            or context.test.receiver_gain_db != plan["receiver"]["gain_db"]
+            or context.test.transmitter.host != plan["host"]
+            or context.test.transmitter.backend.value != plan["backend"]
+            or context.test.transmitter.output != plan["output"]
+            or context.test.band != plan["band"]
+            or context.test.identity.callsign != plan["identity"]["callsign"]
+            or context.test.identity.grid != plan["identity"]["grid"]
+            or context.test.identity.power_dbm != plan["identity"]["power_dbm"]
+            or context.test.ppm != plan["calibration"]["ppm"]
+            or context.test.gates.carrier_offset_max_hz != plan["carrier"]["offset_gate_hz"]
+            or context.test.gates.best_20hz_share_min != plan["carrier"]["best_20hz_share_min"]
+        ):
+            raise RealSessionError("resolved profile measurement contract differs from the plan")
+        return self._stage(
+            plan,
+            "capabilities",
+            "passed",
+            {"bindings": plan["capability_bindings"]},
+            plan["deadlines"]["helper_s"],
+            started,
+        )
+
+    def verify_helper(self, plan: dict[str, Any]) -> dict[str, object]:
+        started = time.monotonic()
+        # A signed, plan-bound response proves both persistent helper sessions.
+        for provider, services in (
+            (self.tx_services, plan["services"]["transmitter"]),
+            (self.rx_services, plan["services"]["receiver"]),
+        ):
+            if not services:
+                raise RealSessionError("each live host requires an inspectable service binding")
+            provider.inspect(services[0])
+        source = plan["source"]
+        observed = []
+        for arguments in (
+            (source["git_path"], "-C", source["repository_path"], "rev-parse", "HEAD"),
+            (
+                source["git_path"],
+                "-C",
+                source["repository_path"],
+                "rev-parse",
+                f"HEAD:{source['submodule_path']}",
+            ),
+        ):
+            process = self.source_launcher.begin(arguments)
+            result = process.wait(self._remaining(plan["deadlines"]["helper_s"]), None)
+            if result.return_code != 0 or not result.cleanup_verified:
+                raise RealSessionError("remote source revision inspection failed")
+            observed.append(result.stdout.strip())
+        if observed != [source["parent_revision"], source["submodule_revision"]]:
+            raise RealSessionError("remote source revisions differ from the resolved plan")
+        source_evidence = self.paths.work_directory / "source-revisions.json"
+        source_evidence.write_text(
+            json.dumps(
+                {
+                    "host": plan["host"],
+                    "repository_path": source["repository_path"],
+                    "submodule_path": source["submodule_path"],
+                    "parent_revision": observed[0],
+                    "submodule_revision": observed[1],
+                    "git_sha256": source["git_sha256"],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self._artifacts.append(source_evidence)
+        details: dict[str, object] = {
+            side: {
+                key: plan[field][key]
+                for key in ("host", "path", "sha256", "identity", "config_path", "config_sha256")
+            }
+            for side, field in (("transmitter", "remote_helper"), ("receiver", "receiver_helper"))
+        }
+        return self._stage(
+            plan, "helper", "passed", details, plan["deadlines"]["helper_s"], started
+        )
+
+    def inspect_services_and_ownership(self, plan: dict[str, Any]) -> dict[str, object]:
+        started = time.monotonic()
+        for side, provider in (("transmitter", self.tx_services), ("receiver", self.rx_services)):
+            for name in plan["services"][side]:
+                state = provider.inspect(name)
+                self._initial_services[(side, name)] = state.running
+        details: dict[str, object] = {
+            "transmitter": {
+                "host": plan["host"],
+                "services": plan["services"]["transmitter"],
+                "conflicts": [],
+            },
+            "receiver": {
+                "host": plan["receiver"]["host"],
+                "services": plan["services"]["receiver"],
+                "conflicts": [],
+            },
+        }
+        return self._stage(
+            plan, "ownership", "passed", details, plan["deadlines"]["helper_s"], started
+        )
+
+    def _quiescence(self, plan: dict[str, Any], authorization: RuntimeAuthorization) -> bool:
+        contract = plan["backend_contract"]
+        if plan["backend"] == "gpio":
+            result = GpioQuiescenceCapability(
+                __import__(
+                    "wsprrypi_qualification.real_capabilities", fromlist=["HelperGpioProvider"]
+                ).HelperGpioProvider(self.tx_client)
+            ).inspect(contract["gpio_pin"], authorization)
+        else:
+            result = Si5351QuiescenceCapability(
+                __import__(
+                    "wsprrypi_qualification.real_capabilities", fromlist=["HelperSi5351Provider"]
+                ).HelperSi5351Provider(self.tx_client)
+            ).inspect(
+                contract["i2c_bus"],
+                contract["i2c_address"],
+                (plan["output"],),
+                authorization,
+            )
+        return result["outcome"] == "verified"
+
+    def verify_rf_idle(self, plan: dict[str, Any]) -> dict[str, object]:
+        started = time.monotonic()
+        inspection_plan = (
+            {
+                "pin": plan["backend_contract"]["gpio_pin"],
+                "expected_direction": "input",
+                "read_only": True,
+            }
+            if plan["backend"] == "gpio"
+            else {
+                "bus": plan["backend_contract"]["i2c_bus"],
+                "address": plan["backend_contract"]["i2c_address"],
+                "required_outputs": [plan["output"]],
+                "read_only": True,
+            }
+        )
+        auth = RuntimeAuthorization(
+            capability_plan_sha256(inspection_plan), "real-session", datetime.now(UTC), True, False
+        )
+        if not self._quiescence(plan, auth):
+            raise RealSessionError("transmitter backend is not initially quiescent")
+        return self._stage(
+            plan,
+            "rf_idle",
+            "passed",
+            {"backend": plan["backend"], "output": plan["output"], "verified": True},
+            plan["deadlines"]["helper_s"],
+            started,
+        )
+
+    def install_cleanup(self, plan: dict[str, Any]) -> dict[str, object]:
+        started = time.monotonic()
+        self._cleanup_installed = True
+        for name in plan["services"]["receiver"]:
+            key = ("receiver", name)
+            if self._initial_services.get(key) is True:
+                self._changed_services.append(key)
+                self.rx_services.set_running(name, False)
+                if self.rx_services.inspect(name).running:
+                    raise RealSessionError("receiver service could not be stopped")
+        return self._stage(
+            plan,
+            "cleanup_registration",
+            "passed",
+            {"installed": True, "deadline_s": plan["deadlines"]["cleanup_s"]},
+            plan["deadlines"]["cleanup_s"],
+            started,
+        )
+
+    def _capture(
+        self,
+        plan: dict[str, Any],
+        kind: str,
+        count: int,
+        cancellation: threading.Event | None = None,
+    ) -> dict[str, object]:
+        if not self._cleanup_installed:
+            raise RealSessionError("capture refused before cleanup registration")
+        started = time.monotonic()
+        stem = f"{kind}-{len(self._artifacts)}"
+        output = self.paths.work_directory / f"{stem}.cf32"
+        metadata = self.paths.work_directory / f"{stem}-metadata.json"
+        receiver = plan["receiver"]
+        capture_plan = CaptureCapabilityPlan(
+            self.paths.capture_helper,
+            metadata,
+            output,
+            receiver["driver"],
+            receiver["serial"],
+            receiver["channel"],
+            receiver["sample_rate_hz"],
+            receiver["bandwidth_hz"],
+            receiver["center_frequency_hz"],
+            receiver["gain_db"],
+            count,
+            receiver["read_timeout_us"],
+            plan["deadlines"]["receiver_s"],
+            receiver["clipping_threshold"],
+        )
+        auth = RuntimeAuthorization(
+            capability_plan_sha256(capture_plan.document()),
+            "real-session",
+            datetime.now(UTC),
+            True,
+            False,
+        )
+        result = self.capture_capability.execute(capture_plan, auth, cancellation)
+        self._artifacts.extend((output, metadata))
+        return self._stage(
+            plan,
+            "capture",
+            "completed",
+            {
+                "capture_kind": kind,
+                "sample_format": "CF32",
+                "sample_rate_hz": 250000,
+                "sample_count": count,
+                "overflow_count": 0,
+                "timeout_count": 0,
+                "clipped_samples": 0,
+                "receiver_host": receiver["host"],
+                "driver": receiver["driver"],
+                "serial": receiver["serial"],
+                "artifact_sha256": cast(dict[str, object], result["output"])["sha256"],
+            },
+            plan["deadlines"]["receiver_s"],
+            started,
+        )
+
+    def capture_rf_off(self, plan: dict[str, Any]) -> dict[str, object]:
+        return self._capture(plan, "rf_off", plan["carrier"]["rf_off_sample_count"])
+
+    def _application(self, plan: dict[str, Any], *, tone: bool) -> ApplicationPlan:
+        contract = plan["backend_contract"]
+        config = WsprryPiBackendConfig(
+            plan["output"],
+            plan["calibration"]["ppm"],
+            i2c_bus=contract.get("i2c_bus"),
+            i2c_address=contract.get("i2c_address"),
+            reference_frequency_hz=contract.get("reference_frequency_hz"),
+            drive_or_power_level=contract["drive_or_power_level"],
+            gpio_pin=contract.get("gpio_pin"),
+        )
+        shim = WsprryPiShim(
+            ApplicationIdentity(
+                "wsprrypi",
+                plan["wsprrypi"]["path"],
+                plan["source"]["parent_revision"],
+                plan["source"]["submodule_revision"],
+            ),
+            backend=plan["backend"],
+            backend_config=config,
+        )
+        protocol = (
+            ToneProtocol(plan["frequency_hz"])
+            if tone
+            else WsprProtocol(
+                plan["identity"]["callsign"],
+                plan["identity"]["grid"],
+                plan["identity"]["power_dbm"],
+                plan["frequency_hz"],
+                3,
+                1500.0,
+            )
+        )
+        return shim.resolve_plan(f"{plan['run_id']}-{'carrier' if tone else 'frames'}", protocol)
+
+    def _begin_transmitter(self, plan: dict[str, Any], tone: bool) -> OwnedProcess:
+        if not self._cleanup_installed:
+            raise RealSessionError("transmitter refused before cleanup registration")
+        for name in plan["services"]["transmitter"]:
+            key = ("transmitter", name)
+            if self._initial_services.get(key) is True and key not in self._changed_services:
+                self._changed_services.append(key)
+                self.tx_services.set_running(name, False)
+                if self.tx_services.inspect(name).running:
+                    raise RealSessionError("transmitter service could not be stopped")
+        process = self.tx_launcher.begin(self._application(plan, tone=tone).arguments)
+        self._owned.append(process)
+        return process
+
+    def transmit_carrier_and_capture_rf_on(
+        self, plan: dict[str, Any], authorization: RuntimeAuthorization
+    ) -> dict[str, object]:
+        del authorization
+        captured: list[dict[str, object]] = []
+        errors: list[BaseException] = []
+        cancellation = threading.Event()
+        worker = threading.Thread(
+            target=lambda: self._capture_into(
+                captured,
+                errors,
+                plan,
+                "rf_on",
+                plan["carrier"]["rf_on_sample_count"],
+                cancellation,
+            ),
+            name="wspq-rf-on-capture",
+        )
+        self._capture_tasks.append((worker, cancellation))
+        worker.start()
+        self._wait_capture_ready(plan, "rf_on", worker, errors)
+        try:
+            process = self._begin_transmitter(plan, True)
+        except Exception as exc:
+            worker.join(self._remaining(plan["deadlines"]["receiver_s"], reserve_cleanup=True))
+            if worker.is_alive():
+                cancellation.set()
+                raise RealSessionError(
+                    "carrier launch failed and receiver cleanup remains unverified"
+                ) from exc
+            raise
+        try:
+            worker.join(self._remaining(plan["deadlines"]["receiver_s"], reserve_cleanup=True))
+            if worker.is_alive() or errors or not captured:
+                cancellation.set()
+                raise RealSessionError("RF-on receiver did not complete its exact capture")
+            return captured[0]
+        finally:
+            result = process.stop()
+            if not result.cleanup_verified:
+                raise RealSessionError("carrier transmitter cleanup was not verified")
+            self._owned.remove(process)
+            if not worker.is_alive() and (worker, cancellation) in self._capture_tasks:
+                self._capture_tasks.remove((worker, cancellation))
+
+    def _capture_into(
+        self,
+        captured: list[dict[str, object]],
+        errors: list[BaseException],
+        plan: dict[str, Any],
+        kind: str,
+        count: int,
+        cancellation: threading.Event,
+    ) -> None:
+        try:
+            captured.append(self._capture(plan, kind, count, cancellation))
+        except BaseException as exc:
+            errors.append(exc)
+
+    def _wait_capture_ready(
+        self,
+        plan: dict[str, Any],
+        kind: str,
+        worker: threading.Thread,
+        errors: list[BaseException],
+    ) -> None:
+        deadline = time.monotonic() + plan["deadlines"]["helper_s"]
+        output = self.paths.work_directory / f"{kind}-{len(self._artifacts)}.cf32"
+        expected = Path(str(output) + ".incomplete")
+        while time.monotonic() < deadline:
+            if expected.exists():
+                return
+            if errors or not worker.is_alive():
+                break
+            time.sleep(0.01)
+        raise RealSessionError("receiver capture did not establish its retained output before RF")
+
+    def analyze_carrier(
+        self, plan: dict[str, Any], rf_off: dict[str, object], rf_on: dict[str, object]
+    ) -> dict[str, object]:
+        del rf_off, rf_on
+        started = time.monotonic()
+        off, on = self._artifacts[-4], self._artifacts[-2]
+        evidence = self.paths.work_directory / "carrier-analysis.json"
+        self._run_offline(
+            (
+                "analyze-carrier",
+                str(off),
+                str(on),
+                str(evidence),
+                "--rf-off-metadata",
+                str(self._artifacts[-3]),
+                "--rf-on-metadata",
+                str(self._artifacts[-1]),
+                "--bench-profile",
+                str(self.paths.bench_profile),
+                "--test-profile",
+                str(self.paths.test_profile),
+            ),
+            self._remaining(plan["deadlines"]["overall_s"], reserve_cleanup=True),
+        )
+        document = load_json_document(evidence, "carrier-analysis.schema.json")
+        self._artifacts.append(evidence)
+        metrics = document["metrics"]
+        return self._stage(
+            plan,
+            "carrier_analysis",
+            "completed",
+            {
+                "gate_outcome": document["gate_outcome"],
+                "requested_frequency_hz": plan["frequency_hz"],
+                "strongest_frequency_hz": metrics["strongest_transmitter_added_frequency_hz"],
+                "offset_hz": metrics["strongest_offset_hz"],
+                "best_20hz_fraction": metrics["best_20hz_resolved_power_share"],
+            },
+            plan["deadlines"]["overall_s"],
+            started,
+        )
+
+    def transmit_frames_and_capture(
+        self, plan: dict[str, Any], authorization: RuntimeAuthorization
+    ) -> dict[str, object]:
+        del authorization
+        first_slot = datetime.fromisoformat(plan["slots_utc"][0].replace("Z", "+00:00"))
+        capture_start = (
+            first_slot.timestamp() - plan["coherent_capture"]["margin_before_first_slot_s"]
+        )
+        delay = capture_start - time.time()
+        if delay < 0 or delay > self._remaining(
+            plan["deadlines"]["overall_s"], reserve_cleanup=True
+        ):
+            raise RealSessionError("coherent capture cannot meet its resolved UTC margin")
+        if delay:
+            time.sleep(delay)
+        captured: list[dict[str, object]] = []
+        capture_error: list[BaseException] = []
+        cancellation = threading.Event()
+
+        def capture_worker() -> None:
+            try:
+                captured.append(
+                    self._capture(
+                        plan,
+                        "coherent",
+                        plan["coherent_capture"]["sample_count"],
+                        cancellation,
+                    )
+                )
+            except BaseException as exc:
+                capture_error.append(exc)
+
+        worker = threading.Thread(target=capture_worker, name="wspq-coherent-capture")
+        self._capture_tasks.append((worker, cancellation))
+        worker.start()
+        self._wait_capture_ready(plan, "coherent", worker, capture_error)
+        try:
+            process = self._begin_transmitter(plan, False)
+        except Exception as exc:
+            worker.join(self._remaining(plan["deadlines"]["receiver_s"], reserve_cleanup=True))
+            if worker.is_alive():
+                raise RealSessionError(
+                    "transmitter launch failed and receiver cleanup remains unverified"
+                ) from exc
+            raise
+        try:
+            worker.join(self._remaining(plan["deadlines"]["receiver_s"], reserve_cleanup=True))
+            if worker.is_alive():
+                cancellation.set()
+                raise RealSessionError("coherent receiver exceeded its hard deadline")
+            if capture_error:
+                raise RealSessionError(f"coherent capture failed: {capture_error[0]}")
+            wait = process.wait(
+                self._remaining(plan["deadlines"]["transmitter_s"], reserve_cleanup=True), None
+            )
+            if wait.return_code != 0 or not wait.cleanup_verified:
+                raise RealSessionError("bounded WSPR transmitter did not exit cleanly")
+            self._owned.remove(process)
+            if (worker, cancellation) in self._capture_tasks:
+                self._capture_tasks.remove((worker, cancellation))
+            return captured[0]
+        except Exception:
+            cancellation.set()
+            process.stop()
+            if process in self._owned:
+                self._owned.remove(process)
+            raise
+
+    def create_wavs_and_decode(
+        self, plan: dict[str, Any], coherent_capture: dict[str, object]
+    ) -> dict[str, object]:
+        del coherent_capture
+        started = time.monotonic()
+        iq, metadata = self._artifacts[-2:]
+        slot_documents: list[dict[str, Any]] = []
+        slot_paths: list[Path] = []
+        for index, slot_text in enumerate(plan["slots_utc"]):
+            audio_evidence = self.paths.work_directory / f"audio-{index}.json"
+            self._run_offline(
+                (
+                    "make-slot-wav",
+                    str(iq),
+                    str(metadata),
+                    str(self.paths.work_directory),
+                    str(audio_evidence),
+                    "--slot",
+                    slot_text,
+                    "--bench-profile",
+                    str(self.paths.bench_profile),
+                    "--test-profile",
+                    str(self.paths.test_profile),
+                ),
+                self._remaining(plan["deadlines"]["overall_s"], reserve_cleanup=True),
+            )
+            audio = load_json_document(audio_evidence, "audio-conversion.schema.json")
+            wav = Path(cast(str, cast(dict[str, object], audio["output"])["path"]))
+            decoder_evidence = self.paths.work_directory / f"decoder-{index}.json"
+            self._run_offline(
+                (
+                    "decode-wspr",
+                    str(wav),
+                    str(audio_evidence),
+                    str(decoder_evidence),
+                    "--wsprd",
+                    str(self.paths.wsprd),
+                    "--timeout",
+                    str(plan["deadlines"]["helper_s"]),
+                ),
+                self._remaining(plan["deadlines"]["helper_s"] + 5, reserve_cleanup=True),
+            )
+            decoded = load_json_document(decoder_evidence, "decoder-evidence.schema.json")
+            slot_documents.append(decoded)
+            slot_paths.append(decoder_evidence)
+            self._artifacts.extend((wav, audio_evidence, decoder_evidence))
+            self._artifacts.extend(Path(item["path"]) for item in decoded["decoder_data_artifacts"])
+        summary_path = self.paths.work_directory / "decode-summary.json"
+        self._run_offline(
+            ("summarize-decodes", str(summary_path), *(str(path) for path in slot_paths)),
+            self._remaining(plan["deadlines"]["helper_s"], reserve_cleanup=True),
+        )
+        summary = load_json_document(summary_path, "decode-summary.schema.json")
+        self._artifacts.append(summary_path)
+        slots = [
+            {
+                "slot_utc": document["slot_utc"],
+                "callsign": plan["identity"]["callsign"],
+                "grid": plan["identity"]["grid"],
+                "power_dbm": plan["identity"]["power_dbm"],
+                "matched": document["gate_outcome"] == "passed",
+                "wsprd_log_sha256": artifact(slot_paths[index])["sha256"],
+            }
+            for index, document in enumerate(slot_documents)
+        ]
+        return self._stage(
+            plan,
+            "decode_summary",
+            "completed",
+            {"gate_outcome": summary["gate_outcome"], "slots": slots},
+            plan["deadlines"]["overall_s"],
+            started,
+        )
+
+    @staticmethod
+    def _run_offline(arguments: tuple[str, ...], timeout_s: float) -> None:
+        try:
+            result = subprocess.run(
+                (sys.executable, "-m", "wsprrypi_qualification.cli", *arguments),
+                shell=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=timeout_s,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RealSessionError(
+                f"offline stage exceeded its hard deadline: {arguments[0]}"
+            ) from exc
+        if result.returncode != 0:
+            raise RealSessionError(
+                f"offline stage failed ({arguments[0]}): {result.stderr.strip()}"
+            )
+
+    def cleanup(self, plan: dict[str, Any]) -> dict[str, object]:
+        started = time.monotonic()
+        cleanup_deadline = min(
+            started + plan["deadlines"]["cleanup_s"],
+            self._session_deadline if self._session_deadline is not None else float("inf"),
+        )
+
+        def time_left() -> bool:
+            return bool(time.monotonic() < cleanup_deadline)
+
+        def apply_budget(client: JsonHelperClient) -> None:
+            remaining = cleanup_deadline - time.monotonic()
+            if remaining <= 0:
+                raise RealSessionError("cleanup deadline expired")
+            client.timeout_s = remaining
+            if hasattr(client.transport, "cleanup_timeout_s"):
+                client.transport.cleanup_timeout_s = remaining
+
+        ok = True
+        failures: list[str] = []
+        failures.extend(self._cancel_capture_tasks(cleanup_deadline))
+        ok &= not failures
+        for process in tuple(self._owned):
+            if not time_left():
+                ok = False
+                failures.append("cleanup deadline expired before process stop")
+                break
+            try:
+                apply_budget(self.tx_client)
+                stopped = process.stop().cleanup_verified
+                ok &= stopped
+                if stopped:
+                    self._owned.remove(process)
+                else:
+                    failures.append("owned process stop was not verified")
+            except Exception as exc:
+                ok = False
+                failures.append(f"process stop: {type(exc).__name__}: {exc}")
+        for side, name in reversed(self._changed_services):
+            if not time_left():
+                ok = False
+                failures.append("cleanup deadline expired before service restoration")
+                break
+            provider = self.tx_services if side == "transmitter" else self.rx_services
+            try:
+                apply_budget(self.tx_client if side == "transmitter" else self.rx_client)
+                provider.set_running(name, self._initial_services[(side, name)])
+                apply_budget(self.tx_client if side == "transmitter" else self.rx_client)
+                restored = provider.inspect(name).running == self._initial_services[(side, name)]
+                ok &= restored
+                if not restored:
+                    failures.append(f"service restoration unverified: {side}:{name}")
+            except Exception as exc:
+                ok = False
+                failures.append(f"service restoration {side}:{name}: {type(exc).__name__}: {exc}")
+        inspection = (
+            {
+                "pin": plan["backend_contract"]["gpio_pin"],
+                "expected_direction": "input",
+                "read_only": True,
+            }
+            if plan["backend"] == "gpio"
+            else {
+                "bus": plan["backend_contract"]["i2c_bus"],
+                "address": plan["backend_contract"]["i2c_address"],
+                "required_outputs": [plan["output"]],
+                "read_only": True,
+            }
+        )
+        auth = RuntimeAuthorization(
+            capability_plan_sha256(inspection),
+            "real-session",
+            datetime.now(UTC),
+            True,
+            False,
+        )
+        try:
+            if not time_left():
+                raise RealSessionError("cleanup deadline expired before quiescence")
+            apply_budget(self.tx_client)
+            self._final_quiescence = self._quiescence(plan, auth)
+            ok &= self._final_quiescence
+        except Exception as exc:
+            self._final_quiescence = False
+            ok = False
+            failures.append(f"quiescence: {type(exc).__name__}: {exc}")
+        helper_absent = self.close(max(0.0, cleanup_deadline - time.monotonic()))
+        if not helper_absent:
+            failures.append("persistent helper closure was not verified")
+        ok &= helper_absent
+        elapsed = time.monotonic() - started
+        return {
+            "schema_version": 1,
+            "evidence_type": "cleanup",
+            "plan_sha256": resolved_real_plan_sha256(plan),
+            "outcome": "verified" if ok else "failed",
+            "elapsed_s": elapsed,
+            "deadline_s": plan["deadlines"]["cleanup_s"],
+            "details": {
+                "actions_complete": ok,
+                "helper_absent": helper_absent and not self._owned and not self._capture_tasks,
+            },
+        }
+
+    def _cancel_capture_tasks(self, deadline: float) -> list[str]:
+        failures: list[str] = []
+        for worker, cancellation in tuple(self._capture_tasks):
+            cancellation.set()
+            worker.join(max(0.0, deadline - time.monotonic()))
+            if worker.is_alive():
+                failures.append("receiver capture process cleanup was not verified")
+            else:
+                self._capture_tasks.remove((worker, cancellation))
+        return failures
+
+    def close(self, deadline_s: float | None = None) -> bool:
+        if self._closed:
+            return True
+        deadline = time.monotonic() + (
+            self._cleanup_reserve_s if deadline_s is None else deadline_s
+        )
+        verified = True
+        for client in (self.tx_client, self.rx_client):
+            if time.monotonic() >= deadline:
+                return False
+            close = getattr(client.transport, "close", None)
+            if close is None:
+                verified = False
+                continue
+            try:
+                if hasattr(client.transport, "cleanup_timeout_s"):
+                    client.transport.cleanup_timeout_s = max(0.001, deadline - time.monotonic())
+                close()
+            except Exception:
+                verified = False
+        self._closed = verified
+        return verified
+
+    def verify_quiescence(self, plan: dict[str, Any]) -> dict[str, object]:
+        started = time.monotonic()
+        if self._final_quiescence is None:
+            raise RealSessionError("final quiescence was not captured before helper shutdown")
+        verified = self._final_quiescence
+        return self._stage(
+            plan,
+            "quiescence",
+            "verified" if verified else "failed",
+            {"backend": plan["backend"], "output": plan["output"], "verified": verified},
+            plan["deadlines"]["cleanup_s"],
+            started,
+        )
+
+    def publish_artifacts(self, destination: Path) -> list[dict[str, object]]:
+        retained: list[dict[str, object]] = []
+        records: list[dict[str, object]] = []
+        unique_sources = list(dict.fromkeys(path.resolve() for path in self._artifacts))
+        for index, source in enumerate(unique_sources):
+            target = destination / "retained-artifacts" / f"{index:03d}-{source.name}"
+            target.parent.mkdir(exist_ok=True)
+            shutil.copy2(source, target)
+            identity = artifact(target)
+            identity["path"] = target.relative_to(destination).as_posix()
+            retained.append(identity)
+            records.append({"source": artifact(source), "retained": identity})
+        index_path = destination / "live-artifact-index.json"
+        index_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "evidence_type": "live_artifact_index",
+                    "artifacts": records,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        index_identity = artifact(index_path)
+        index_identity["path"] = index_path.name
+        retained.append(index_identity)
+        return retained
+
+    @staticmethod
+    def validate_published_artifacts(bundle: Path) -> None:
+        index = json.loads((bundle / "live-artifact-index.json").read_text(encoding="utf-8"))
+        if set(index) != {"schema_version", "evidence_type", "artifacts"}:
+            raise RealSessionError("live artifact index structure is invalid")
+        if index["schema_version"] != 1 or index["evidence_type"] != "live_artifact_index":
+            raise RealSessionError("live artifact index identity is invalid")
+        mapping: dict[str, dict[str, object]] = {}
+        for record in index["artifacts"]:
+            if set(record) != {"source", "retained"} or any(
+                set(record[key]) != {"path", "size_bytes", "sha256"}
+                for key in ("source", "retained")
+            ):
+                raise RealSessionError("live artifact index record is invalid")
+            retained = bundle / record["retained"]["path"]
+            if (
+                retained.is_symlink()
+                or not retained.is_file()
+                or not retained.resolve().is_relative_to(bundle.resolve())
+            ):
+                raise RealSessionError("retained live artifact escapes its bundle")
+            actual = artifact(retained)
+            actual["path"] = record["retained"]["path"]
+            if actual != record["retained"]:
+                raise RealSessionError("retained live artifact identity changed")
+            mapping[record["source"]["path"]] = record["retained"]
+        for record in index["artifacts"]:
+            retained_path = bundle / record["retained"]["path"]
+            if retained_path.suffix != ".json":
+                continue
+            document = json.loads(retained_path.read_text(encoding="utf-8"))
+            for reference in _artifact_references(document):
+                reference_path = reference["path"]
+                if not isinstance(reference_path, str):
+                    raise RealSessionError("published artifact reference path is invalid")
+                matched = mapping.get(reference_path)
+                if matched is None or any(
+                    matched[key] != reference[key] for key in ("size_bytes", "sha256")
+                ):
+                    raise RealSessionError("published JSON has an unauthenticated dependency")
+
+
+def build_production_adapters(
+    plan: dict[str, Any], *, ssh_executable: Path, work_directory: Path
+) -> ProductionRealSessionAdapters:
+    """Build the one reviewed topology: local wspr5 receiver, SSH wspr4 transmitter."""
+    if plan["transport"] != "ssh" or plan["execution_mode"] != "live":
+        raise RealSessionError("production composition requires an SSH live plan")
+    if not ssh_executable.is_absolute() or not ssh_executable.is_file():
+        raise RealSessionError("OpenSSH executable must be an existing absolute file")
+    if artifact(ssh_executable)["sha256"] != plan["capability_bindings"]["transmitter_ssh"]:
+        raise RealSessionError("OpenSSH executable identity differs from the resolved plan")
+    known_hosts = Path(plan["transport_identity"]["known_hosts_path"])
+    if (
+        not known_hosts.is_absolute()
+        or not known_hosts.is_file()
+        or artifact(known_hosts)["sha256"] != plan["transport_identity"]["known_hosts_sha256"]
+    ):
+        raise RealSessionError("pinned SSH known-hosts identity changed")
+    ssh_keygen = Path(plan["transport_identity"]["ssh_keygen_path"])
+    if (
+        not ssh_keygen.is_absolute()
+        or not ssh_keygen.is_file()
+        or artifact(ssh_keygen)["sha256"] != plan["transport_identity"]["ssh_keygen_sha256"]
+    ):
+        raise RealSessionError("pinned ssh-keygen identity changed")
+    selected = subprocess.run(
+        (str(ssh_keygen), "-F", plan["host"], "-f", str(known_hosts)),
+        shell=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=5,
+        check=False,
+    )
+    selected_lines = [line for line in selected.stdout.splitlines() if not line.startswith("#")]
+    if selected.returncode != 0 or not selected_lines:
+        raise RealSessionError("transmitter destination is absent from pinned known-hosts")
+    with TemporaryDirectory(prefix="wspq-host-key-") as directory:
+        selected_path = Path(directory) / "selected-known-hosts"
+        selected_path.write_text("\n".join(selected_lines) + "\n", encoding="utf-8")
+        fingerprint = subprocess.run(
+            (str(ssh_keygen), "-lf", str(selected_path)),
+            shell=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+            check=False,
+        )
+    parsed_fingerprints = [
+        fields[1]
+        for fields in (line.split() for line in fingerprint.stdout.splitlines())
+        if len(fields) >= 2 and fields[1].startswith("SHA256:")
+    ]
+    if (
+        fingerprint.returncode != 0
+        or not parsed_fingerprints
+        or any(
+            value != plan["transport_identity"]["transmitter_host_key_sha256"]
+            for value in parsed_fingerprints
+        )
+    ):
+        raise RealSessionError("transmitter SSH server key fingerprint is not pinned")
+    for helper in (plan["remote_helper"], plan["receiver_helper"]):
+        if any(
+            re.fullmatch(r"/[A-Za-z0-9._/+:-]+", helper[field]) is None
+            for field in ("path", "config_path")
+        ):
+            raise RealSessionError("helper or configuration path is unsafe for execution")
+    receiver_helper = Path(plan["receiver_helper"]["path"])
+    receiver_config = Path(plan["receiver_helper"]["config_path"])
+    if artifact(receiver_helper)["sha256"] != plan["receiver_helper"]["sha256"]:
+        raise RealSessionError("local receiver helper identity changed")
+    if artifact(receiver_config)["sha256"] != plan["receiver_helper"]["config_sha256"]:
+        raise RealSessionError("local receiver helper configuration identity changed")
+    paths = LiveAdapterPaths(
+        work_directory.resolve(),
+        Path(plan["resolved_profiles"]["bench"]["path"]).resolve(),
+        Path(plan["resolved_profiles"]["test"]["path"]).resolve(),
+        Path(plan["resolved_profiles"]["receiver_run"]["path"]).resolve(),
+        Path(plan["capture_helper"]["path"]).resolve(),
+        Path(plan["wsprd"]["path"]).resolve(),
+    )
+    for path in (
+        paths.bench_profile,
+        paths.test_profile,
+        paths.receiver_run_profile,
+        paths.capture_helper,
+        paths.wsprd,
+    ):
+        if not path.is_file():
+            raise RealSessionError(f"required local live input is unavailable: {path}")
+    work_directory.mkdir(parents=True, exist_ok=False)
+    remote_command = (
+        f"{plan['remote_helper']['path']} --serve --config {plan['remote_helper']['config_path']}"
+    )
+    tx_transport: PersistentHelperTransport | None = None
+    rx_transport: PersistentHelperTransport | None = None
+    try:
+        tx_transport = PersistentHelperTransport(
+            (
+                str(ssh_executable),
+                "-o",
+                f"ConnectTimeout={plan['deadlines']['helper_s']:g}",
+                "-o",
+                "StrictHostKeyChecking=yes",
+                "-o",
+                f"UserKnownHostsFile={known_hosts}",
+                "--",
+                plan["host"],
+                remote_command,
+            ),
+            cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
+        )
+        rx_transport = PersistentHelperTransport(
+            (str(receiver_helper), "--serve", "--config", str(receiver_config)),
+            cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
+        )
+    except Exception:
+        if tx_transport is not None:
+            tx_transport.close()
+        shutil.rmtree(work_directory)
+        raise
+    assert tx_transport is not None and rx_transport is not None
+    digest = resolved_real_plan_sha256(plan)
+    tx_client = JsonHelperClient(
+        ssh_executable,
+        tx_transport,
+        plan["deadlines"]["helper_s"],
+        digest,
+        plan["remote_helper"]["identity"],
+        plan["capability_bindings"]["transmitter_ssh"],
+    )
+    rx_client = JsonHelperClient(
+        receiver_helper,
+        rx_transport,
+        plan["deadlines"]["helper_s"],
+        digest,
+        plan["receiver_helper"]["identity"],
+        plan["receiver_helper"]["sha256"],
+    )
+    try:
+        return ProductionRealSessionAdapters(
+            transmitter_client=tx_client,
+            receiver_client=rx_client,
+            transmitter_launcher=SshOwnedProcessLauncher(
+                tx_client,
+                plan["deadlines"]["transmitter_s"],
+                plan["wsprrypi"]["sha256"],
+            ),
+            source_launcher=SshOwnedProcessLauncher(
+                tx_client,
+                plan["deadlines"]["helper_s"],
+                plan["source"]["git_sha256"],
+            ),
+            capture_capability=SoapyCaptureCapability(LocalTransportLauncher()),
+            paths=paths,
+        )
+    except Exception:
+        tx_transport.close()
+        rx_transport.close()
+        shutil.rmtree(work_directory)
+        raise

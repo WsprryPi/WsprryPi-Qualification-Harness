@@ -9,6 +9,7 @@ import json
 import re
 import subprocess
 import threading
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -863,6 +864,7 @@ class PersistentHelperTransport:
     def exchange(self, encoded_request: str, timeout_s: float) -> str:
         if timeout_s <= 0 or self._process.poll() is not None:
             raise CapabilityError("persistent helper session is unavailable")
+        deadline = time.monotonic() + timeout_s
         assert self._process.stdin is not None and self._process.stdout is not None
         stdout_stream = self._process.stdout
         with self._lock:
@@ -879,10 +881,15 @@ class PersistentHelperTransport:
 
             reader = threading.Thread(target=read_line, daemon=True)
             reader.start()
-            if not completed.wait(timeout_s) or not response or not response[0]:
+            if (
+                not completed.wait(max(0.0, deadline - time.monotonic()))
+                or not response
+                or not response[0]
+            ):
                 self._close_input()
+                remaining = max(0.0, deadline - time.monotonic())
                 try:
-                    self._process.wait(timeout=self.cleanup_timeout_s)
+                    self._process.wait(timeout=min(self.cleanup_timeout_s, remaining))
                 except subprocess.TimeoutExpired as exc:
                     raise CapabilityError(
                         "helper response timed out; cleanup remains owned but is not yet verified"

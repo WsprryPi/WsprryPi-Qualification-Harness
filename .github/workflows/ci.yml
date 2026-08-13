@@ -31,6 +31,8 @@ jobs:
         run: python -m mypy
       - name: Unit tests
         run: python -m pytest
+      - name: Verify preserved historical provenance
+        run: python -c "import hashlib,pathlib; root=pathlib.Path('.'); lines=(root/'provenance/SHA256SUMS').read_text(encoding='utf-8').splitlines(); bad=[]; [(bad.append(str(p)) if (not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest()!=digest) else None) for line in lines if line.strip() for digest,name in [line.split(None,1)] for p in [root/name.strip()]]; assert not bad, bad"
       - name: Bounded hardware-free simulator
         timeout-minutes: 2
         run: wsprrypi-qualification simulate-qualification simulator-ci-runs --run-id 20260812T120000Z-ci-${{ matrix.os }}-${{ matrix.python-version }}
@@ -42,9 +44,9 @@ jobs:
         run: ctest --test-dir build-native -C Release --output-on-failure
       - name: Build distributions
         run: python -m build
-      - name: Verify deployment assets in distributions
-        run: python -c "import glob, zipfile; p=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(p).namelist(); required=['wsprrypi_qualification/deployment.py','wsprrypi_qualification/simulator.py','wsprrypi_qualification/schemas/helper-deployment-config.schema.json','wsprrypi_qualification/schemas/deployment-provider-evidence.schema.json','wsprrypi_qualification/schemas/simulator-session.schema.json','wsprrypi_qualification/schemas/simulator-decode-summary.schema.json','wsprrypi_qualification/schemas/simulator-result.schema.json','wsprrypi_qualification/deployment_assets/helper-config.example.json','wsprrypi_qualification/deployment_assets/wspq-capability-helper.service.in']; assert all(any(x.endswith(r) for x in n) for r in required)"
+      - name: Verify deployment and live-session assets in distributions
+        run: python -c "import glob, zipfile; p=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(p).namelist(); required=['wsprrypi_qualification/deployment.py','wsprrypi_qualification/simulator.py','wsprrypi_qualification/live_adapters.py','wsprrypi_qualification/real_session.py','wsprrypi_qualification/schemas/helper-deployment-config.schema.json','wsprrypi_qualification/schemas/deployment-provider-evidence.schema.json','wsprrypi_qualification/schemas/simulator-session.schema.json','wsprrypi_qualification/schemas/simulator-decode-summary.schema.json','wsprrypi_qualification/schemas/simulator-result.schema.json','wsprrypi_qualification/schemas/application-plan.schema.json','wsprrypi_qualification/schemas/real-session-stage-evidence.schema.json','wsprrypi_qualification/schemas/resolved-real-session-plan.schema.json','wsprrypi_qualification/deployment_assets/helper-config.example.json','wsprrypi_qualification/deployment_assets/wspq-capability-helper.service.in']; assert all(n.count(r)==1 for r in required), [r for r in required if n.count(r)!=1]"
       - name: Install wheel smoke test in isolated environment
-        run: python -c "import glob, pathlib, subprocess, sys, tempfile; d=pathlib.Path(tempfile.mkdtemp()); v=d/'venv'; subprocess.check_call([sys.executable,'-m','venv',str(v)]); p=v/('Scripts/python.exe' if sys.platform=='win32' else 'bin/python'); subprocess.check_call([str(p),'-m','pip','install',glob.glob('dist/*.whl')[0]]); subprocess.check_call([str(p),'-c','import wsprrypi_qualification.deployment'])"
+        run: python scripts/ci_install_wheel_smoke.py
       - name: CLI smoke test
         run: wsprrypi-qualification version

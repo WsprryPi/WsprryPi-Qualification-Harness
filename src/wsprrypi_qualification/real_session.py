@@ -1,10 +1,12 @@
-"""Fail-closed real-session composition; no production adapter is enabled by the CLI."""
+"""Fail-closed real-session composition for hardware-free and explicitly live adapters."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import shutil
+from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -103,10 +105,14 @@ class RealSessionAdapters(Protocol):
     ) -> dict[str, object]: ...
     def cleanup(self, plan: dict[str, Any]) -> dict[str, object]: ...
     def verify_quiescence(self, plan: dict[str, Any]) -> dict[str, object]: ...
+    def close(self) -> bool: ...
+
+    @property
+    def execution_mode(self) -> str: ...
 
 
 class RealQualificationSession:
-    """Single-use lifecycle coordinator; adapters remain externally supplied and disabled."""
+    """Single-use lifecycle coordinator with an execution-mode-bound adapter."""
 
     def __init__(
         self,
@@ -114,8 +120,10 @@ class RealQualificationSession:
         adapters: RealSessionAdapters,
         *,
         now: datetime,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.plan, self.adapters, self.now = plan, adapters, now
+        self.clock = clock or (lambda: datetime.now(UTC))
         self._used = False
 
     def run(
@@ -128,15 +136,26 @@ class RealQualificationSession:
             raise RealSessionError("real qualification coordinators are single-use")
         self._used = True
         plan = self.plan.validated()
-        if plan["execution_mode"] != "hardware_free_validation":
-            raise RealSessionError("live real-session execution is deliberately unavailable")
+        adapter_mode = getattr(self.adapters, "execution_mode", "hardware_free_validation")
+        if adapter_mode != plan["execution_mode"]:
+            raise RealSessionError("adapter execution mode differs from the resolved plan")
+        if plan["execution_mode"] == "live":
+            from wsprrypi_qualification.live_adapters import ProductionRealSessionAdapters
+
+            if type(self.adapters) is not ProductionRealSessionAdapters:
+                raise RealSessionError("live execution requires the sealed production adapter")
+            self.adapters.begin_session(plan)
         run_id = cast(str, plan["run_id"])
         parent = output_parent.resolve()
         final = parent / run_id
         temporary = parent / f".incomplete-{run_id}"
         if final.parent != parent or temporary.parent != parent:
+            if plan["execution_mode"] == "live" and not self.adapters.close():
+                raise RealSessionError("run ID invalid and helper cleanup was not verified")
             raise RealSessionError("run ID escapes the evidence parent")
         if final.exists() or temporary.exists():
+            if plan["execution_mode"] == "live" and not self.adapters.close():
+                raise RealSessionError("output conflict and helper cleanup was not verified")
             raise RealSessionError("refusing to reuse an evidence directory")
         parent.mkdir(parents=True, exist_ok=True)
         temporary.mkdir()
@@ -148,13 +167,15 @@ class RealQualificationSession:
         carrier_gate = "not_run"
         decode_gate = "not_run"
         failure_causes: list[str] = []
+        preflight_passed = False
         evidence: dict[str, object] = {}
+        run_started = self.clock()
 
         def event(phase: RealPhase, outcome: str, detail: str) -> None:
             events.append(
                 {
                     "sequence": len(events) + 1,
-                    "timestamp_utc": _utc(self.now),
+                    "timestamp_utc": _utc(self.clock()),
                     "phase": phase.value,
                     "outcome": outcome,
                     "detail": detail,
@@ -185,9 +206,31 @@ class RealQualificationSession:
                 helper, "helper", self.plan.sha256, "passed", plan["deadlines"]["helper_s"]
             )
             helper_details = cast(dict[str, object], helper["details"])
-            if helper_details != {
-                key: plan["remote_helper"][key] for key in ("host", "path", "sha256", "identity")
-            }:
+            expected_helpers = {
+                "transmitter": {
+                    key: plan["remote_helper"][key]
+                    for key in (
+                        "host",
+                        "path",
+                        "sha256",
+                        "identity",
+                        "config_path",
+                        "config_sha256",
+                    )
+                },
+                "receiver": {
+                    key: plan["receiver_helper"][key]
+                    for key in (
+                        "host",
+                        "path",
+                        "sha256",
+                        "identity",
+                        "config_path",
+                        "config_sha256",
+                    )
+                },
+            }
+            if helper_details != expected_helpers:
                 raise RealSessionError("helper evidence differs from the resolved helper")
             evidence["helper"] = helper
             event(RealPhase.HELPER, "passed", "remote helper identity verified")
@@ -195,11 +238,19 @@ class RealQualificationSession:
             _validate_stage(
                 ownership, "ownership", self.plan.sha256, "passed", plan["deadlines"]["helper_s"]
             )
-            if ownership["details"] != {
-                "host": plan["host"],
-                "services": plan["services"],
-                "conflicts": [],
-            }:
+            expected_ownership = {
+                "transmitter": {
+                    "host": plan["host"],
+                    "services": plan["services"]["transmitter"],
+                    "conflicts": [],
+                },
+                "receiver": {
+                    "host": plan["receiver"]["host"],
+                    "services": plan["services"]["receiver"],
+                    "conflicts": [],
+                },
+            }
+            if ownership["details"] != expected_ownership:
                 raise RealSessionError("ownership evidence differs from the resolved host/services")
             evidence["ownership"] = ownership
             event(RealPhase.SERVICES, "passed", "service and ownership preflight passed")
@@ -226,6 +277,7 @@ class RealQualificationSession:
                 raise RealSessionError("cleanup registration differs from the resolved deadline")
             evidence["cleanup_registration"] = installed
             event(RealPhase.CLEANUP_INSTALLED, "passed", "cleanup installed before RF enable")
+            preflight_passed = True
             rf_off = self.adapters.capture_rf_off(plan)
             _validate_capture(rf_off, plan, "rf_off", plan["carrier"]["rf_off_sample_count"])
             evidence["rf_off"] = rf_off
@@ -271,24 +323,30 @@ class RealQualificationSession:
             if isinstance(exc, RealFixtureBlocked):
                 final_status = "fixture_blocked"
             else:
-                final_status = "preflight_failed" if not cleanup_required else "aborted"
+                final_status = "preflight_failed" if not preflight_passed else "aborted"
         finally:
             if cleanup_required:
                 try:
                     cleanup_document = self.adapters.cleanup(plan)
-                    _validate_stage(
-                        cleanup_document,
-                        "cleanup",
-                        self.plan.sha256,
-                        "verified",
-                        plan["deadlines"]["cleanup_s"],
-                    )
-                    if cleanup_document["details"] != {
+                    if cleanup_document["outcome"] == "failed":
+                        validate_document(
+                            cleanup_document, "real-session-stage-evidence.schema.json"
+                        )
+                        cleanup_ok = False
+                    else:
+                        _validate_stage(
+                            cleanup_document,
+                            "cleanup",
+                            self.plan.sha256,
+                            "verified",
+                            plan["deadlines"]["cleanup_s"],
+                        )
+                        cleanup_ok = True
+                    if cleanup_ok and cleanup_document["details"] != {
                         "actions_complete": True,
                         "helper_absent": True,
                     }:
                         raise RealSessionError("cleanup evidence is not complete")
-                    cleanup_ok = True
                 except Exception as exc:
                     cleanup_document = _failed_stage(
                         "cleanup", self.plan.sha256, exc, plan["deadlines"]["cleanup_s"], plan
@@ -322,6 +380,25 @@ class RealQualificationSession:
                 )
                 if not cleanup_ok or not quiescence_ok:
                     final_status = "cleanup_failed"
+            elif plan["execution_mode"] == "live" and not self.adapters.close():
+                failure_causes.append("persistent helper preflight cleanup was not verified")
+                cleanup_document = _failed_stage(
+                    "cleanup",
+                    self.plan.sha256,
+                    RealSessionError(failure_causes[-1]),
+                    plan["deadlines"]["cleanup_s"],
+                    plan,
+                )
+                quiescence_document = _failed_stage(
+                    "quiescence",
+                    self.plan.sha256,
+                    RealSessionError("quiescence unavailable after helper cleanup failure"),
+                    plan["deadlines"]["cleanup_s"],
+                    plan,
+                )
+                event(RealPhase.CLEANUP, "failed", "preflight helper cleanup")
+                event(RealPhase.QUIESCENCE, "failed", "preflight quiescence unavailable")
+                final_status = "cleanup_failed"
         if plan["execution_mode"] == "hardware_free_validation" and final_status == "qualified":
             final_status = "inconclusive"
             failure_causes.append("incomplete_evidence")
@@ -356,14 +433,24 @@ class RealQualificationSession:
                 document,
                 schema_name="real-qualification-session.schema.json",
             )
-            result_causes = _result_causes(final_status, failure_causes)
+            result_causes = _result_causes(final_status, failure_causes, preflight_passed)
+            retained_artifacts: list[dict[str, object]] = []
+            if plan["execution_mode"] == "live":
+                publish = getattr(self.adapters, "publish_artifacts", None)
+                if publish is None:
+                    raise RealSessionError("live adapter cannot publish retained evidence")
+                retained_artifacts = publish(temporary)
+                validate_published = getattr(self.adapters, "validate_published_artifacts", None)
+                if validate_published is None:
+                    raise RealSessionError("live adapter cannot validate retained evidence")
+                validate_published(temporary)
             result_document = {
                 "schema_version": 1,
                 "run_id": run_id,
                 "status": final_status,
-                "started_utc": _utc(self.now),
-                "completed_utc": _utc(self.now),
-                "preflight_passed": final_status != "preflight_failed",
+                "started_utc": _utc(run_started),
+                "completed_utc": _utc(self.clock()),
+                "preflight_passed": preflight_passed,
                 "carrier_gate": carrier_gate,
                 "decode_gate": decode_gate,
                 "cleanup_outcome": (
@@ -374,7 +461,7 @@ class RealQualificationSession:
                     else "not_required"
                 ),
                 "failure_causes": result_causes,
-                "artifacts": [],
+                "artifacts": retained_artifacts,
             }
             validate_result_document(result_document)
             write_json_new(
@@ -383,8 +470,28 @@ class RealQualificationSession:
             write_manifest(temporary)
             temporary.rename(final)
         except Exception as exc:
-            if temporary.exists():
+            if temporary.exists() and plan["execution_mode"] != "live":
                 shutil.rmtree(temporary)
+            if temporary.exists():
+                marker = temporary / "publication-failure.json"
+                if not marker.exists():
+                    write_json_new(
+                        marker,
+                        {
+                            "schema_version": 1,
+                            "run_id": run_id,
+                            "status": "inconclusive",
+                            "failure": f"{type(exc).__name__}: {exc}",
+                            "recorded_utc": _utc(self.clock()),
+                            "quarantined": True,
+                        },
+                    )
+                with suppress(Exception):
+                    write_manifest(temporary)
+                raise RealSessionError(
+                    "live evidence publication failed; quarantined bundle retained at "
+                    f"{temporary}: {exc}"
+                ) from exc
             raise RealSessionError(
                 f"evidence publication failed and was rolled back: {exc}"
             ) from exc
@@ -396,7 +503,12 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
     if document["mode"] != "WSPR" or document["frame_count"] != 3:
         raise RealSessionError("real qualification currently requires exactly three WSPR frames")
     capture = document["coherent_capture"]
-    if capture != {"duration_s": 370, "sample_rate_hz": 250000, "sample_count": 92500000}:
+    if (
+        capture["duration_s"] != 370
+        or capture["sample_rate_hz"] != 250000
+        or capture["sample_count"] != 92500000
+        or not 0 < capture["margin_before_first_slot_s"] <= 10
+    ):
         raise RealSessionError("coherent WSPR capture must be 370 s and 92,500,000 CF32 samples")
     if document["random_offset_enabled"] is not False:
         raise RealSessionError("random WSPR offset must be disabled")
@@ -409,20 +521,35 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         or document["backend_contract"]["output"] != document["output"]
     ):
         raise RealSessionError("backend contract differs from resolved backend/output")
-    if document["receiver"]["host"] != document["host"]:
-        raise RealSessionError("receiver host differs from the resolved host")
+    if document["receiver_helper"]["host"] != document["receiver"]["host"]:
+        raise RealSessionError("receiver helper differs from the resolved receiver host")
+    if (
+        document["transport_identity"]["controller_hostname"]
+        != document["receiver"]["observed_local_hostname"]
+    ):
+        raise RealSessionError("controller identity differs from receiver host evidence")
+    observed = document["receiver"]["observed_local_hostname"]
+    if document["receiver"]["host"] not in {observed, f"{observed}.local"}:
+        raise RealSessionError("resolved receiver host is not an allowed observed-host alias")
     if document["receiver"]["sample_rate_hz"] != 250000:
         raise RealSessionError("preserved receiver contract requires 250,000 samples/s")
     if set(document["capability_bindings"]) != {
-        "ssh",
+        "transmitter_ssh",
+        "receiver_transport",
         "soapy",
         "wsprrypi",
-        "service",
+        "transmitter_service",
+        "receiver_service",
         "quiescence",
+        "decoder",
     }:
         raise RealSessionError("complete capability bindings are required")
     if document["capability_bindings"]["wsprrypi"] != document["wsprrypi"]["sha256"]:
         raise RealSessionError("WsprryPi capability binding differs from its executable")
+    if document["capability_bindings"]["soapy"] != document["capture_helper"]["sha256"]:
+        raise RealSessionError("Soapy capability binding differs from its executable")
+    if document["capability_bindings"]["decoder"] != document["wsprd"]["sha256"]:
+        raise RealSessionError("decoder capability binding differs from its executable")
     if (
         document["capability_bindings"]["quiescence"]
         != document["backend_contract"]["quiescence_provider_sha256"]
@@ -433,6 +560,15 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         for executable in (document["remote_helper"], document["wsprrypi"])
     ):
         raise RealSessionError("helper or WsprryPi host differs from the resolved host")
+    if any(
+        executable["host"] != document["receiver"]["host"]
+        for executable in (
+            document["receiver_helper"],
+            document["capture_helper"],
+            document["wsprd"],
+        )
+    ):
+        raise RealSessionError("receiver tool host differs from the resolved receiver host")
     slots = [
         datetime.fromisoformat(value.replace("Z", "+00:00")) for value in document["slots_utc"]
     ]
@@ -445,8 +581,18 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         deadlines["helper_s"], deadlines["transmitter_s"], deadlines["receiver_s"]
     ):
         raise RealSessionError("overall deadline must exceed every component deadline")
-    if document["remote_helper"]["plan_sha256"] != resolved_real_plan_sha256(document):
-        raise RealSessionError("remote helper configuration digest differs from the plan")
+    digest = resolved_real_plan_sha256(document)
+    if any(
+        executable["plan_sha256"] != digest
+        for executable in (
+            document["remote_helper"],
+            document["receiver_helper"],
+            document["capture_helper"],
+            document["wsprd"],
+            document["wsprrypi"],
+        )
+    ):
+        raise RealSessionError("executable configuration digest differs from the plan")
 
 
 def validate_real_session_document(document: dict[str, Any]) -> None:
@@ -477,15 +623,28 @@ def validate_real_session_document(document: dict[str, Any]) -> None:
         "bindings": plan["capability_bindings"]
     }:
         raise RealSessionError("retained capability evidence differs from the plan")
-    if "helper" in evidence and evidence["helper"]["details"] != {
-        key: plan["remote_helper"][key] for key in ("host", "path", "sha256", "identity")
-    }:
+    expected_helpers = {
+        side: {
+            key: plan[field][key]
+            for key in ("host", "path", "sha256", "identity", "config_path", "config_sha256")
+        }
+        for side, field in (("transmitter", "remote_helper"), ("receiver", "receiver_helper"))
+    }
+    if "helper" in evidence and evidence["helper"]["details"] != expected_helpers:
         raise RealSessionError("retained helper evidence differs from the plan")
-    if "ownership" in evidence and evidence["ownership"]["details"] != {
-        "host": plan["host"],
-        "services": plan["services"],
-        "conflicts": [],
-    }:
+    expected_ownership = {
+        "transmitter": {
+            "host": plan["host"],
+            "services": plan["services"]["transmitter"],
+            "conflicts": [],
+        },
+        "receiver": {
+            "host": plan["receiver"]["host"],
+            "services": plan["services"]["receiver"],
+            "conflicts": [],
+        },
+    }
+    if "ownership" in evidence and evidence["ownership"]["details"] != expected_ownership:
         raise RealSessionError("retained ownership evidence differs from the plan")
     if "initial_rf_idle" in evidence:
         _validate_quiescence_details(evidence["initial_rf_idle"], plan)
@@ -696,7 +855,11 @@ def _validate_stage(
     validate_document(document, "real-session-stage-evidence.schema.json")
     if cast(float, document["deadline_s"]) != expected_deadline:
         raise RealSessionError(f"{evidence_type} deadline differs from the resolved plan")
-    if cast(float, document["elapsed_s"]) > cast(float, document["deadline_s"]):
+    deadline_overrun = cast(float, document["elapsed_s"]) > cast(float, document["deadline_s"])
+    retainable_cleanup_overrun = (
+        evidence_type in {"cleanup", "quiescence"} and document["outcome"] == "failed"
+    )
+    if deadline_overrun and not retainable_cleanup_overrun:
         raise RealSessionError(f"{evidence_type} exceeded its recorded hard deadline")
     if document["outcome"] == "blocked":
         raise RealFixtureBlocked(f"{evidence_type} reports an unavailable fixture")
@@ -784,7 +947,12 @@ def _validate_carrier(document: dict[str, object], plan: dict[str, Any], digest:
     if requested != plan["frequency_hz"] or abs((strongest - requested) - offset) > 1e-6:
         raise RealSessionError("carrier evidence frequency contradicts the plan")
     claimed = cast(str, details["gate_outcome"])
-    derived = "passed" if abs(offset) <= 100 and fraction >= 0.5 else "failed"
+    derived = (
+        "passed"
+        if abs(offset) <= plan["carrier"]["offset_gate_hz"]
+        and fraction >= plan["carrier"]["best_20hz_share_min"]
+        else "failed"
+    )
     if claimed in {"passed", "failed"} and claimed != derived:
         raise RealSessionError("carrier gate contradicts the maintained threshold calculation")
     return claimed
@@ -812,13 +980,19 @@ def resolved_real_plan_sha256(document: dict[str, Any]) -> str:
     """Digest a plan without recursively hashing its embedded helper digest."""
     normalized = json.loads(json.dumps(document, default=str))
     normalized["remote_helper"]["plan_sha256"] = ""
+    normalized["receiver_helper"]["plan_sha256"] = ""
+    normalized["capture_helper"]["plan_sha256"] = ""
+    normalized["wsprd"]["plan_sha256"] = ""
+    normalized["wsprrypi"]["plan_sha256"] = ""
     payload = json.dumps(normalized, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _result_causes(final_status: str, recorded: list[str]) -> list[str]:
+def _result_causes(
+    final_status: str, recorded: list[str], preflight_passed: bool = True
+) -> list[str]:
     if final_status == "cleanup_failed":
-        return ["cleanup"]
+        return (["preflight"] if not preflight_passed else []) + ["cleanup"]
     if final_status == "preflight_failed":
         return ["preflight"]
     if final_status == "aborted":
