@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_type", "stage", "plan_sha256", "deadline_s", "elapsed_s", "outcome", "details"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "receiver_integration_stage"},
+    "stage": {"type": "string", "minLength": 1},
+    "plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "deadline_s": {"type": "number", "exclusiveMinimum": 0},
+    "elapsed_s": {"type": "number", "minimum": 0},
+    "outcome": {"enum": ["passed", "completed", "verified", "blocked", "failed", "cancelled"]},
+    "details": {"type": "object"}
+  },
+  "allOf": [
+    {"if": {"properties": {"stage": {"const": "capabilities"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/capabilities"}}}},
+    {"if": {"properties": {"stage": {"const": "capture_host"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/capture_host"}}}},
+    {"if": {"properties": {"stage": {"const": "coordination"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/coordination"}}}},
+    {"if": {"properties": {"stage": {"const": "helper"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/helper"}}}},
+    {"if": {"properties": {"stage": {"const": "ownership"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/ownership"}}}},
+    {"if": {"properties": {"stage": {"const": "rf_path"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/rf_path"}}}},
+    {"if": {"properties": {"stage": {"const": "cleanup_registration"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/cleanup_registration"}}}},
+    {"if": {"properties": {"stage": {"const": "receiver_acquired"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/receiver_acquired"}}}}
+  ],
+  "$defs": {
+    "common": {
+      "type": "object",
+      "required": ["hardware_access", "verification_mode", "verified", "cause"],
+      "properties": {
+        "hardware_access": {"const": false},
+        "verification_mode": {"const": "sealed_hardware_free_fixture"},
+        "verified": {"type": "boolean"},
+        "cause": {"type": ["string", "null"]}
+      }
+    },
+    "capabilities": {
+      "allOf": [{"$ref": "#/$defs/common"}], "additionalProperties": false,
+      "required": ["hardware_access", "verification_mode", "verified", "cause", "execution_mode", "required_capabilities", "capability_bindings", "live_capability_used"],
+      "properties": {"hardware_access": {"const": false}, "verification_mode": {"const": "sealed_hardware_free_fixture"}, "verified": {"type": "boolean"}, "cause": {"type": ["string", "null"]}, "execution_mode": {"const": "hardware_free_validation"}, "required_capabilities": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "capability_bindings": {"type": "object"}, "live_capability_used": {"const": false}}
+    },
+    "capture_host": {"additionalProperties": false, "required": ["hardware_access", "verification_mode", "verified", "cause", "host"], "properties": {"hardware_access": {"const": false}, "verification_mode": {"const": "sealed_hardware_free_fixture"}, "verified": {"type": "boolean"}, "cause": {"type": ["string", "null"]}, "host": {"type": "object"}}},
+    "coordination": {"additionalProperties": false, "required": ["hardware_access", "verification_mode", "verified", "cause", "host", "required", "purpose"], "properties": {"hardware_access": {"const": false}, "verification_mode": {"const": "sealed_hardware_free_fixture"}, "verified": {"type": "boolean"}, "cause": {"type": ["string", "null"]}, "host": {"type": "object"}, "required": {"type": "boolean"}, "purpose": {"const": "read_only_non_interference_check"}}},
+    "helper": {"additionalProperties": false, "required": ["hardware_access", "verification_mode", "verified", "cause", "helper", "simulated", "external_process_started"], "properties": {"hardware_access": {"const": false}, "verification_mode": {"const": "sealed_hardware_free_fixture"}, "verified": {"type": "boolean"}, "cause": {"type": ["string", "null"]}, "helper": {"type": "object"}, "simulated": {"const": true}, "external_process_started": {"const": false}}},
+    "ownership": {"additionalProperties": false, "required": ["hardware_access", "verification_mode", "verified", "cause", "receiver", "conflicts", "competing_owner", "check_mode"], "properties": {"hardware_access": {"const": false}, "verification_mode": {"const": "sealed_hardware_free_fixture"}, "verified": {"type": "boolean"}, "cause": {"type": ["string", "null"]}, "receiver": {"type": "object"}, "conflicts": {"type": "array", "items": {"type": "string"}}, "competing_owner": {"type": ["string", "null"]}, "check_mode": {"const": "simulated_read_only"}}},
+    "rf_path": {"additionalProperties": false, "required": ["hardware_access", "verification_mode", "verified", "cause", "rf_path", "safety_accepted", "acceptance_basis", "transmitter_operated"], "properties": {"hardware_access": {"const": false}, "verification_mode": {"const": "sealed_hardware_free_fixture"}, "verified": {"type": "boolean"}, "cause": {"type": ["string", "null"]}, "rf_path": {"type": "object"}, "safety_accepted": {"type": "boolean"}, "acceptance_basis": {"const": "simulated_validation_only"}, "transmitter_operated": {"const": false}}},
+    "cleanup_registration": {"additionalProperties": false, "required": ["hardware_access", "verification_mode", "verified", "cause", "registration_attempted", "installed", "before_receiver_acquisition", "stopping_procedure", "receiver_release_contract"], "properties": {"hardware_access": {"const": false}, "verification_mode": {"const": "sealed_hardware_free_fixture"}, "verified": {"type": "boolean"}, "cause": {"type": ["string", "null"]}, "registration_attempted": {"const": true}, "installed": {"const": true}, "before_receiver_acquisition": {"const": true}, "stopping_procedure": {"type": "string", "minLength": 1}, "receiver_release_contract": {"type": "string", "minLength": 1}}},
+    "receiver_acquired": {"additionalProperties": false, "required": ["hardware_access", "verification_mode", "verified", "cause", "receiver", "capture_settings", "simulated_acquisition", "physical_sdr_opened", "physical_sdr_configured"], "properties": {"hardware_access": {"const": false}, "verification_mode": {"const": "sealed_hardware_free_fixture"}, "verified": {"type": "boolean"}, "cause": {"type": ["string", "null"]}, "receiver": {"type": "object"}, "capture_settings": {"type": "object"}, "simulated_acquisition": {"type": "boolean"}, "physical_sdr_opened": {"const": false}, "physical_sdr_configured": {"const": false}}}
+  }
+}

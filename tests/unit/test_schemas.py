@@ -64,6 +64,14 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         "actual-host-corrected-result.schema.json",
         "actual-host-controller-openssh.schema.json",
         "actual-host-correction-log.schema.json",
+        "resolved-receiver-integration-plan.schema.json",
+        "receiver-runtime-authorization.schema.json",
+        "receiver-integration-stage.schema.json",
+        "receiver-capture-evidence.schema.json",
+        "receiver-capture-metadata.schema.json",
+        "receiver-integration-session.schema.json",
+        "receiver-integration-artifact-index.schema.json",
+        "receiver-integration-result.schema.json",
     ):
         packaged = json.loads(
             files("wsprrypi_qualification.schemas").joinpath(name).read_text(encoding="utf-8")

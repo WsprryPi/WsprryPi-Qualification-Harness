@@ -155,6 +155,14 @@ three fake-decoder invocations, cleanup precedence, and immutable packaging.
 It always records `qualification_claim: false` and can never return
 `qualified`. See [bounded simulator](docs/development/bounded-simulator.md).
 
+A distinct hardware-free receiver integration coordinator now prepares the
+future `wspr5` physical-capture lifecycle without reusing or weakening the
+transmitter coordinator. It uses only sealed fakes, requires ephemeral
+receiver-only authorization, registers cleanup before simulated acquisition,
+authenticates exact-count RF-off evidence, and can never qualify a transmitter.
+See [receiver integration](docs/development/receiver-integration.md). SSH and
+physical SDR operations remain unavailable until separately authorized.
+
 Slice 3 evidence records canonical absolute artifact paths so validation is
 independent of the caller's current working directory. Acquired audio and
 decoder evidence is authenticated against the retained profiles, capture

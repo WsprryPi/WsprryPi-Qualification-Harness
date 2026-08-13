@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -423,7 +424,10 @@ def test_retained_evidence_binds_arguments_contract_and_result(tmp_path: Path):
 
 
 def test_deployment_config_validates_absolute_pinned_files(tmp_path: Path):
-    executable = Path(sys.executable).resolve()
+    executable = tmp_path / "safe fixture executable with spaces"
+    executable.write_bytes(b"reviewed deployment fixture\n")
+    if os.name != "nt":
+        executable.chmod(0o700)
     digest = hashlib.sha256(executable.read_bytes()).hexdigest()
     entry = {"path": str(executable), "sha256": digest}
     config = {
@@ -462,6 +466,22 @@ def test_deployment_config_validates_absolute_pinned_files(tmp_path: Path):
     from wsprrypi_qualification.capability_helper import load_server_config
 
     assert load_server_config(runtime_path).identity == "fixture-helper"
+    original_digest = entry["sha256"]
+    entry["sha256"] = "0" * 64
+    path.write_text(json.dumps(config), encoding="utf-8")
+    with pytest.raises(DeploymentError, match="SHA-256 mismatch"):
+        load_deployment_config(path)
+    entry["sha256"] = original_digest
+    executable.write_bytes(b"replaced fixture bytes\n")
+    path.write_text(json.dumps(config), encoding="utf-8")
+    with pytest.raises(DeploymentError, match="SHA-256 mismatch"):
+        load_deployment_config(path)
+    executable.write_bytes(b"reviewed deployment fixture\n")
+    if os.name != "nt":
+        executable.chmod(0o702)
+        with pytest.raises(DeploymentError, match="world-writable"):
+            load_deployment_config(path)
+        executable.chmod(0o700)
     config["allowed_services"] = []
     path.write_text(json.dumps(config), encoding="utf-8")
     with pytest.raises(ValueError):
