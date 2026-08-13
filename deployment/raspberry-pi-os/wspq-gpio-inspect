@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+"""Read one Raspberry Pi GPIO state through pinctrl without mutating it."""
+
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+
+
+def main() -> int:
+    if len(sys.argv) != 3 or sys.argv[1] != "gpio-inspect":
+        return 2
+    try:
+        request = json.loads(sys.argv[2])
+        if type(request) is not dict or set(request) != {"pin"}:
+            return 2
+        pin = request["pin"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return 2
+    if type(pin) is not int or not 0 <= pin <= 53:
+        return 2
+    try:
+        result = subprocess.run(
+            ["/usr/bin/pinctrl", "get", str(pin)],
+            shell=False,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=3,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return 3
+    if result.returncode != 0:
+        return 3
+    match = re.match(rf"^\s*{pin}:\s+(ip|op|a[0-9]+)\b", result.stdout)
+    if match is None:
+        return 4
+    function = match.group(1)
+    direction = "input" if function == "ip" else "output" if function == "op" else function
+    print(json.dumps({"pin": pin, "direction": direction, "owner": None}, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

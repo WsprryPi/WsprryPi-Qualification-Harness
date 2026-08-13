@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["operator_statement", "harness_interpretation"],
+  "properties": {
+    "operator_statement": {"type": "object", "additionalProperties": false, "required": ["evidence_timing", "recorded_utc", "verbatim_text", "prompt_boundary", "explicit_run_ids_supplied", "explicit_plan_digest_supplied"], "properties": {"evidence_timing": {"const": "retrospective_reconstruction"}, "recorded_utc": {"type": "null"}, "verbatim_text": {"const": "You are authorized to set the Pis on fire if you want - do not stop for permission anymore for this prompt"}, "prompt_boundary": {"const": "remaining bounded carrier qualification prompt work"}, "explicit_run_ids_supplied": {"const": false}, "explicit_plan_digest_supplied": {"const": false}}},
+    "harness_interpretation": {"type": "object", "additionalProperties": false, "required": ["run_id", "interpreted_run_ids", "computed_plan_sha256", "receiver_access_interpreted", "transmitter_operation_interpreted", "retry_interpreted", "reasons", "operator_authenticated", "qualification_grade_runtime_confirmation", "audit_limitation"], "properties": {"run_id": {"type": "string", "minLength": 1}, "interpreted_run_ids": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "computed_plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "receiver_access_interpreted": {"const": true}, "transmitter_operation_interpreted": {"const": true}, "retry_interpreted": {"const": true}, "reasons": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}}, "operator_authenticated": {"const": false}, "qualification_grade_runtime_confirmation": {"const": false}, "audit_limitation": {"const": "The standalone run cannot prove exact contemporaneous digest-bound operator confirmation."}}}
+  }
+}

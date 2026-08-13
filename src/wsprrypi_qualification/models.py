@@ -99,7 +99,7 @@ class RfPathConfig:
     path_type: PathType
     antenna_connected: bool
     termination_ohms: float | None
-    attenuation_db: float
+    attenuation_db: float | None
     filter_description: str
     safe_input_description: str
 

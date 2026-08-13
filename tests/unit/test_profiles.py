@@ -72,6 +72,46 @@ def test_valid_bench_profile() -> None:
     assert profile.receiver.sample_rate_hz == 250_000
 
 
+def test_radiated_profile_preserves_not_applicable_attenuation(tmp_path: Path) -> None:
+    document = load_example("bench-wspr5-rsp1b.json")
+    document["rf_path"] = {
+        "path_type": "radiated",
+        "antenna_connected": True,
+        "attenuation_db": None,
+        "filter_description": "None",
+        "safe_input_description": "N/A",
+    }
+    profile = load_bench_profile(write_json(tmp_path / "radiated.json", document))
+    assert profile.rf_path.attenuation_db is None
+    assert profile.rf_path.termination_ohms is None
+
+
+def test_conducted_profile_rejects_null_attenuation(tmp_path: Path) -> None:
+    document = load_example("bench-wspr5-rsp1b.json")
+    document["rf_path"]["attenuation_db"] = None
+    with pytest.raises(ProfileError, match="attenuation_db"):
+        load_bench_profile(write_json(tmp_path / "conducted-null.json", document))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("antenna_connected", True), ("termination_ohms", None), ("attenuation_db", None)],
+)
+def test_receiver_run_conducted_invariants(tmp_path: Path, field: str, value: object) -> None:
+    document = receiver_run_document()
+    document["rf_path"].update(
+        {
+            "path_type": "conducted",
+            "antenna_connected": False,
+            "termination_ohms": 50,
+            "attenuation_db": 30,
+        }
+    )
+    document["rf_path"][field] = value
+    with pytest.raises(ProfileError, match=r"antenna_connected|termination_ohms|attenuation_db"):
+        load_receiver_run_profile(write_json(tmp_path / f"conducted-{field}.json", document))
+
+
 def test_valid_test_profile() -> None:
     profile = load_test_profile(ROOT / "examples" / "test-si5351-160m.json")
     assert profile.transmitter.backend is Backend.SI5351

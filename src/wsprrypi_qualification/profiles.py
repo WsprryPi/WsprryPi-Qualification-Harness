@@ -124,6 +124,14 @@ def load_bench_profile(path: Path) -> BenchProfile:
         raise ProfileError(f"{path}: {error}") from error
     if receiver["bandwidth_hz"] > receiver["sample_rate_hz"]:
         raise ProfileError(f"{path}: receiver bandwidth must not exceed sample rate")
+    if rf_path["path_type"] == "conducted" and (
+        rf_path["antenna_connected"] is not False
+        or rf_path.get("termination_ohms") is None
+        or rf_path["attenuation_db"] is None
+    ):
+        raise ProfileError(
+            f"{path}: conducted RF path requires no antenna, termination, and attenuation"
+        )
     return BenchProfile(
         schema_version=document["schema_version"],
         bench_id=document["bench_id"],
@@ -143,7 +151,7 @@ def load_bench_profile(path: Path) -> BenchProfile:
             path_type=PathType(rf_path["path_type"]),
             antenna_connected=rf_path["antenna_connected"],
             termination_ohms=rf_path.get("termination_ohms"),
-            attenuation_db=rf_path["attenuation_db"],
+            attenuation_db=rf_path.get("attenuation_db"),
             filter_description=rf_path["filter_description"],
             safe_input_description=rf_path["safe_input_description"],
         ),
@@ -240,6 +248,14 @@ def load_receiver_run_profile(path: Path) -> ReceiverRunProfile:
         raise ProfileError(f"{path}: helper deadline must exceed capture duration")
     if limits["external_deadline_s"] <= limits["helper_deadline_s"]:
         raise ProfileError(f"{path}: external deadline must exceed helper deadline")
+    if rf_path["path_type"] == "conducted" and (
+        rf_path["antenna_connected"] is not False
+        or rf_path.get("termination_ohms") is None
+        or rf_path["attenuation_db"] is None
+    ):
+        raise ProfileError(
+            f"{path}: conducted RF path requires no antenna, termination, and attenuation"
+        )
 
     return ReceiverRunProfile(
         schema_version=document["schema_version"],
@@ -264,7 +280,7 @@ def load_receiver_run_profile(path: Path) -> ReceiverRunProfile:
             path_type=PathType(rf_path["path_type"]),
             antenna_connected=rf_path["antenna_connected"],
             termination_ohms=rf_path.get("termination_ohms"),
-            attenuation_db=rf_path["attenuation_db"],
+            attenuation_db=rf_path.get("attenuation_db"),
             filter_description=rf_path["filter_description"],
             safe_input_description=rf_path["safe_input_description"],
         ),

@@ -29,6 +29,10 @@ wspq-capability-helper = "wsprrypi_qualification.capability_helper:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/wsprrypi_qualification"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"deployment/raspberry-pi-os/wspq-gpio-inspect" = "wsprrypi_qualification/deployment_assets/wspq-gpio-inspect"
+"evidence-anchors/bounded-carrier-original-anchors.json" = "wsprrypi_qualification/evidence_anchors/bounded-carrier-original-anchors.json"
+
 [tool.hatch.build.targets.sdist]
 include = [
   "/src",
@@ -43,6 +47,8 @@ include = [
   "/pyproject.toml",
   "/requirements.txt",
   "/scripts",
+  "/deployment",
+  "/evidence-anchors",
 ]
 
 [tool.pytest.ini_options]

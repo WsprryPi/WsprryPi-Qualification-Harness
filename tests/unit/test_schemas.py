@@ -76,6 +76,9 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         "transmitter-runtime-authorization.schema.json",
         "transmitter-lifecycle-session.schema.json",
         "transmitter-lifecycle-result.schema.json",
+        "carrier-run-correction.schema.json",
+        "carrier-runtime-authorization.schema.json",
+        "bounded-carrier-original-anchors.schema.json",
     ):
         packaged = json.loads(
             files("wsprrypi_qualification.schemas").joinpath(name).read_text(encoding="utf-8")

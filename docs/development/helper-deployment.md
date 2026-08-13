@@ -22,6 +22,14 @@ account. Populate every absolute executable path and SHA-256 from the installed
 host. The helper and each provider recheck identity before execution.
 
 Copy and customize `deployment/raspberry-pi-os/helper-config.example.json`.
+The read-only GPIO provider is
+`deployment/raspberry-pi-os/wspq-gpio-inspect`; it is included in source and
+wheel artifacts. Deployment must pin and recheck its absolute path, size, and
+SHA-256 through the existing provider configuration before invocation. It
+accepts only `gpio-inspect` and invokes exactly `/usr/bin/pinctrl get PIN`.
+Portable consumers invoke the packaged resource with the selected Python
+interpreter; they do not rely on a Unix executable mode surviving a Windows
+wheel installation.
 Validate it offline with the maintained Python loader before startup. The
 helper identity, protocol version, complete resolved-plan digest, exact service
 allowlist, provider selection, GPIO line contract, and Si5351 bus/address/output
