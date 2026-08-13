@@ -222,8 +222,12 @@ class OwnedProcessRegistry:
     def stop(self, payload: dict[str, object]) -> dict[str, object]:
         handle = _string(payload, "handle_id")
         child = self._owned(handle)
+        running_before_stop = child.process.poll() is None
         self._terminate(child)
-        return self._finish(handle, child, cancelled=True)
+        result = self._finish(handle, child, cancelled=True)
+        result["stop_requested"] = True
+        result["running_before_stop"] = running_before_stop
+        return result
 
     def shutdown(self) -> None:
         self._closed.set()

@@ -108,6 +108,7 @@ def _parser() -> argparse.ArgumentParser:
     carrier.add_argument("--dc-exclusion-hz", type=float, default=1_000.0)
     carrier.add_argument("--rf-off-metadata", type=Path, required=True)
     carrier.add_argument("--rf-on-metadata", type=Path, required=True)
+    carrier.add_argument("--relocation-bundle", type=Path)
     audio = subparsers.add_parser("make-slot-wav", help="translate offline CF32 to a UTC-slot WAV")
     audio.add_argument("iq", type=Path)
     audio.add_argument("capture_metadata", type=Path)
@@ -290,6 +291,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.evidence,
                 fft_size=args.fft_size,
                 dc_exclusion_hz=args.dc_exclusion_hz,
+                relocation_bundle=args.relocation_bundle,
             )
         elif args.command == "make-slot-wav":
             document = create_slot_wav_acquired(

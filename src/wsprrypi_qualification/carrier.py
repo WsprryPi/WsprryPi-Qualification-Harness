@@ -227,10 +227,15 @@ def analyze_carrier_acquired(
     *,
     fft_size: int = 262_144,
     dc_exclusion_hz: float = 1_000.0,
+    relocation_bundle: Path | None = None,
 ) -> dict[str, Any]:
     context = load_profile_context(bench_profile_path, test_profile_path)
-    off_metadata = validate_acquired_capture(rf_off_metadata_path, rf_off_path, context)
-    on_metadata = validate_acquired_capture(rf_on_metadata_path, rf_on_path, context)
+    off_metadata = validate_acquired_capture(
+        rf_off_metadata_path, rf_off_path, context, relocation_bundle=relocation_bundle
+    )
+    on_metadata = validate_acquired_capture(
+        rf_on_metadata_path, rf_on_path, context, relocation_bundle=relocation_bundle
+    )
     if off_metadata.actual_settings != on_metadata.actual_settings:
         raise OfflineAnalysisError("RF-off and RF-on settings differ")
     parameters = CarrierParameters(

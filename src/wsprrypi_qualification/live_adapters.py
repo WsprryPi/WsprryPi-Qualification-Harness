@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, cast
@@ -30,7 +30,7 @@ from wsprrypi_qualification.application_shims import (
     WsprryPiBackendConfig,
     WsprryPiShim,
 )
-from wsprrypi_qualification.offline import artifact, load_json_document
+from wsprrypi_qualification.offline import artifact, load_json_document, write_json_new
 from wsprrypi_qualification.offline_context import load_profile_context
 from wsprrypi_qualification.real_capabilities import (
     CaptureCapabilityPlan,
@@ -46,7 +46,39 @@ from wsprrypi_qualification.real_capabilities import (
     SshOwnedProcessLauncher,
     capability_plan_sha256,
 )
-from wsprrypi_qualification.real_session import RealSessionError, resolved_real_plan_sha256
+from wsprrypi_qualification.real_session import (
+    RealSessionError,
+    helper_configuration_plan_sha256,
+    resolved_real_plan_sha256,
+)
+
+_COHERENT_CAPTURE_STARTUP_GUARD_S = 2.0
+
+
+def _coherent_capture_launch_epoch(first_slot: datetime, required_margin_s: float) -> float:
+    """Start early enough for receiver setup while preserving the retained-data margin."""
+    return first_slot.timestamp() - required_margin_s - _COHERENT_CAPTURE_STARTUP_GUARD_S
+
+
+def _retained_capture_has_margin(
+    metadata: dict[str, Any], first_slot: datetime, required_margin_s: float
+) -> bool:
+    retained_start = datetime.fromisoformat(
+        metadata["timestamps"]["retained_capture_start_utc"].replace("Z", "+00:00")
+    )
+    return retained_start <= first_slot - timedelta(seconds=required_margin_s)
+
+
+def _intentional_carrier_stop_verified(result: object) -> bool:
+    execution = cast(Any, result)
+    return bool(
+        execution.stop_requested
+        and execution.running_before_stop is True
+        and execution.cancelled
+        and not execution.timed_out
+        and not execution.disconnected
+        and execution.cleanup_verified
+    )
 
 
 @dataclass(frozen=True)
@@ -120,6 +152,7 @@ class ProductionRealSessionAdapters:
             paths.capture_helper,
             paths.wsprd,
         ]
+        self._capture_artifacts: dict[str, tuple[Path, Path]] = {}
         self._final_quiescence: bool | None = None
         self._session_deadline: float | None = None
         self._cleanup_reserve_s = 0.0
@@ -221,9 +254,19 @@ class ProductionRealSessionAdapters:
         source = plan["source"]
         observed = []
         for arguments in (
-            (source["git_path"], "-C", source["repository_path"], "rev-parse", "HEAD"),
             (
                 source["git_path"],
+                "-c",
+                f"safe.directory={source['repository_path']}",
+                "-C",
+                source["repository_path"],
+                "rev-parse",
+                "HEAD",
+            ),
+            (
+                source["git_path"],
+                "-c",
+                f"safe.directory={source['repository_path']}",
                 "-C",
                 source["repository_path"],
                 "rev-parse",
@@ -397,6 +440,7 @@ class ProductionRealSessionAdapters:
         )
         result = self.capture_capability.execute(capture_plan, auth, cancellation)
         self._artifacts.extend((output, metadata))
+        self._capture_artifacts[kind] = (output, metadata)
         return self._stage(
             plan,
             "capture",
@@ -466,9 +510,58 @@ class ProductionRealSessionAdapters:
                 self.tx_services.set_running(name, False)
                 if self.tx_services.inspect(name).running:
                     raise RealSessionError("transmitter service could not be stopped")
-        process = self.tx_launcher.begin(self._application(plan, tone=tone).arguments)
+        application = self._application(plan, tone=tone)
+        plan_path = self.paths.work_directory / (
+            "carrier-application-plan.json" if tone else "frames-application-plan.json"
+        )
+        write_json_new(
+            plan_path, application.to_document(), schema_name="application-plan.schema.json"
+        )
+        self._artifacts.append(plan_path)
+        process = self.tx_launcher.begin(application.arguments)
         self._owned.append(process)
         return process
+
+    def _retain_transmitter_result(
+        self, plan: dict[str, Any], *, tone: bool, result: object
+    ) -> None:
+        execution = cast(Any, result)
+        path = self.paths.work_directory / (
+            "carrier-transmitter-execution.json" if tone else "frames-transmitter-execution.json"
+        )
+        write_json_new(
+            path,
+            {
+                "schema_version": 1,
+                "evidence_type": "transmitter_execution",
+                "run_id": plan["run_id"],
+                "plan_sha256": resolved_real_plan_sha256(plan),
+                "mode": "tone" if tone else "wspr",
+                "handle_id": execution.handle_id,
+                "return_code": execution.return_code,
+                "stdout": execution.stdout,
+                "stderr": execution.stderr,
+                "timed_out": execution.timed_out,
+                "cancelled": execution.cancelled,
+                "disconnected": execution.disconnected,
+                "cleanup_verified": execution.cleanup_verified,
+                "stop_requested": execution.stop_requested,
+                "running_before_stop": execution.running_before_stop,
+                "outcome": (
+                    "stopped_by_harness_after_capture"
+                    if tone and _intentional_carrier_stop_verified(execution)
+                    else "completed"
+                    if not tone
+                    and execution.return_code == 0
+                    and not execution.timed_out
+                    and not execution.cancelled
+                    and not execution.disconnected
+                    and execution.cleanup_verified
+                    else "failed"
+                ),
+            },
+        )
+        self._artifacts.append(path)
 
     def transmit_carrier_and_capture_rf_on(
         self, plan: dict[str, Any], authorization: RuntimeAuthorization
@@ -509,8 +602,11 @@ class ProductionRealSessionAdapters:
             return captured[0]
         finally:
             result = process.stop()
-            if not result.cleanup_verified:
-                raise RealSessionError("carrier transmitter cleanup was not verified")
+            self._retain_transmitter_result(plan, tone=True, result=result)
+            if not _intentional_carrier_stop_verified(result):
+                raise RealSessionError(
+                    "carrier transmitter did not satisfy the intentional owned-stop contract"
+                )
             self._owned.remove(process)
             if not worker.is_alive() and (worker, cancellation) in self._capture_tasks:
                 self._capture_tasks.remove((worker, cancellation))
@@ -552,7 +648,11 @@ class ProductionRealSessionAdapters:
     ) -> dict[str, object]:
         del rf_off, rf_on
         started = time.monotonic()
-        off, on = self._artifacts[-4], self._artifacts[-2]
+        try:
+            off, off_metadata = self._capture_artifacts["rf_off"]
+            on, on_metadata = self._capture_artifacts["rf_on"]
+        except KeyError as exc:
+            raise RealSessionError("carrier analysis lacks an explicit capture binding") from exc
         evidence = self.paths.work_directory / "carrier-analysis.json"
         self._run_offline(
             (
@@ -561,9 +661,9 @@ class ProductionRealSessionAdapters:
                 str(on),
                 str(evidence),
                 "--rf-off-metadata",
-                str(self._artifacts[-3]),
+                str(off_metadata),
                 "--rf-on-metadata",
-                str(self._artifacts[-1]),
+                str(on_metadata),
                 "--bench-profile",
                 str(self.paths.bench_profile),
                 "--test-profile",
@@ -594,8 +694,8 @@ class ProductionRealSessionAdapters:
     ) -> dict[str, object]:
         del authorization
         first_slot = datetime.fromisoformat(plan["slots_utc"][0].replace("Z", "+00:00"))
-        capture_start = (
-            first_slot.timestamp() - plan["coherent_capture"]["margin_before_first_slot_s"]
+        capture_start = _coherent_capture_launch_epoch(
+            first_slot, plan["coherent_capture"]["margin_before_first_slot_s"]
         )
         delay = capture_start - time.time()
         if delay < 0 or delay > self._remaining(
@@ -641,9 +741,20 @@ class ProductionRealSessionAdapters:
                 raise RealSessionError("coherent receiver exceeded its hard deadline")
             if capture_error:
                 raise RealSessionError(f"coherent capture failed: {capture_error[0]}")
+            metadata_path = self._capture_artifacts["coherent"][1]
+            metadata = load_json_document(metadata_path, "capture-metadata.schema.json")
+            if not _retained_capture_has_margin(
+                metadata,
+                first_slot,
+                plan["coherent_capture"]["margin_before_first_slot_s"],
+            ):
+                raise RealSessionError(
+                    "coherent capture retained start missed its resolved UTC margin"
+                )
             wait = process.wait(
                 self._remaining(plan["deadlines"]["transmitter_s"], reserve_cleanup=True), None
             )
+            self._retain_transmitter_result(plan, tone=False, result=wait)
             if wait.return_code != 0 or not wait.cleanup_verified:
                 raise RealSessionError("bounded WSPR transmitter did not exit cleanly")
             self._owned.remove(process)
@@ -652,7 +763,10 @@ class ProductionRealSessionAdapters:
             return captured[0]
         except Exception:
             cancellation.set()
-            process.stop()
+            stopped = process.stop()
+            execution_path = self.paths.work_directory / "frames-transmitter-execution.json"
+            if not execution_path.exists():
+                self._retain_transmitter_result(plan, tone=False, result=stopped)
             if process in self._owned:
                 self._owned.remove(process)
             raise
@@ -662,7 +776,10 @@ class ProductionRealSessionAdapters:
     ) -> dict[str, object]:
         del coherent_capture
         started = time.monotonic()
-        iq, metadata = self._artifacts[-2:]
+        try:
+            iq, metadata = self._capture_artifacts["coherent"]
+        except KeyError as exc:
+            raise RealSessionError("decoder pipeline lacks a coherent capture binding") from exc
         slot_documents: list[dict[str, Any]] = []
         slot_paths: list[Path] = []
         for index, slot_text in enumerate(plan["slots_utc"]):
@@ -707,7 +824,7 @@ class ProductionRealSessionAdapters:
         summary_path = self.paths.work_directory / "decode-summary.json"
         self._run_offline(
             ("summarize-decodes", str(summary_path), *(str(path) for path in slot_paths)),
-            self._remaining(plan["deadlines"]["helper_s"], reserve_cleanup=True),
+            self._remaining(plan["deadlines"]["overall_s"], reserve_cleanup=True),
         )
         summary = load_json_document(summary_path, "decode-summary.schema.json")
         self._artifacts.append(summary_path)
@@ -735,7 +852,7 @@ class ProductionRealSessionAdapters:
     def _run_offline(arguments: tuple[str, ...], timeout_s: float) -> None:
         try:
             result = subprocess.run(
-                (sys.executable, "-m", "wsprrypi_qualification.cli", *arguments),
+                (sys.executable, "-m", "wsprrypi_qualification", *arguments),
                 shell=False,
                 capture_output=True,
                 text=True,
@@ -1045,6 +1162,15 @@ def build_production_adapters(
             for field in ("path", "config_path")
         ):
             raise RealSessionError("helper or configuration path is unsafe for execution")
+    remote_wrapper = Path(plan["remote_helper"]["privilege_wrapper_path"])
+    if (
+        not remote_wrapper.is_absolute()
+        or not remote_wrapper.is_file()
+        or artifact(remote_wrapper)["sha256"] != plan["remote_helper"]["privilege_wrapper_sha256"]
+    ):
+        raise RealSessionError("remote helper privilege wrapper identity changed")
+    if plan["receiver_helper"]["privilege_wrapper_path"] is not None:
+        raise RealSessionError("local receiver helper must not use a privilege wrapper")
     receiver_helper = Path(plan["receiver_helper"]["path"])
     receiver_config = Path(plan["receiver_helper"]["config_path"])
     if artifact(receiver_helper)["sha256"] != plan["receiver_helper"]["sha256"]:
@@ -1070,7 +1196,8 @@ def build_production_adapters(
             raise RealSessionError(f"required local live input is unavailable: {path}")
     work_directory.mkdir(parents=True, exist_ok=False)
     remote_command = (
-        f"{plan['remote_helper']['path']} --serve --config {plan['remote_helper']['config_path']}"
+        f"{remote_wrapper} -n {plan['remote_helper']['path']} --serve "
+        f"--config {plan['remote_helper']['config_path']}"
     )
     tx_transport: PersistentHelperTransport | None = None
     rx_transport: PersistentHelperTransport | None = None
@@ -1100,7 +1227,7 @@ def build_production_adapters(
         shutil.rmtree(work_directory)
         raise
     assert tx_transport is not None and rx_transport is not None
-    digest = resolved_real_plan_sha256(plan)
+    digest = helper_configuration_plan_sha256(plan)
     tx_client = JsonHelperClient(
         ssh_executable,
         tx_transport,

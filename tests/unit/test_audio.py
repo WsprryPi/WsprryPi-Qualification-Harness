@@ -1,5 +1,5 @@
 import wave
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -71,6 +71,26 @@ def test_slot_requires_complete_margin_and_even_boundary(tmp_path: Path) -> None
             tmp_path / "y.json",
             parameters,
         )
+
+
+def test_slot_requires_pre_margin_but_not_an_extra_post_margin(tmp_path: Path) -> None:
+    rate = 1000
+    slot = datetime(2026, 1, 1, tzinfo=UTC)
+    source = tmp_path / "exact-window.cf32"
+    np.zeros(rate * 125, dtype="<c8").tofile(source)
+    result = create_slot_wav(
+        source,
+        slot - timedelta(seconds=5),
+        slot,
+        tmp_path / "slot.wav",
+        tmp_path / "slot.json",
+        AudioParameters(rate, 10_000, 10_100, output_rate_hz=200),
+    )
+    assert result["contract"]["required_margin_s"] == 5
+    assert (
+        result["contract"]["margin_policy"]
+        == "required_before_slot_complete_frame_required_after_start"
+    )
 
 
 def test_translation_below_center_and_transactional_rollback(

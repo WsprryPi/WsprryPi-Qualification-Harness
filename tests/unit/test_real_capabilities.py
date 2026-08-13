@@ -229,10 +229,13 @@ def test_cancellation_never_calls_an_external_provider(tmp_path: Path) -> None:
 
 
 class FakeCaptureLauncher:
-    def __init__(self, plan: CaptureCapabilityPlan, *, overflow: int = 0) -> None:
-        self.plan, self.overflow = plan, overflow
+    def __init__(
+        self, plan: CaptureCapabilityPlan, *, overflow: int = 0, clipping_threshold: float = 0.999
+    ) -> None:
+        self.plan, self.overflow, self.clipping_threshold = plan, overflow, clipping_threshold
 
     def launch(self, arguments, timeout_s, cancellation):
+        self.arguments = arguments
         self.plan.output_path.write_bytes(bytes(self.plan.sample_count * 8))
         metadata = capture_document()
         settings = {
@@ -255,6 +258,7 @@ class FakeCaptureLauncher:
             retained_sample_count=self.plan.sample_count,
             overflow_count=self.overflow,
         )
+        metadata["clipping"]["threshold"] = self.clipping_threshold
         import hashlib
 
         metadata["output"].update(
@@ -287,10 +291,42 @@ def capture_plan(tmp_path: Path) -> CaptureCapabilityPlan:
 
 def test_soapy_adapter_validates_exact_capture_without_opening_sdr(tmp_path: Path) -> None:
     plan = capture_plan(tmp_path)
-    document = SoapyCaptureCapability(FakeCaptureLauncher(plan)).execute(
-        plan, authorization(plan.document())
-    )
+    launcher = FakeCaptureLauncher(plan)
+    document = SoapyCaptureCapability(launcher).execute(plan, authorization(plan.document()))
     assert document["output"]["size_bytes"] == 80
+    assert launcher.arguments == (
+        str(plan.helper),
+        "--enable-physical-sdr",
+        "sdrplay",
+        "SERIAL",
+        "1.8381e+06",
+        "10",
+        "10",
+        "250000",
+        "200000",
+        "0",
+        "false",
+        "false",
+        "2000000",
+        "5",
+        str(plan.output_path),
+        str(plan.metadata_path),
+        plan.output_path.stem,
+    )
+
+
+def test_soapy_adapter_accepts_only_float32_rounding_of_clipping_threshold(
+    tmp_path: Path,
+) -> None:
+    plan = capture_plan(tmp_path)
+    SoapyCaptureCapability(
+        FakeCaptureLauncher(plan, clipping_threshold=0.99900001287460327)
+    ).execute(plan, authorization(plan.document()))
+    different = capture_plan(tmp_path / "different")
+    with pytest.raises(CapabilityError, match="identity or settings"):
+        SoapyCaptureCapability(FakeCaptureLauncher(different, clipping_threshold=0.998)).execute(
+            different, authorization(different.document())
+        )
 
 
 def test_soapy_adapter_rejects_overflow_and_output_collision(tmp_path: Path) -> None:

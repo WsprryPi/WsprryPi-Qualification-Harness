@@ -6,6 +6,7 @@ import base64
 import binascii
 import hashlib
 import json
+import math
 import re
 import subprocess
 import threading
@@ -225,6 +226,8 @@ class LaunchResult:
     disconnected: bool = False
     cleanup_verified: bool = True
     handle_id: str = "fake-handle"
+    stop_requested: bool = False
+    running_before_stop: bool | None = None
 
 
 class ExternalLauncher(Protocol):
@@ -424,14 +427,20 @@ def _launch_result_from_helper(document: dict[str, object], handle: str) -> Laun
     ):
         raise CapabilityError("remote process return code is invalid")
     return LaunchResult(
-        return_code,
-        str(document.get("stdout", "")),
-        str(document.get("stderr", "")),
-        document.get("timed_out") is True,
-        document.get("cancelled") is True,
-        document.get("disconnected") is True,
-        document.get("cleanup_verified") is True,
-        handle,
+        return_code=return_code,
+        stdout=str(document.get("stdout", "")),
+        stderr=str(document.get("stderr", "")),
+        timed_out=document.get("timed_out") is True,
+        cancelled=document.get("cancelled") is True,
+        disconnected=document.get("disconnected") is True,
+        cleanup_verified=document.get("cleanup_verified") is True,
+        handle_id=handle,
+        stop_requested=document.get("stop_requested") is True,
+        running_before_stop=(
+            cast(bool, document.get("running_before_stop"))
+            if isinstance(document.get("running_before_stop"), bool)
+            else None
+        ),
     )
 
 
@@ -575,32 +584,22 @@ class SoapyCaptureCapability:
         _authorize(plan.document(), authorization)
         arguments = (
             str(plan.helper),
-            "--driver",
+            "--enable-physical-sdr",
             plan.driver,
-            "--serial",
             plan.serial,
-            "--channel",
-            str(plan.channel),
-            "--sample-rate",
-            str(plan.sample_rate_hz),
-            "--bandwidth",
-            str(plan.bandwidth_hz),
-            "--center",
             f"{plan.center_frequency_hz:g}",
-            "--gain",
-            f"{plan.gain_db:g}",
-            "--samples",
             str(plan.sample_count),
-            "--read-timeout-us",
+            f"{plan.gain_db:g}",
+            str(plan.sample_rate_hz),
+            str(plan.bandwidth_hz),
+            str(plan.channel),
+            str(plan.agc).lower(),
+            str(plan.bias_tee).lower(),
             str(plan.read_timeout_us),
-            "--max-elapsed",
             f"{plan.maximum_elapsed_s:g}",
-            "--clipping-threshold",
-            f"{plan.clipping_threshold:g}",
-            "--output",
             str(plan.output_path),
-            "--metadata",
             str(plan.metadata_path),
+            plan.output_path.stem,
         )
         result = self._launcher.launch(arguments, plan.maximum_elapsed_s + 5, cancellation)
         if result.return_code != 0 or result.timed_out or result.cancelled:
@@ -637,7 +636,12 @@ class SoapyCaptureCapability:
             or metadata.resolved_device != expected_device
             or metadata.requested_settings != expected_settings
             or metadata.actual_settings != expected_settings
-            or metadata.clipping_threshold != plan.clipping_threshold
+            or not math.isclose(
+                metadata.clipping_threshold,
+                plan.clipping_threshold,
+                rel_tol=0.0,
+                abs_tol=5e-8,
+            )
         ):
             _remove_capture_outputs(plan)
             raise CapabilityError("capture identity or settings contradict the resolved plan")
@@ -1301,6 +1305,27 @@ def validate_capability_semantics(document: dict[str, object]) -> None:
             or output_map["size_bytes"] != plan_map["sample_count"] * 8
         ):
             raise CapabilityError("capture artifacts contradict the resolved plan")
+        expected_arguments = [
+            str(plan_map["helper"]),
+            "--enable-physical-sdr",
+            str(plan_map["driver"]),
+            str(plan_map["serial"]),
+            f"{float(plan_map['center_frequency_hz']):g}",
+            str(plan_map["sample_count"]),
+            f"{float(plan_map['gain_db']):g}",
+            str(plan_map["sample_rate_hz"]),
+            str(plan_map["bandwidth_hz"]),
+            str(plan_map["channel"]),
+            str(plan_map["agc"]).lower(),
+            str(plan_map["bias_tee"]).lower(),
+            str(plan_map["read_timeout_us"]),
+            f"{float(plan_map['maximum_elapsed_s']):g}",
+            str(plan_map["output_path"]),
+            str(plan_map["metadata_path"]),
+            Path(str(plan_map["output_path"])).stem,
+        ]
+        if document["arguments"] != expected_arguments:
+            raise CapabilityError("capture arguments contradict the resolved plan")
     elif evidence_type == "service_capability":
         if (document["outcome"] == "cleanup_failed") != (document["restoration_verified"] is False):
             raise CapabilityError("service outcome contradicts restoration verification")

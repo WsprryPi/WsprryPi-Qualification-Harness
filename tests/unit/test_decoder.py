@@ -28,6 +28,26 @@ def test_parse_preserves_line_and_exact_identity(tmp_path: Path) -> None:
     assert decoded[0]["callsign"] == "AA0NT"
 
 
+def test_parse_accepts_token_from_canonical_iso_wav_name() -> None:
+    decoded = parse_wsprd_output("200Z -26 0.4 0.001402 0 AA0NT EM18 20\n")
+    assert decoded[0]["decoder_time_token"] == "200Z"
+    assert decoded[0]["callsign"] == "AA0NT"
+
+
+def test_decoder_time_token_is_opaque_and_never_authenticates_slot() -> None:
+    identity = WsprIdentity("AA0NT", "EM18", 20)
+    for token in ("200Z", "999Z", "000Z"):
+        decoded = parse_wsprd_output(f"{token} -26 0.4 0.001500 0 AA0NT EM18 20\n")
+        assert decoded[0]["decoder_time_token"] == token
+        assert decoder_module._classify_expected_decodes(
+            decoded,
+            identity,
+            datetime(2026, 8, 13, 20, 42, tzinfo=UTC),
+            1500.0,
+            100.0,
+        ) == (True, True)
+
+
 def test_fake_wsprd_success_wrong_identity_and_complete_logs(tmp_path: Path) -> None:
     wav = tmp_path / "slot with spaces.wav"
     write_wav(wav)
@@ -58,7 +78,9 @@ def test_fake_wsprd_success_wrong_identity_and_complete_logs(tmp_path: Path) -> 
         extra_arguments=(str(good_script),),
         slot_utc=datetime(2026, 1, 1, 1, 30, tzinfo=UTC),
     )
-    assert wrong_slot["gate_outcome"] == "failed"
+    assert wrong_slot["gate_outcome"] == "passed"
+    assert wrong_slot["slot_utc"] == "2026-01-01T01:30:00Z"
+    assert wrong_slot["decodes"][0]["decoder_time_token"] == "0128"
     wrong = run_wsprd(
         wav,
         tmp_path / "wrong.json",

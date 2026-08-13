@@ -39,6 +39,9 @@ class AudioParameters:
     required_margin_s: int = 5
 
 
+MARGIN_POLICY = "required_before_slot_complete_frame_required_after_start"
+
+
 def slot_wav_name(slot: datetime) -> str:
     utc = require_aware_utc(slot)
     return utc.strftime("%Y%m%dT%H%M%SZ.wav")
@@ -121,8 +124,10 @@ def create_slot_wav(
     start = sample_index_at_utc(capture_start_utc, slot, parameters.sample_rate_hz)
     count = parameters.sample_rate_hz * parameters.frame_duration_s
     margin = parameters.sample_rate_hz * parameters.required_margin_s
-    if start < margin or start + count + margin > info.sample_count:
-        raise OfflineAnalysisError("capture lacks the complete selected WSPR slot and margins")
+    if start < margin or start + count > info.sample_count:
+        raise OfflineAnalysisError(
+            "capture lacks the required pre-slot margin or complete selected WSPR slot"
+        )
     require_new_file(output_path)
     require_new_file(evidence_path)
     pcm_bytes, scale = render_slot_pcm(iq_path, start, count, parameters)
@@ -209,6 +214,7 @@ def _audio_document(
         "output": output_record,
         "contract": {
             **asdict(parameters),
+            "margin_policy": MARGIN_POLICY,
             "mix_hz": (parameters.selected_frequency_hz - parameters.center_frequency_hz)
             - parameters.target_audio_hz,
             "mix_formula": "real(iq[n] * exp(-j*2*pi*mix_hz*n/fs))",

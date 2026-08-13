@@ -37,7 +37,7 @@ from wsprrypi_qualification.timing import (
 from wsprrypi_qualification.tool_discovery import discover_executable
 
 DECODE_RE = re.compile(
-    r"^\s*(?P<utc>\d{4})\s+(?P<snr>[+-]?\d+)\s+(?P<dt>[+-]?\d+(?:\.\d+)?)\s+"
+    r"^\s*(?P<utc>\d{4}|\d{3}Z)\s+(?P<snr>[+-]?\d+)\s+(?P<dt>[+-]?\d+(?:\.\d+)?)\s+"
     r"(?P<frequency>\d+(?:\.\d+)?)\s+(?P<drift>[+-]?\d+)\s+"
     r"(?P<callsign>[A-Z0-9/]{3,12})\s+(?P<grid>[A-R]{2}\d{2}(?:[A-X]{2})?)\s+(?P<power>[+-]?\d+)\s*$"
 )
@@ -90,7 +90,7 @@ def parse_wsprd_output(text: str) -> list[dict[str, Any]]:
                 {
                     "line_number": line_number,
                     "raw": line,
-                    "utc": values["utc"],
+                    "decoder_time_token": values["utc"],
                     "snr_db": int(values["snr"]),
                     "dt_s": float(values["dt"]),
                     "frequency_mhz": float(values["frequency"]),
@@ -118,7 +118,7 @@ def _classify_expected_decodes(
     target_audio_hz: float,
     image_tolerance_hz: float,
 ) -> tuple[bool, bool]:
-    expected_utc = slot.strftime("%H%M") if slot is not None else None
+    del slot
     identity_found = False
     intended_found = False
     for item in decodes:
@@ -126,8 +126,7 @@ def _classify_expected_decodes(
         intended = abs(audio_hz - target_audio_hz) <= image_tolerance_hz
         item["signal_role"] = "intended" if intended else "companion_or_conjugate_image"
         expected = (
-            (expected_utc is None or item["utc"] == expected_utc)
-            and item["callsign"] == identity.callsign
+            item["callsign"] == identity.callsign
             and item["grid"] == identity.grid
             and item["power_dbm"] == identity.power_dbm
         )
@@ -568,6 +567,7 @@ def _load_audio_evidence(path: Path, wav_path: Path) -> AcquiredAudioEvidence:
         "frame_duration_s": 120,
         "filter_taps": 64,
         "required_margin_s": 5,
+        "margin_policy": "required_before_slot_complete_frame_required_after_start",
         "mix_hz": (context.test.frequency_hz - context.test.receiver_center_hz) - 1_500.0,
         "mix_formula": "real(iq[n] * exp(-j*2*pi*mix_hz*n/fs))",
         "resampler": "windowed_sinc_hann",
@@ -598,7 +598,7 @@ def _load_audio_evidence(path: Path, wav_path: Path) -> AcquiredAudioEvidence:
         or document["conjugate_policy"] != CONJUGATE_POLICY
         or retained_pcm != expected_pcm
         or expected_start < margin
-        or expected_start + receiver.sample_rate_hz * 120 + margin > metadata.retained_sample_count
+        or expected_start + receiver.sample_rate_hz * 120 > metadata.retained_sample_count
         or metadata.requested_sample_count != metadata.retained_sample_count
     ):
         raise OfflineAnalysisError(
@@ -617,9 +617,9 @@ def _load_audio_evidence(path: Path, wav_path: Path) -> AcquiredAudioEvidence:
 def _recomputed_decoder_outcome(
     document: dict[str, Any], target_audio_hz: float, image_tolerance_hz: float
 ) -> tuple[str, list[str], list[dict[str, Any]], bool, bool]:
-    decodes = parse_wsprd_output(document["stdout"])
     expected = document["expected_identity"]
     slot = datetime.fromisoformat(document["slot_utc"].replace("Z", "+00:00"))
+    decodes = parse_wsprd_output(document["stdout"])
     identity = WsprIdentity(expected["callsign"], expected["grid"], expected["power_dbm"])
     identity_found, intended_found = _classify_expected_decodes(
         decodes, identity, slot, target_audio_hz, image_tolerance_hz

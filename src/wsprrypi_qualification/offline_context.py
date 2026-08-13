@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from wsprrypi_qualification.capture_metadata import CaptureMetadata, load_capture_metadata
+from wsprrypi_qualification.manifests import build_manifest, render_manifest
 from wsprrypi_qualification.models import BenchProfile, TestProfile
 from wsprrypi_qualification.offline import FailureCause, OfflineAnalysisError, artifact
 from wsprrypi_qualification.profiles import load_bench_profile, load_test_profile
@@ -58,7 +61,11 @@ def load_profile_context(bench_path: Path, test_path: Path) -> ProfileContext:
 
 
 def validate_acquired_capture(
-    metadata_path: Path, iq_path: Path, context: ProfileContext
+    metadata_path: Path,
+    iq_path: Path,
+    context: ProfileContext,
+    *,
+    relocation_bundle: Path | None = None,
 ) -> CaptureMetadata:
     metadata = load_capture_metadata(metadata_path)
     if metadata.evidence_type != "capture_success" or metadata.process_exit_code != 0:
@@ -70,26 +77,39 @@ def validate_acquired_capture(
     if metadata.requested_sample_count != metadata.retained_sample_count:
         raise OfflineAnalysisError("capture sample count is not exact")
     record = artifact(iq_path)
-    recorded_output = Path(metadata.output.path)
-    if not recorded_output.is_absolute():
-        recorded_output = metadata_path.resolve().parent / recorded_output
-    try:
-        recorded_output = recorded_output.resolve(strict=True)
-    except OSError as error:
-        raise OfflineAnalysisError(
-            f"capture metadata output path is unavailable: {error}",
-            cause=FailureCause.INCOMPLETE_EVIDENCE,
-        ) from error
+    recorded_output_raw = metadata.output.path
+    recorded_output = _local_recorded_output(
+        recorded_output_raw, metadata_path, platform_name=os.name
+    )
     if (
-        recorded_output != iq_path.resolve(strict=True)
-        or metadata.output.path == ""
+        metadata.output.path == ""
         or metadata.output.sha256 != record["sha256"]
         or metadata.output.size_bytes != record["size_bytes"]
     ):
         raise OfflineAnalysisError(
-            "capture IQ path, hash, or size differs from evidence",
+            "capture IQ hash or size differs from evidence",
             cause=FailureCause.CONTRADICTORY_EVIDENCE,
         )
+    try:
+        if recorded_output is not None and recorded_output.exists():
+            if recorded_output.resolve(strict=True) != iq_path.resolve(strict=True):
+                raise OfflineAnalysisError(
+                    "capture IQ path differs from available original evidence",
+                    cause=FailureCause.CONTRADICTORY_EVIDENCE,
+                )
+        elif relocation_bundle is None:
+            raise OfflineAnalysisError(
+                "capture metadata output path is unavailable and no authenticated "
+                "relocation was supplied",
+                cause=FailureCause.INCOMPLETE_EVIDENCE,
+            )
+        else:
+            _validate_relocated_artifact(relocation_bundle, recorded_output_raw, iq_path, record)
+    except OSError as error:
+        raise OfflineAnalysisError(
+            f"capture IQ path cannot be authenticated: {error}",
+            cause=FailureCause.INCOMPLETE_EVIDENCE,
+        ) from error
     if metadata.output.size_bytes != metadata.retained_sample_count * 8:
         raise OfflineAnalysisError("capture IQ byte size does not match CF32 sample count")
     expected_wire = {
@@ -124,3 +144,56 @@ def validate_acquired_capture(
     ):
         raise OfflineAnalysisError("capture receiver identity differs from bench profile")
     return metadata
+
+
+def _local_recorded_output(
+    raw_path: str, metadata_path: Path, *, platform_name: str
+) -> Path | None:
+    """Interpret a recorded path only when it belongs to the current path flavor."""
+    if platform_name == "nt":
+        if PureWindowsPath(raw_path).is_absolute():
+            return Path(raw_path)
+        if PurePosixPath(raw_path).is_absolute():
+            return None
+    else:
+        if PurePosixPath(raw_path).is_absolute():
+            return Path(raw_path)
+        if PureWindowsPath(raw_path).is_absolute():
+            return None
+    return metadata_path.resolve().parent / Path(raw_path)
+
+
+def _validate_relocated_artifact(
+    bundle: Path, original_path: str, retained: Path, identity: dict[str, object]
+) -> None:
+    root = bundle.resolve(strict=True)
+    manifest = root / "SHA256SUMS"
+    index_path = root / "live-artifact-index.json"
+    if manifest.read_text(encoding="utf-8") != render_manifest(build_manifest(root)):
+        raise OfflineAnalysisError(
+            "relocation bundle manifest is invalid", cause=FailureCause.CONTRADICTORY_EVIDENCE
+        )
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    expected_retained = retained.resolve(strict=True)
+    if not expected_retained.is_relative_to(root):
+        raise OfflineAnalysisError(
+            "relocated IQ is outside its authenticated bundle",
+            cause=FailureCause.CONTRADICTORY_EVIDENCE,
+        )
+    matches = [
+        record
+        for record in index.get("artifacts", [])
+        if record.get("source", {}).get("path") == original_path
+        and (root / record.get("retained", {}).get("path", "")).resolve() == expected_retained
+        and all(
+            record.get("retained", {}).get(key) == identity[key] for key in ("size_bytes", "sha256")
+        )
+        and all(
+            record.get("source", {}).get(key) == identity[key] for key in ("size_bytes", "sha256")
+        )
+    ]
+    if len(matches) != 1:
+        raise OfflineAnalysisError(
+            "capture relocation is absent or ambiguous in the authenticated artifact index",
+            cause=FailureCause.CONTRADICTORY_EVIDENCE,
+        )

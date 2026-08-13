@@ -12,6 +12,7 @@ from wsprrypi_qualification.real_session import (
     RealSessionError,
     ResolvedRealSessionPlan,
     _validate_stage,
+    helper_configuration_plan_sha256,
     resolved_real_plan_sha256,
     validate_real_session_document,
 )
@@ -71,12 +72,16 @@ def plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
             "host": "wspr4.local",
             "config_path": "/etc/wsprrypi-qualification/helper.json",
             "config_sha256": "c" * 64,
+            "privilege_wrapper_path": "/usr/bin/sudo",
+            "privilege_wrapper_sha256": "a" * 64,
         },
         "receiver_helper": {
             **executable,
             "identity": "receiver-helper",
             "config_path": "/etc/wsprrypi-qualification/helper.json",
             "config_sha256": "d" * 64,
+            "privilege_wrapper_path": None,
+            "privilege_wrapper_sha256": None,
         },
         "capture_helper": {**executable, "identity": "soapy-capture", "sha256": "5" * 64},
         "wsprd": {**executable, "identity": "wsprd", "sha256": "6" * 64},
@@ -177,10 +182,20 @@ def plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
         "external_access_enabled": True,
         "rf_enabled": True,
     }
-    digest = resolved_real_plan_sha256(document)
+    digest = helper_configuration_plan_sha256(document)
     for field in ("remote_helper", "receiver_helper", "capture_helper", "wsprd", "wsprrypi"):
         document[field]["plan_sha256"] = digest
     return document
+
+
+def test_helper_digest_breaks_cycle_but_operator_digest_binds_config_hashes() -> None:
+    document = plan_document()
+    helper_digest = helper_configuration_plan_sha256(document)
+    operator_digest = resolved_real_plan_sha256(document)
+    document["remote_helper"]["config_sha256"] = "3" * 64
+    document["receiver_helper"]["config_sha256"] = "4" * 64
+    assert helper_configuration_plan_sha256(document) == helper_digest
+    assert resolved_real_plan_sha256(document) != operator_digest
 
 
 class FakeAdapters:
@@ -622,7 +637,7 @@ def test_plan_only_cli_makes_no_external_calls(tmp_path: Path, capsys):
 def test_run_id_cannot_escape_evidence_parent(run_id: str):
     document = plan_document()
     document["run_id"] = run_id
-    digest = resolved_real_plan_sha256(document)
+    digest = helper_configuration_plan_sha256(document)
     document["remote_helper"]["plan_sha256"] = digest
     document["receiver_helper"]["plan_sha256"] = digest
     document["capture_helper"]["plan_sha256"] = digest
@@ -640,7 +655,7 @@ def test_preserved_wspr_sample_contract_is_exact():
         "sample_count": 370000,
         "margin_before_first_slot_s": 5,
     }
-    digest = resolved_real_plan_sha256(document)
+    digest = helper_configuration_plan_sha256(document)
     document["remote_helper"]["plan_sha256"] = digest
     document["receiver_helper"]["plan_sha256"] = digest
     document["capture_helper"]["plan_sha256"] = digest

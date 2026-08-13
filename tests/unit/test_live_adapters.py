@@ -1,6 +1,9 @@
 import json
+import subprocess
+import sys
 import threading
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -9,10 +12,29 @@ from tests.unit.test_real_session import plan_document
 from wsprrypi_qualification.live_adapters import (
     LiveAdapterPaths,
     ProductionRealSessionAdapters,
+    _coherent_capture_launch_epoch,
+    _intentional_carrier_stop_verified,
+    _retained_capture_has_margin,
 )
 from wsprrypi_qualification.offline import artifact
-from wsprrypi_qualification.real_capabilities import ServiceState
-from wsprrypi_qualification.real_session import RealSessionError
+from wsprrypi_qualification.real_capabilities import LaunchResult, ServiceState
+from wsprrypi_qualification.real_session import RealSessionError, resolved_real_plan_sha256
+
+
+def test_offline_runner_invokes_package_entrypoint(monkeypatch) -> None:
+    observed = {}
+
+    def run(arguments, **kwargs):
+        observed["arguments"] = arguments
+        return subprocess.CompletedProcess(arguments, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    ProductionRealSessionAdapters._run_offline(("version",), 1)
+    assert observed["arguments"][:3] == (
+        sys.executable,
+        "-m",
+        "wsprrypi_qualification",
+    )
 
 
 def bare_adapter(tmp_path: Path) -> ProductionRealSessionAdapters:
@@ -29,6 +51,7 @@ def bare_adapter(tmp_path: Path) -> ProductionRealSessionAdapters:
     adapter._session_deadline = float("inf")
     adapter._cleanup_reserve_s = 0.0
     adapter._capture_tasks = []
+    adapter._capture_artifacts = {}
     return adapter
 
 
@@ -54,6 +77,39 @@ def test_stage_refuses_to_hide_deadline_overrun(tmp_path: Path, monkeypatch) -> 
         adapter._stage(plan_document(), "helper", "passed", {}, 5.0, 0.0)
 
 
+def test_transmitter_execution_retains_complete_owned_process_result(tmp_path: Path) -> None:
+    adapter = bare_adapter(tmp_path)
+    plan = plan_document()
+    result = LaunchResult(
+        7,
+        "complete stdout",
+        "complete stderr",
+        timed_out=True,
+        cleanup_verified=False,
+        handle_id="owned-7",
+    )
+    adapter._retain_transmitter_result(plan, tone=True, result=result)
+    document = json.loads((tmp_path / "carrier-transmitter-execution.json").read_text())
+    assert document == {
+        "schema_version": 1,
+        "evidence_type": "transmitter_execution",
+        "run_id": plan["run_id"],
+        "plan_sha256": resolved_real_plan_sha256(plan),
+        "mode": "tone",
+        "handle_id": "owned-7",
+        "return_code": 7,
+        "stdout": "complete stdout",
+        "stderr": "complete stderr",
+        "timed_out": True,
+        "cancelled": False,
+        "disconnected": False,
+        "cleanup_verified": False,
+        "stop_requested": False,
+        "running_before_stop": None,
+        "outcome": "failed",
+    }
+
+
 def test_capture_ready_requires_native_incomplete_output(tmp_path: Path) -> None:
     adapter = bare_adapter(tmp_path)
     expected = tmp_path / "rf_on-0.cf32.incomplete"
@@ -62,6 +118,42 @@ def test_capture_ready_requires_native_incomplete_output(tmp_path: Path) -> None
     worker.start()
     adapter._wait_capture_ready(plan_document(), "rf_on", worker, [])
     worker.join()
+
+
+def test_intentional_carrier_stop_contract_is_fail_closed() -> None:
+    good = LaunchResult(
+        1,
+        cancelled=True,
+        cleanup_verified=True,
+        stop_requested=True,
+        running_before_stop=True,
+    )
+    assert _intentional_carrier_stop_verified(good)
+    for changed in (
+        {"stop_requested": False},
+        {"running_before_stop": False},
+        {"cancelled": False},
+        {"timed_out": True},
+        {"disconnected": True},
+        {"cleanup_verified": False},
+    ):
+        values = good.__dict__ | changed
+        assert not _intentional_carrier_stop_verified(LaunchResult(**values))
+
+
+def test_coherent_capture_guard_and_retained_margin_are_distinct() -> None:
+    slot = datetime(2026, 8, 13, 20, 44, tzinfo=UTC)
+    assert _coherent_capture_launch_epoch(slot, 5) == slot.timestamp() - 7
+    assert _retained_capture_has_margin(
+        {"timestamps": {"retained_capture_start_utc": "2026-08-13T20:43:55Z"}},
+        slot,
+        5,
+    )
+    assert not _retained_capture_has_margin(
+        {"timestamps": {"retained_capture_start_utc": "2026-08-13T20:43:55.001Z"}},
+        slot,
+        5,
+    )
 
 
 class FakeServiceProvider:

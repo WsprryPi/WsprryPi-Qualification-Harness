@@ -7,7 +7,7 @@
     "schema_version": {"const": 1},
     "evidence_type": {"const": "soapy_capture_capability"},
     "plan": {"$ref": "#/$defs/plan"},
-    "arguments": {"type": "array", "items": {"type": "string"}, "minItems": 20},
+    "arguments": {"type": "array", "items": {"type": "string"}, "minItems": 17, "maxItems": 17},
     "helper": {"$ref": "#/$defs/artifact"},
     "return_code": {"const": 0},
     "stdout": {"type": "string"},

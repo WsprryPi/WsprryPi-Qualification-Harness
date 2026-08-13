@@ -581,7 +581,7 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         deadlines["helper_s"], deadlines["transmitter_s"], deadlines["receiver_s"]
     ):
         raise RealSessionError("overall deadline must exceed every component deadline")
-    digest = resolved_real_plan_sha256(document)
+    digest = helper_configuration_plan_sha256(document)
     if any(
         executable["plan_sha256"] != digest
         for executable in (
@@ -977,13 +977,25 @@ def _validate_decode(document: dict[str, object], plan: dict[str, Any], digest: 
 
 
 def resolved_real_plan_sha256(document: dict[str, Any]) -> str:
-    """Digest a plan without recursively hashing its embedded helper digest."""
+    """Digest the complete operator-confirmed plan, including helper config bytes."""
     normalized = json.loads(json.dumps(document, default=str))
-    normalized["remote_helper"]["plan_sha256"] = ""
-    normalized["receiver_helper"]["plan_sha256"] = ""
+    for field in ("remote_helper", "receiver_helper"):
+        normalized[field]["plan_sha256"] = ""
     normalized["capture_helper"]["plan_sha256"] = ""
     normalized["wsprd"]["plan_sha256"] = ""
     normalized["wsprrypi"]["plan_sha256"] = ""
+    payload = json.dumps(normalized, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def helper_configuration_plan_sha256(document: dict[str, Any]) -> str:
+    """Digest the helper subplan without its recursively dependent config hashes."""
+    normalized = json.loads(json.dumps(document, default=str))
+    for field in ("remote_helper", "receiver_helper"):
+        normalized[field]["plan_sha256"] = ""
+        normalized[field]["config_sha256"] = ""
+    for field in ("capture_helper", "wsprd", "wsprrypi"):
+        normalized[field]["plan_sha256"] = ""
     payload = json.dumps(normalized, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 

@@ -23,6 +23,7 @@ from wsprrypi_qualification.decoder import (
 )
 from wsprrypi_qualification.offline import OfflineAnalysisError, artifact
 from wsprrypi_qualification.offline_context import (
+    _local_recorded_output,
     load_profile_context,
     validate_acquired_capture,
 )
@@ -157,7 +158,7 @@ def test_acquired_carrier_uses_profiles_and_capture_contract(tmp_path: Path) -> 
     wrong_output = json.loads(original_metadata)
     wrong_output["output"]["path"] = on.name
     (tmp_path / "off.json").write_text(json.dumps(wrong_output), encoding="utf-8")
-    with pytest.raises(OfflineAnalysisError, match="path, hash, or size"):
+    with pytest.raises(OfflineAnalysisError, match="available original"):
         load_acquired_carrier_evidence(evidence_path)
     (tmp_path / "off.json").write_text(original_metadata, encoding="utf-8")
 
@@ -197,8 +198,32 @@ def test_capture_metadata_output_path_is_metadata_relative_and_authenticated(
     alternate.write_bytes(iq.read_bytes())
     document["output"]["path"] = str(alternate)
     metadata_path.write_text(json.dumps(document), encoding="utf-8")
-    with pytest.raises(OfflineAnalysisError, match="path, hash, or size"):
+    with pytest.raises(OfflineAnalysisError, match="available original"):
         validate_acquired_capture(metadata_path, iq, context)
+
+    document["output"]["path"] = "/unavailable/original/capture.cf32"
+    metadata_path.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(OfflineAnalysisError, match="no authenticated relocation"):
+        validate_acquired_capture(metadata_path, iq, context)
+
+    iq.write_bytes(iq.read_bytes() + b"changed")
+    with pytest.raises(OfflineAnalysisError, match="hash or size"):
+        validate_acquired_capture(metadata_path, iq, context)
+
+
+def test_recorded_output_preserves_foreign_absolute_path_flavor(tmp_path: Path) -> None:
+    metadata_path = tmp_path / "capture.json"
+    assert (
+        _local_recorded_output("/home/pi/capture.cf32", metadata_path, platform_name="nt") is None
+    )
+    assert (
+        _local_recorded_output(r"C:\capture\capture.cf32", metadata_path, platform_name="posix")
+        is None
+    )
+    assert (
+        _local_recorded_output("relative/capture.cf32", metadata_path, platform_name="nt")
+        == tmp_path / "relative" / "capture.cf32"
+    )
 
 
 def test_acquired_audio_uses_capture_utc_and_canonical_name(
