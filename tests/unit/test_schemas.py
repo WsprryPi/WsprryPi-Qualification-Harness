@@ -56,6 +56,14 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         "simulator-capabilities.schema.json",
         "simulator-runtime-confirmation.schema.json",
         "simulator-quiescence.schema.json",
+        "actual-host-runtime-authorization.schema.json",
+        "actual-host-identity-correction.schema.json",
+        "actual-host-original-bundle-reference.schema.json",
+        "actual-host-correction-request.schema.json",
+        "actual-host-prior-correction-reference.schema.json",
+        "actual-host-corrected-result.schema.json",
+        "actual-host-controller-openssh.schema.json",
+        "actual-host-correction-log.schema.json",
     ):
         packaged = json.loads(
             files("wsprrypi_qualification.schemas").joinpath(name).read_text(encoding="utf-8")
