@@ -149,6 +149,12 @@ tests. See [helper deployment](docs/development/helper-deployment.md). The
 fake or staged files only; it performs no SSH, service, GPIO, I2C, SDR, or RF
 operation. Actual Raspberry Pi OS behavior remains an actual-host gate.
 
+A bounded real-time, hardware-free qualification simulator exercises local
+child deadlines, synthetic carrier analysis, compact CF32-to-WAV conversion,
+three fake-decoder invocations, cleanup precedence, and immutable packaging.
+It always records `qualification_claim: false` and can never return
+`qualified`. See [bounded simulator](docs/development/bounded-simulator.md).
+
 Slice 3 evidence records canonical absolute artifact paths so validation is
 independent of the caller's current working directory. Acquired audio and
 decoder evidence is authenticated against the retained profiles, capture

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["simulated", "gpio_inspection", "si5351_inspection", "verified"],
+  "properties": {
+    "simulated": {"const": true},
+    "gpio_inspection": {"const": "read_only_fixture"},
+    "si5351_inspection": {"const": "read_only_fixture"},
+    "verified": {"type": "boolean"}
+  }
+}

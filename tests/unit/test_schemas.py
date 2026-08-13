@@ -47,6 +47,15 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         "helper-deployment-config.schema.json",
         "deployment-provider-evidence.schema.json",
         "systemd-transaction-evidence.schema.json",
+        "simulator-plan.schema.json",
+        "resolved-simulator-plan.schema.json",
+        "simulator-session.schema.json",
+        "simulator-artifact-index.schema.json",
+        "simulator-decode-summary.schema.json",
+        "simulator-result.schema.json",
+        "simulator-capabilities.schema.json",
+        "simulator-runtime-confirmation.schema.json",
+        "simulator-quiescence.schema.json",
     ):
         packaged = json.loads(
             files("wsprrypi_qualification.schemas").joinpath(name).read_text(encoding="utf-8")

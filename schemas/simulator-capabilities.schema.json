@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["simulated", "network", "physical_sdr", "service_manager", "gpio_i2c", "local_subprocesses"],
+  "properties": {
+    "simulated": {"const": true},
+    "network": {"const": false},
+    "physical_sdr": {"const": false},
+    "service_manager": {"const": false},
+    "gpio_i2c": {"const": false},
+    "local_subprocesses": {"const": true}
+  }
+}

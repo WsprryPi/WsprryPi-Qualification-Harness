@@ -28,6 +28,7 @@ from wsprrypi_qualification.real_session import (
     RealSessionError,
     ResolvedRealSessionPlan,
 )
+from wsprrypi_qualification.simulator import SimulationError, SimulatorPlan, run_simulation
 
 LIVE_COMMANDS = {"run", "capture", "transmit", "tone", "enable-rf"}
 
@@ -59,6 +60,32 @@ def _parser() -> argparse.ArgumentParser:
     )
     real_session.add_argument("plan", type=Path)
     real_session.add_argument("--plan-only", action="store_true", required=True)
+    simulator = subparsers.add_parser(
+        "simulate-qualification", help="run the bounded hardware-free lifecycle simulator"
+    )
+    simulator.add_argument("output_parent", type=Path)
+    simulator.add_argument("--run-id", required=True)
+    simulator.add_argument(
+        "--injection",
+        choices=(
+            "none",
+            "carrier_fail",
+            "cleanup_fail",
+            "rf_off_timeout",
+            "rf_off_nonzero",
+            "carrier_timeout",
+            "carrier_nonzero",
+            "frame_timeout",
+            "frame_nonzero",
+            "carrier_analysis_hang",
+            "wav_hang",
+            "decoder_hang",
+            "publication_hang",
+        ),
+        default="none",
+    )
+    simulator.add_argument("--child-timeout", type=float, default=1.0)
+    simulator.add_argument("--overall-timeout", type=float, default=15.0)
     carrier = subparsers.add_parser("analyze-carrier", help="analyze offline RF-off/RF-on CF32")
     carrier.add_argument("rf_off", type=Path)
     carrier.add_argument("rf_on", type=Path)
@@ -186,6 +213,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         return 0
+    if args.command == "simulate-qualification":
+        try:
+            result = run_simulation(
+                SimulatorPlan(
+                    args.run_id,
+                    args.output_parent,
+                    child_timeout_s=args.child_timeout,
+                    overall_timeout_s=args.overall_timeout,
+                    injection=args.injection,
+                )
+            )
+        except (SimulationError, OfflineAnalysisError, OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["session"]["final_status"] == "inconclusive" else 1
     try:
         if args.command == "analyze-carrier":
             document = analyze_carrier_acquired(

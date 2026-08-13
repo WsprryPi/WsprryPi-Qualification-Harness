@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_type",
+    "simulated",
+    "gate_outcome",
+    "decoder_invocations",
+    "slots"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "evidence_type": {
+      "const": "simulator_decode_summary"
+    },
+    "simulated": {
+      "const": true
+    },
+    "gate_outcome": {
+      "enum": [
+        "passed",
+        "failed"
+      ]
+    },
+    "decoder_invocations": {
+      "const": 3
+    },
+    "slots": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "slot_utc",
+          "wav",
+          "decoder",
+          "gate_outcome",
+          "identity",
+          "intended_signal_found"
+        ],
+        "properties": {
+          "slot_utc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "wav": {
+            "$ref": "#/$defs/artifact"
+          },
+          "decoder": {
+            "$ref": "#/$defs/artifact"
+          },
+          "gate_outcome": {
+            "enum": [
+              "passed",
+              "failed",
+              "blocked",
+              "inconclusive"
+            ]
+          },
+          "identity": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "callsign",
+              "grid",
+              "power_dbm"
+            ],
+            "properties": {
+              "callsign": {
+                "const": "AA0NT"
+              },
+              "grid": {
+                "const": "EM18"
+              },
+              "power_dbm": {
+                "const": 20
+              }
+            }
+          },
+          "intended_signal_found": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "size_bytes",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}
+
