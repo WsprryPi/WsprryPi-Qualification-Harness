@@ -367,6 +367,8 @@ def test_composite_rejects_reauthenticated_graph_tampering(tmp_path: Path, mutat
 
 def valid_openssh() -> dict:
     executable = Path("/usr/bin/ssh")
+    if not executable.is_file():
+        pytest.skip("retained controller OpenSSH correction is macOS-specific evidence")
     return {
         "schema_version": 1,
         "evidence_type": "actual_host_controller_openssh_identity",

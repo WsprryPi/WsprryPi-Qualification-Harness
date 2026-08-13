@@ -1,6 +1,5 @@
 import hashlib
 import json
-import os
 import sys
 import time
 from pathlib import Path
@@ -233,7 +232,10 @@ def test_persistent_entrypoint_preserves_ownership_and_enforces_deadline(tmp_pat
         ),
         encoding="utf-8",
     )
-    module_python = Path(sys.prefix) / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    # Preserve the virtual-environment entry point. Resolving a POSIX symlink
+    # can escape the venv, while sys.prefix/Scripts is not portable to every
+    # Windows Python environment.
+    module_python = Path(sys.executable).absolute()
     transport = PersistentHelperTransport(
         (
             str(module_python.absolute()),
@@ -245,12 +247,12 @@ def test_persistent_entrypoint_preserves_ownership_and_enforces_deadline(tmp_pat
         )
     )
     client = JsonHelperClient(
-        Path(sys.executable).resolve(), transport, 2, PLAN, "installed-helper"
+        Path(sys.executable).resolve(), transport, 5, PLAN, "installed-helper"
     )
     executable = Path(sys.executable).resolve()
     digest = hashlib.sha256(executable.read_bytes()).hexdigest()
     try:
-        process = SshOwnedProcessLauncher(client, 2, digest).begin(
+        process = SshOwnedProcessLauncher(client, 5, digest).begin(
             (str(executable), "-c", "print('persistent')")
         )
         assert process.wait(2, None).stdout.strip() == "persistent"
@@ -261,7 +263,7 @@ def test_persistent_entrypoint_preserves_ownership_and_enforces_deadline(tmp_pat
         result = timed.wait(1, None)
         assert result.timed_out is True
         assert result.cleanup_verified is True
-        stopped = SshOwnedProcessLauncher(client, 2, digest).begin(
+        stopped = SshOwnedProcessLauncher(client, 5, digest).begin(
             (str(executable), "-c", "import time; time.sleep(5)")
         )
         stop_result = stopped.stop()

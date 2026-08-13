@@ -49,7 +49,7 @@ def test_sdist_and_wheel_retain_exact_reviewed_assets(tmp_path: Path) -> None:
             == 1
         )
         # Portable invocation is explicit through Python; Windows need not preserve a Unix mode.
-        assert packaged_provider.startswith(b"#!/usr/bin/env python3\n")
+        assert packaged_provider.splitlines()[0] == b"#!/usr/bin/env python3"
     with tarfile.open(sdists[0], "r:gz") as archive:
         provider_members = [name for name in archive.getnames() if name.endswith(WHEEL_PROVIDER)]
         source_members = [

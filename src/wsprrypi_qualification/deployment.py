@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import stat
 import subprocess
 import time
@@ -54,7 +55,7 @@ def load_deployment_config(
             raise DeploymentError(f"{name} executable must be an existing absolute file")
         if sha256_file(executable) != configured["sha256"]:
             raise DeploymentError(f"{name} executable SHA-256 mismatch")
-        if executable.stat().st_mode & stat.S_IWOTH:
+        if os.name != "nt" and executable.stat().st_mode & stat.S_IWOTH:
             raise DeploymentError(f"{name} executable must not be world-writable")
     for field in ("venv_path", "config_path", "state_directory"):
         if not Path(document[field]).is_absolute():
