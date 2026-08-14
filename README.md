@@ -4,15 +4,14 @@ Cross-platform, evidence-producing WsprryPi RF qualification harness maintained
 as an independent project.
 
 The project currently provides the reviewed implementation from Slices 1
-through 5 plus hardware-free Slice 6 preparation: its governing contract, portable package and schemas, mock-tested
-exact-count capture helper, offline carrier and WSPR decoding pipeline,
-structured local-process transport, failure-injected lifecycle supervisor, and
-one bounded receiver-only validation of the native helper on the recorded
-`wspr5` SDRplay RSP1B configuration. Preserved Issue 379 sources remain
-provenance, not production code. Slice 6 preparation reconciles complete
-WsprryPi backend arguments and authenticates retained carrier/audio/decoder
-evidence in a mock-only coordinator. Transmitter validation remains a
-separately authorized future action.
+through 6, including portable profiles and schemas, mock-tested exact-count
+capture, offline carrier and WSPR decoding, lifecycle supervision, production
+capability adapters, a fail-closed split-host live coordinator, and immutable
+evidence packaging. Actual-host receiver, transmitter-lifecycle, and bounded
+carrier exercises have been retained for the recorded `wspr4`/`wspr5`
+configuration. No complete three-frame transmitter qualification has yet been
+established. Preserved Issue 379 sources remain provenance, not production
+code.
 
 ## Intended outcome
 
@@ -42,10 +41,13 @@ manifests, a CMake-built exact-count CF32 capture engine exercised only by a
 deterministic mock source, RF-off-subtracted carrier analysis, timestamped
 CF32-to-WAV conversion, bounded independent `wsprd` decoding, structured local
 child execution, mock transport and capability adapters, and lifecycle cleanup
-supervision with injected failure tests. Slice 5 adds a bounded receiver-only
-exact-count validation on `wspr5`; it validates only the recorded RSP1B capture
-and cleanup configuration. No transmitter or RF path is qualified by this
-repository.
+supervision with injected failure tests. Slice 5 adds bounded receiver-only
+exact-count validation on `wspr5`. Slice 6 adds reviewed production adapters
+and the fail-closed split-host lifecycle. Bounded actual-host work has
+exercised `wspr4` transmission and `wspr5` RSP1B capture, but the retained
+carrier runs do not establish complete three-frame WSPR qualification.
+Qualification remains specific to an immutable passing run and its exact
+recorded configuration.
 
 The reviewed roadmap is:
 
@@ -68,6 +70,9 @@ The reviewed roadmap is:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes and
 [SECURITY.md](SECURITY.md) for reporting safety or security defects.
+Agentic processes should begin with the
+[agent operating guide](docs/AGENT_OPERATIONS.md), which points to the current
+CLI, schemas, safety gates, evidence validators, and actual-host records.
 
 ## Install and validate
 

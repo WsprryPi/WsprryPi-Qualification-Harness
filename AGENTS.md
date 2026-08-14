@@ -2,6 +2,9 @@
 
 These instructions apply to the entire WsprryPi Qualification Harness.
 
+For repository orientation and maintained command/evidence breadcrumbs, read
+`docs/AGENT_OPERATIONS.md` after `CONTRACT.md` and before operating the harness.
+
 ## Scope and preservation
 
 - Read `CONTRACT.md` before planning or changing implementation.

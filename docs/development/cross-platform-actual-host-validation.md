@@ -14,8 +14,15 @@ any transmitter configuration.
   The maintained live coordinator also authenticated and opened the installed
   RSP1B for exact-count RF-off and RF-on captures.
 - GitHub Actions: the macOS, Ubuntu, and native Windows matrix was green for
-  commit `20d01d7b9635a2bc0fac9d355613c1e6c4796a21`. Native Windows 11 actual-host
-  testing was explicitly deferred; hosted Windows CI is not a substitute.
+  commit `20d01d7b9635a2bc0fac9d355613c1e6c4796a21`.
+- Native Windows 11 (`ecm-mule`): commit
+  `16d617c6128ad83875d7a9290f793b6c10e3f71d` passed the complete hardware-free
+  Python 3.11 and 3.13 validation gates. Each environment reported 657 passed
+  tests and nine expected skips for macOS-specific retained evidence. Ruff,
+  strict mypy, provenance hashes, the bounded simulator, MSVC native build,
+  CTest 2/2, distribution builds, isolated wheel installation, and packaged
+  `jsonschema` loading passed. No SDR, RF, GPIO, I2C, or service operation was
+  performed.
 
 ## Bounded split-host carrier run
 
@@ -47,6 +54,6 @@ provenance claim.
 
 This establishes actual-host behavior for the named hosts and bounded carrier
 workflow. It does not qualify the transmitter, because the carrier gate failed.
-It does not cover native Windows 11 actual-host behavior, calibrated RF power,
-harmonics, spurious emissions, filter adequacy, another backend, or another RF
-path.
+It does not cover physical SDR or transmitter behavior on Windows 11,
+calibrated RF power, harmonics, spurious emissions, filter adequacy, another
+backend, or another RF path.
