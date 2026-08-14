@@ -103,6 +103,7 @@ wsprrypi-qualification validate-profile test examples/test-si5351-160m.json
 wsprrypi-qualification validate-profile receiver-run RUNTIME_RECEIVER_RUN.json
 wsprrypi-qualification validate-capture-metadata CAPTURE_METADATA.json
 wsprrypi-qualification validate-application-plan examples/application-plan-wsprrypi-wspr.json
+wsprrypi-qualification validate-cw-qualification CW_ANALYSIS.json
 wsprrypi-qualification analyze-carrier RF_OFF.cf32 RF_ON.cf32 carrier.json --rf-off-metadata RF_OFF.json --rf-on-metadata RF_ON.json --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification make-slot-wav CAPTURE.cf32 CAPTURE.json WAV_DIRECTORY audio.json --slot 2026-08-09T21:00:00Z --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification decode-wspr SLOT.wav audio.json decoder.json

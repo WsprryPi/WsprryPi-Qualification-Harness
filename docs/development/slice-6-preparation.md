@@ -97,8 +97,15 @@ ctest --test-dir BUILD -C Release --output-on-failure
 The original preparation coordinator remains hardware-free. A later, distinct
 split-host production composition is documented in `live-three-frame.md`; it
 does not weaken or relabel this mock-only evidence.
-QRSS, FSKCW, and DFCW retain application-plan support but have no qualification
-workflow. Hellschreiber and RP1 remain unsupported.
+QRSS, FSKCW, and DFCW retain application-plan support. The offline
+`cw_qualification_analysis` contract can authenticate a capture and validate a
+mode-specific measurement summary. QRSS requires carrier placement, key-down,
+key-up, and transition evidence. FSKCW and DFCW additionally require distinct
+primary and secondary tones, correct spacing, uninterrupted transitions, and
+timing evidence. Synthetic evidence is always inconclusive, and cleanup failure
+has precedence. Live CW orchestration and raw-IQ-to-observation analysis remain
+unimplemented, so this contract cannot by itself qualify hardware.
+Hellschreiber and RP1 remain unsupported.
 
 ## Next gate
 

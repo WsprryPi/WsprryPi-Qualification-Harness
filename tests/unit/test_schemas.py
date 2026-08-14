@@ -20,6 +20,7 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         "decode-summary.schema.json",
         "offline-failure.schema.json",
         "application-plan.schema.json",
+        "cw-qualification-analysis.schema.json",
         "slice6-session-plan.schema.json",
         "slice6-session.schema.json",
         "slice6-offline-evidence-index.schema.json",
@@ -85,6 +86,13 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         )
         review_facing = json.loads((ROOT / "schemas" / name).read_text(encoding="utf-8"))
         assert packaged == review_facing
+
+
+def test_packaged_schemas_are_byte_identical() -> None:
+    name = "cw-qualification-analysis.schema.json"
+    review_facing = ROOT / "schemas" / name
+    packaged = files("wsprrypi_qualification.schemas").joinpath(name)
+    assert packaged.read_bytes() == review_facing.read_bytes()
 
 
 def test_all_schemas_are_valid_draft_2020_12() -> None:

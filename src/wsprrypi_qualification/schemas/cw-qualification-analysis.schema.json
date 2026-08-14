@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_type", "mode", "backend", "hardware_profile", "band", "source", "capture", "thresholds", "observations", "cleanup_verified", "failure_causes", "final_status", "qualification_claim"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "cw_qualification_analysis"},
+    "mode": {"enum": ["tone", "qrss", "fskcw", "dfcw"]},
+    "backend": {"enum": ["gpio", "si5351"]},
+    "hardware_profile": {"type": "string", "minLength": 1},
+    "band": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["parent_revision", "submodule_revision"],
+      "properties": {
+        "parent_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "submodule_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      }
+    },
+    "capture": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "size_bytes", "sha256", "sample_rate_hz", "synthetic"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "size_bytes": {"type": "integer", "minimum": 8},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "sample_rate_hz": {"type": "number", "exclusiveMinimum": 0},
+        "synthetic": {"type": "boolean"}
+      }
+    },
+    "thresholds": {
+      "type": "object", "additionalProperties": false,
+      "required": ["primary_frequency_hz", "secondary_frequency_hz", "frequency_tolerance_hz", "spacing_tolerance_hz", "minimum_key_contrast_db", "timing_tolerance_s"],
+      "properties": {
+        "primary_frequency_hz": {"type": "number", "exclusiveMinimum": 0},
+        "secondary_frequency_hz": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "frequency_tolerance_hz": {"type": "number", "exclusiveMinimum": 0},
+        "spacing_tolerance_hz": {"type": "number", "exclusiveMinimum": 0},
+        "minimum_key_contrast_db": {"type": "number", "exclusiveMinimum": 0},
+        "timing_tolerance_s": {"type": "number", "minimum": 0}
+      }
+    },
+    "observations": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["kind", "measured_frequency_hz", "key_contrast_db", "timing_error_s", "carrier_continuous"],
+        "properties": {
+          "kind": {"enum": ["primary", "secondary", "key_down", "key_up", "transition"]},
+          "measured_frequency_hz": {"type": ["number", "null"], "exclusiveMinimum": 0},
+          "key_contrast_db": {"type": ["number", "null"]},
+          "timing_error_s": {"type": "number"},
+          "carrier_continuous": {"type": "boolean"}
+        }
+      }
+    },
+    "cleanup_verified": {"type": "boolean"},
+    "failure_causes": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "final_status": {"enum": ["qualified", "unqualified", "cleanup_failed", "inconclusive"]},
+    "qualification_claim": {"type": "boolean"}
+  }
+}

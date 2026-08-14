@@ -20,6 +20,7 @@ from wsprrypi_qualification.audio import create_slot_wav_acquired
 from wsprrypi_qualification.capabilities import capability_report
 from wsprrypi_qualification.capture_metadata import CaptureMetadataError, load_capture_metadata
 from wsprrypi_qualification.carrier import analyze_carrier_acquired
+from wsprrypi_qualification.cw_qualification import CwQualificationError, load_cw_qualification
 from wsprrypi_qualification.decoder import run_wsprd_acquired, summarize_decodes
 from wsprrypi_qualification.deployment import DeploymentError, load_deployment_config
 from wsprrypi_qualification.offline import OfflineAnalysisError, write_offline_failure
@@ -53,6 +54,10 @@ def _parser() -> argparse.ArgumentParser:
         "validate-application-plan", help="validate a hardware-free application plan"
     )
     application_plan.add_argument("path", type=Path)
+    cw_evidence = subparsers.add_parser(
+        "validate-cw-qualification", help="authenticate and validate offline CW evidence"
+    )
+    cw_evidence.add_argument("path", type=Path)
     deployment = subparsers.add_parser(
         "validate-helper-deployment", help="validate helper deployment configuration offline"
     )
@@ -190,6 +195,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(str(error), file=sys.stderr)
             return 2
         print(json.dumps({"path": str(args.path), "valid": True}, indent=2, sort_keys=True))
+        return 0
+    if args.command == "validate-cw-qualification":
+        try:
+            document = load_cw_qualification(args.path)
+        except CwQualificationError as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(
+            json.dumps(
+                {
+                    "path": str(args.path),
+                    "valid": True,
+                    "mode": document["mode"],
+                    "final_status": document["final_status"],
+                    "qualification_claim": document["qualification_claim"],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
     if args.command == "validate-helper-deployment":
         try:
