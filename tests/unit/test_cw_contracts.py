@@ -9,6 +9,12 @@ import wsprrypi_qualification.cw_replay as cw_replay_module
 from wsprrypi_qualification.cli import main
 from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contract_chain
 from wsprrypi_qualification.cw_iq import CwIqError, analyze_synthetic_iq, generate_synthetic_iq
+from wsprrypi_qualification.cw_lifecycle import (
+    INJECTIONS,
+    CwLifecycleError,
+    run_mock_lifecycle,
+    validate_mock_lifecycle,
+)
 from wsprrypi_qualification.cw_reference import generate_expected_events
 from wsprrypi_qualification.cw_replay import (
     CwReplayError,
@@ -711,6 +717,90 @@ def test_phase1_chain_models_every_first_class_mode_without_qualifying(
         "qualification_claim": False,
         "valid": True,
     }
+
+
+@pytest.mark.parametrize("mode", ["tone", "cw", "qrss", "fskcw", "dfcw"])
+def test_phase5_mock_lifecycle_models_every_mode_without_qualifying(
+    tmp_path: Path, mode: str
+) -> None:
+    paths = _chain(tmp_path, mode)
+    output = tmp_path / "lifecycle.json"
+    result = run_mock_lifecycle(*paths[:4], output)
+    assert result["mode"] == mode
+    assert result["lifecycle_gate"] == "passed"
+    assert result["final_status"] == "inconclusive"
+    assert result["qualification_claim"] is False
+    assert result["supervisor"]["leak_verification"] == {"verified": True, "remaining": []}
+
+
+@pytest.mark.parametrize("injection", sorted(INJECTIONS - {"none"}))
+def test_phase5_every_lifecycle_boundary_is_failure_injected(
+    tmp_path: Path, injection: str
+) -> None:
+    paths = _chain(tmp_path, "cw")
+    result = run_mock_lifecycle(*paths[:4], tmp_path / "lifecycle.json", injection=injection)
+    assert result["qualification_claim"] is False
+    if any(
+        token in injection
+        for token in ("stop_", "release_", "service_restore", "leak_verify", "quiescence")
+    ) and not injection.endswith("_cancel"):
+        assert result["final_status"] == "cleanup_failed"
+    elif injection.endswith("_cancel"):
+        assert result["final_status"] in {"aborted", "cleanup_failed"}
+    else:
+        assert result["final_status"] == "fixture_blocked"
+
+
+def test_phase5_cleanup_failure_overrides_passing_measurement(tmp_path: Path) -> None:
+    paths = _chain(tmp_path, "cw")
+    gate = json.loads(paths[3].read_text(encoding="utf-8"))
+    gate["carrier_gate"] = gate["mode_gate"] = "passed"
+    _write(paths[3], gate)
+    result = run_mock_lifecycle(
+        *paths[:4], tmp_path / "lifecycle.json", injection="transmitter_stop_fail"
+    )
+    assert result["measurement"] == {"carrier_gate": "passed", "mode_gate": "passed"}
+    assert result["final_status"] == "cleanup_failed"
+
+
+def test_phase5_rejects_tampering_positive_claim_and_unknown_injection(tmp_path: Path) -> None:
+    paths = _chain(tmp_path, "cw")
+    output = tmp_path / "lifecycle.json"
+    run_mock_lifecycle(*paths[:4], output)
+    document = json.loads(output.read_text(encoding="utf-8"))
+    document["final_status"] = "cleanup_failed"
+    _write(output, document)
+    with pytest.raises(CwLifecycleError, match="final status"):
+        validate_mock_lifecycle(output)
+    output.unlink()
+    with pytest.raises(CwLifecycleError, match="unsupported"):
+        run_mock_lifecycle(*paths[:4], output, injection="execute-anything")
+
+
+def test_phase5_rejects_relabelled_injection_and_broken_upstream_chain(tmp_path: Path) -> None:
+    paths = _chain(tmp_path, "cw")
+    output = tmp_path / "lifecycle.json"
+    run_mock_lifecycle(*paths[:4], output, injection="monitor_fail")
+    document = json.loads(output.read_text(encoding="utf-8"))
+    document["injection"] = "receiver_start_fail"
+    _write(output, document)
+    with pytest.raises(CwLifecycleError, match="declared mock injection"):
+        validate_mock_lifecycle(output)
+
+    output.unlink()
+    observations = json.loads(paths[2].read_text(encoding="utf-8"))
+    observations["expected_events"]["sha256"] = "0" * 64
+    _write(paths[2], observations)
+    with pytest.raises(CwLifecycleError, match="SHA-256"):
+        run_mock_lifecycle(*paths[:4], output)
+
+
+def test_phase5_cli_create_and_validate(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    paths = _chain(tmp_path, "tone")
+    output = tmp_path / "lifecycle.json"
+    assert main(["run-cw-mock-lifecycle", *(str(path) for path in paths[:4]), str(output)]) == 0
+    assert json.loads(capsys.readouterr().out)["qualification_claim"] is False
+    assert main(["validate-cw-mock-lifecycle", str(output)]) == 0
 
 
 def test_post_selected_plan_threshold_breaks_hash_chain(tmp_path: Path) -> None:

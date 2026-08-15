@@ -22,6 +22,12 @@ from wsprrypi_qualification.capture_metadata import CaptureMetadataError, load_c
 from wsprrypi_qualification.carrier import analyze_carrier_acquired
 from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contract_chain
 from wsprrypi_qualification.cw_iq import CwIqError, analyze_synthetic_iq, generate_synthetic_iq
+from wsprrypi_qualification.cw_lifecycle import (
+    INJECTIONS,
+    CwLifecycleError,
+    run_mock_lifecycle,
+    validate_mock_lifecycle,
+)
 from wsprrypi_qualification.cw_qualification import CwQualificationError, load_cw_qualification
 from wsprrypi_qualification.cw_reference import ReferenceEncoderError, write_expected_events
 from wsprrypi_qualification.cw_replay import (
@@ -115,6 +121,21 @@ def _parser() -> argparse.ArgumentParser:
         help="authenticate and recompute a non-qualifying Phase 4 replay bundle",
     )
     cw_replay_validate.add_argument("bundle", type=Path)
+    cw_lifecycle = subparsers.add_parser(
+        "run-cw-mock-lifecycle",
+        help="run a bounded Phase 5 mock-only lifecycle; never qualifies hardware",
+    )
+    cw_lifecycle.add_argument("plan", type=Path)
+    cw_lifecycle.add_argument("expected_events", type=Path)
+    cw_lifecycle.add_argument("observations", type=Path)
+    cw_lifecycle.add_argument("mode_gate", type=Path)
+    cw_lifecycle.add_argument("output", type=Path)
+    cw_lifecycle.add_argument("--injection", choices=tuple(sorted(INJECTIONS)), default="none")
+    cw_lifecycle_validate = subparsers.add_parser(
+        "validate-cw-mock-lifecycle",
+        help="authenticate Phase 5 mock-only lifecycle evidence",
+    )
+    cw_lifecycle_validate.add_argument("path", type=Path)
     deployment = subparsers.add_parser(
         "validate-helper-deployment", help="validate helper deployment configuration offline"
     )
@@ -356,6 +377,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             result = validate_replay_bundle(args.bundle, recompute=True)
         except (CwReplayError, CwIqError, OfflineAnalysisError, OSError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "run-cw-mock-lifecycle":
+        try:
+            result = run_mock_lifecycle(
+                args.plan,
+                args.expected_events,
+                args.observations,
+                args.mode_gate,
+                args.output,
+                injection=args.injection,
+            )
+        except (CwLifecycleError, OfflineAnalysisError, OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "validate-cw-mock-lifecycle":
+        try:
+            result = validate_mock_lifecycle(args.path)
+        except (CwLifecycleError, OfflineAnalysisError, OSError, ValueError) as error:
             print(str(error), file=sys.stderr)
             return 2
         print(json.dumps(result, indent=2, sort_keys=True))

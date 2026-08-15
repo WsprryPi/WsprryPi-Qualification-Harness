@@ -310,6 +310,11 @@ schema-valid, fully manifested, and contain no unsupported hardware claim.
 
 ### Phase 5 - Mock bounded lifecycle
 
+**Status:** Implemented and locally validated on 2026-08-15. This status covers
+only sealed mock/local-process lifecycle evidence and deterministic failure
+injection. Pushed cross-platform CI remains the exit confirmation; Phase 6
+actual-host preflight and all live/hardware work remain separately gated.
+
 - Add per-mode start, capture, stop, cancellation, timeout, and cleanup flows
   using only reviewed mock/local-process adapters.
 - Exercise process ownership, deadline, service-restoration, leak, and

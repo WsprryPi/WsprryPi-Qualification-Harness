@@ -26,6 +26,7 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         "cw-generated-observations.schema.json",
         "cw-mode-gate.schema.json",
         "cw-final-session.schema.json",
+        "cw-mock-lifecycle.schema.json",
         "slice6-session-plan.schema.json",
         "slice6-session.schema.json",
         "slice6-offline-evidence-index.schema.json",
@@ -101,6 +102,7 @@ def test_packaged_cw_schemas_are_byte_identical() -> None:
         "cw-generated-observations.schema.json",
         "cw-mode-gate.schema.json",
         "cw-final-session.schema.json",
+        "cw-mock-lifecycle.schema.json",
     ):
         review_facing = ROOT / "schemas" / name
         packaged = files("wsprrypi_qualification.schemas").joinpath(name)

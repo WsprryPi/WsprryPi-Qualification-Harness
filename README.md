@@ -110,6 +110,8 @@ wsprrypi-qualification generate-cw-synthetic-iq PLAN.json EXPECTED.json CAPTURE.
 wsprrypi-qualification analyze-cw-synthetic-iq PLAN.json EXPECTED.json CAPTURE.json OBSERVATIONS.json GATE.json --source-revision GIT_SHA
 wsprrypi-qualification compose-cw-acquired-replay PLAN.json EXPECTED.json CAPTURE-METADATA.json REPLAY-DIRECTORY --source-revision GIT_SHA
 wsprrypi-qualification validate-cw-acquired-replay REPLAY-DIRECTORY
+wsprrypi-qualification run-cw-mock-lifecycle PLAN.json EXPECTED.json OBSERVATIONS.json GATE.json LIFECYCLE.json
+wsprrypi-qualification validate-cw-mock-lifecycle LIFECYCLE.json
 wsprrypi-qualification analyze-carrier RF_OFF.cf32 RF_ON.cf32 carrier.json --rf-off-metadata RF_OFF.json --rf-on-metadata RF_ON.json --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification make-slot-wav CAPTURE.cf32 CAPTURE.json WAV_DIRECTORY audio.json --slot 2026-08-09T21:00:00Z --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification decode-wspr SLOT.wav audio.json decoder.json
@@ -142,6 +144,12 @@ inconclusive result, and canonical manifest. Replay never accesses hardware and
 cannot prove lifecycle facts or qualify a transmitter. See the
 [Phase 4 execution prompt](docs/phase-4-cw-acquired-iq-replay-execution-prompt.md)
 and [Phase 4 development guide](docs/development/cw-acquired-iq-replay.md).
+Phase 5 binds that authenticated measurement chain to the reviewed mock-only
+Slice 4 supervisor and failure-injects every bounded lifecycle and cleanup
+boundary. It deterministically revalidates the declared injection, preserves
+cleanup-failure precedence, and remains non-qualifying. See the
+[Phase 5 execution prompt](docs/phase-5-cw-mock-bounded-lifecycle-execution-prompt.md)
+and [Phase 5 development guide](docs/development/cw-mock-bounded-lifecycle.md).
 
 The capability report locates future dependencies without executing them. Live
 RF remains unavailable by default, and committed profiles cannot satisfy

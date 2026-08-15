@@ -128,6 +128,12 @@ composer and validator described in
 replay measurement remains `inconclusive`: it cannot substitute for runtime
 authorization, live-session, cleanup, or quiescence evidence.
 
+For the hardware-free Phase 5 lifecycle rehearsal, use
+`run-cw-mock-lifecycle` and `validate-cw-mock-lifecycle` as described in
+[`cw-mock-bounded-lifecycle.md`](development/cw-mock-bounded-lifecycle.md).
+Only the closed mock injection vocabulary is accepted. This does not authorize
+or validate any live adapter, host, service, receiver, transmitter, or RF path.
+
 ### Live split-host WSPR lifecycle
 
 The maintained topology currently uses `wspr4` for WsprryPi transmission and

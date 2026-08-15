@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","evidence_type","run_id","mode","mock_only","injection","inputs","measurement","supervisor","lifecycle_gate","failure_causes","final_status","qualification_claim"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "cw_mock_lifecycle"},
+    "run_id": {"type": "string", "minLength": 1},
+    "mode": {"enum": ["tone","cw","qrss","fskcw","dfcw"]},
+    "mock_only": {"const": true},
+    "injection": {"type": "string", "minLength": 1},
+    "inputs": {"type":"object","additionalProperties":false,"required":["plan","expected_events","observations","mode_gate"],"properties":{"plan":{"$ref":"#/$defs/artifact"},"expected_events":{"$ref":"#/$defs/artifact"},"observations":{"$ref":"#/$defs/artifact"},"mode_gate":{"$ref":"#/$defs/artifact"}}},
+    "measurement": {"type":"object","additionalProperties":false,"required":["carrier_gate","mode_gate"],"properties":{"carrier_gate":{"enum":["passed","failed","blocked","inconclusive"]},"mode_gate":{"enum":["passed","failed","blocked","inconclusive","not_applicable"]}}},
+    "supervisor": {"type":"object"},
+    "lifecycle_gate": {"enum":["passed","failed"]},
+    "failure_causes": {"type":"array","items":{"type":"string"},"uniqueItems":true},
+    "final_status": {"enum":["inconclusive","aborted","fixture_blocked","cleanup_failed"]},
+    "qualification_claim": {"const": false}
+  },
+  "$defs": {"artifact":{"type":"object","additionalProperties":false,"required":["path","size_bytes","sha256"],"properties":{"path":{"type":"string","minLength":1},"size_bytes":{"type":"integer","minimum":0},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}}
+}
