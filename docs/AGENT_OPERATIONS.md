@@ -134,6 +134,14 @@ For the hardware-free Phase 5 lifecycle rehearsal, use
 Only the closed mock injection vocabulary is accepted. This does not authorize
 or validate any live adapter, host, service, receiver, transmitter, or RF path.
 
+For Phase 6, use `run-cw-actual-host-preflight` only under current explicit
+read-only host authorization. The command requires an exact plan digest and
+enable flag, executes only the schema-bounded probe set through structured SSH
+arguments, and produces a non-qualifying immutable bundle. Validate it with
+`validate-cw-actual-host-preflight`. A blocked bundle is a truthful Phase 6
+result, not permission to correct the host or advance to Phase 7. See
+[`cw-actual-host-preflight.md`](development/cw-actual-host-preflight.md).
+
 ### Live split-host WSPR lifecycle
 
 The maintained topology currently uses `wspr4` for WsprryPi transmission and

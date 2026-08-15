@@ -21,6 +21,11 @@ from wsprrypi_qualification.capabilities import capability_report
 from wsprrypi_qualification.capture_metadata import CaptureMetadataError, load_capture_metadata
 from wsprrypi_qualification.carrier import analyze_carrier_acquired
 from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contract_chain
+from wsprrypi_qualification.cw_host_preflight import (
+    CwHostPreflightError,
+    run_cw_actual_host_preflight,
+    validate_cw_actual_host_preflight_bundle,
+)
 from wsprrypi_qualification.cw_iq import CwIqError, analyze_synthetic_iq, generate_synthetic_iq
 from wsprrypi_qualification.cw_lifecycle import (
     INJECTIONS,
@@ -136,6 +141,22 @@ def _parser() -> argparse.ArgumentParser:
         help="authenticate Phase 5 mock-only lifecycle evidence",
     )
     cw_lifecycle_validate.add_argument("path", type=Path)
+    host_preflight = subparsers.add_parser(
+        "run-cw-actual-host-preflight",
+        help="run the Phase 6 read-only actual-host preflight; never transmits or qualifies",
+    )
+    host_preflight.add_argument("plan", type=Path)
+    host_preflight.add_argument("output_parent", type=Path)
+    host_preflight.add_argument("--ssh", type=Path, required=True)
+    host_preflight.add_argument("--confirm-plan-sha256", required=True)
+    host_preflight.add_argument(
+        "--enable-read-only-host-preflight", action="store_true", required=True
+    )
+    host_preflight_validate = subparsers.add_parser(
+        "validate-cw-actual-host-preflight",
+        help="authenticate a retained Phase 6 preflight bundle",
+    )
+    host_preflight_validate.add_argument("bundle", type=Path)
     deployment = subparsers.add_parser(
         "validate-helper-deployment", help="validate helper deployment configuration offline"
     )
@@ -400,6 +421,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             result = validate_mock_lifecycle(args.path)
         except (CwLifecycleError, OfflineAnalysisError, OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "run-cw-actual-host-preflight":
+        try:
+            result = run_cw_actual_host_preflight(
+                args.plan,
+                args.output_parent,
+                ssh_path=args.ssh,
+                confirmation_sha256=args.confirm_plan_sha256,
+                enabled=args.enable_read_only_host_preflight,
+            )
+        except (CwHostPreflightError, OfflineAnalysisError, OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "validate-cw-actual-host-preflight":
+        try:
+            result = validate_cw_actual_host_preflight_bundle(args.bundle)
+        except (CwHostPreflightError, OfflineAnalysisError, OSError, ValueError) as error:
             print(str(error), file=sys.stderr)
             return 2
         print(json.dumps(result, indent=2, sort_keys=True))

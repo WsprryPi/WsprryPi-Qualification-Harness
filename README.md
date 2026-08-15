@@ -112,6 +112,8 @@ wsprrypi-qualification compose-cw-acquired-replay PLAN.json EXPECTED.json CAPTUR
 wsprrypi-qualification validate-cw-acquired-replay REPLAY-DIRECTORY
 wsprrypi-qualification run-cw-mock-lifecycle PLAN.json EXPECTED.json OBSERVATIONS.json GATE.json LIFECYCLE.json
 wsprrypi-qualification validate-cw-mock-lifecycle LIFECYCLE.json
+wsprrypi-qualification run-cw-actual-host-preflight PLAN.json OUTPUT_PARENT --ssh /ABSOLUTE/SSH --confirm-plan-sha256 SHA256 --enable-read-only-host-preflight
+wsprrypi-qualification validate-cw-actual-host-preflight BUNDLE
 wsprrypi-qualification analyze-carrier RF_OFF.cf32 RF_ON.cf32 carrier.json --rf-off-metadata RF_OFF.json --rf-on-metadata RF_ON.json --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification make-slot-wav CAPTURE.cf32 CAPTURE.json WAV_DIRECTORY audio.json --slot 2026-08-09T21:00:00Z --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification decode-wspr SLOT.wav audio.json decoder.json
@@ -150,6 +152,12 @@ boundary. It deterministically revalidates the declared injection, preserves
 cleanup-failure precedence, and remains non-qualifying. See the
 [Phase 5 execution prompt](docs/phase-5-cw-mock-bounded-lifecycle-execution-prompt.md)
 and [Phase 5 development guide](docs/development/cw-mock-bounded-lifecycle.md).
+Phase 6 adds a separately enabled, digest-confirmed, read-only actual-host
+preflight with a sealed SSH argument-vector allowlist, strict known-host
+checking, bounded execution, immutable evidence, and recomputed validation.
+The 2026-08-15 `wspr4`/`wspr5` run was correctly blocked and made no
+qualification claim. See the
+[Phase 6 development guide](docs/development/cw-actual-host-preflight.md).
 
 The capability report locates future dependencies without executing them. Live
 RF remains unavailable by default, and committed profiles cannot satisfy

@@ -326,6 +326,13 @@ owned process and with cleanup precedence preserved.
 
 ### Phase 6 - Read-only actual-host preflight
 
+**Status:** Implemented, adversarially reviewed, and exercised on the actual
+hosts on 2026-08-15. The retained run was correctly `blocked`: Gate D and
+pushed cross-platform CI were not complete, current RF-path facts were not
+declared, and `SoapySDRServer` was active on `wspr5`. This closes the Phase 6
+software/evidence slice; it does not identify the candidate as ready and does
+not authorize Phase 7.
+
 - Under separate explicit authorization, validate exact tools, revisions, host
   identity, receiver capability, ownership, clock/reference facts, backend
   inspection, and RF-path inputs.
