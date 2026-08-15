@@ -20,6 +20,7 @@ from wsprrypi_qualification.audio import create_slot_wav_acquired
 from wsprrypi_qualification.capabilities import capability_report
 from wsprrypi_qualification.capture_metadata import CaptureMetadataError, load_capture_metadata
 from wsprrypi_qualification.carrier import analyze_carrier_acquired
+from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contract_chain
 from wsprrypi_qualification.cw_qualification import CwQualificationError, load_cw_qualification
 from wsprrypi_qualification.decoder import run_wsprd_acquired, summarize_decodes
 from wsprrypi_qualification.deployment import DeploymentError, load_deployment_config
@@ -58,6 +59,15 @@ def _parser() -> argparse.ArgumentParser:
         "validate-cw-qualification", help="authenticate and validate offline CW evidence"
     )
     cw_evidence.add_argument("path", type=Path)
+    cw_contract = subparsers.add_parser(
+        "validate-cw-contract-chain",
+        help="validate the Phase 1 tone/CW-family evidence contract chain",
+    )
+    cw_contract.add_argument("plan", type=Path)
+    cw_contract.add_argument("expected_events", type=Path)
+    cw_contract.add_argument("observations", type=Path)
+    cw_contract.add_argument("mode_gate", type=Path)
+    cw_contract.add_argument("session", type=Path)
     deployment = subparsers.add_parser(
         "validate-helper-deployment", help="validate helper deployment configuration offline"
     )
@@ -215,6 +225,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sort_keys=True,
             )
         )
+        return 0
+    if args.command == "validate-cw-contract-chain":
+        try:
+            result = load_cw_contract_chain(
+                args.plan,
+                args.expected_events,
+                args.observations,
+                args.mode_gate,
+                args.session,
+            )
+        except (CwContractError, OfflineAnalysisError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     if args.command == "validate-helper-deployment":
         try:

@@ -104,11 +104,22 @@ wsprrypi-qualification validate-profile receiver-run RUNTIME_RECEIVER_RUN.json
 wsprrypi-qualification validate-capture-metadata CAPTURE_METADATA.json
 wsprrypi-qualification validate-application-plan examples/application-plan-wsprrypi-wspr.json
 wsprrypi-qualification validate-cw-qualification CW_ANALYSIS.json
+wsprrypi-qualification validate-cw-contract-chain PLAN.json EXPECTED.json OBSERVATIONS.json GATE.json SESSION.json
 wsprrypi-qualification analyze-carrier RF_OFF.cf32 RF_ON.cf32 carrier.json --rf-off-metadata RF_OFF.json --rf-on-metadata RF_ON.json --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification make-slot-wav CAPTURE.cf32 CAPTURE.json WAV_DIRECTORY audio.json --slot 2026-08-09T21:00:00Z --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification decode-wspr SLOT.wav audio.json decoder.json
 wsprrypi-qualification summarize-decodes decode-summary.json slot-2100.json slot-2102.json slot-2104.json
 ```
+
+`validate-cw-qualification` retains the legacy version-1, manually summarized
+evidence contract and can never establish a positive hardware qualification.
+The Phase 1 `validate-cw-contract-chain` command instead authenticates a
+resolved plan, expected events, generated observations, mode gate, and final
+session as one hash-bound chain. It recognizes distinct first-class `tone`,
+`cw`, `qrss`, `fskcw`, and `dfcw` modes but remains non-qualifying until later
+analyzer and live-lifecycle phases are implemented and reviewed. See the
+[gap-closure contract](docs/cw-mode-gap-closure-contract.md) and
+[Phase 1 execution prompt](docs/phase-1-cw-contract-execution-prompt.md).
 
 The capability report locates future dependencies without executing them. Live
 RF remains unavailable by default, and committed profiles cannot satisfy

@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_type",
+    "run_id",
+    "mode",
+    "plan",
+    "expected_events",
+    "observations",
+    "mode_gate",
+    "lifecycle",
+    "failure_causes",
+    "final_status",
+    "qualification_claim"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "evidence_type": {
+      "const": "cw_final_session"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "enum": [
+        "tone",
+        "cw",
+        "qrss",
+        "fskcw",
+        "dfcw"
+      ]
+    },
+    "plan": {
+      "$ref": "#/$defs/artifact"
+    },
+    "expected_events": {
+      "$ref": "#/$defs/artifact"
+    },
+    "observations": {
+      "$ref": "#/$defs/artifact"
+    },
+    "mode_gate": {
+      "$ref": "#/$defs/artifact"
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "live_session_verified",
+        "live_session_evidence",
+        "runtime_authorization_verified",
+        "runtime_authorization_evidence",
+        "cleanup_verified",
+        "cleanup_evidence",
+        "quiescence_verified",
+        "quiescence_evidence"
+      ],
+      "properties": {
+        "live_session_verified": {
+          "type": "boolean"
+        },
+        "live_session_evidence": {
+          "oneOf": [{"$ref": "#/$defs/artifact"}, {"type": "null"}]
+        },
+        "runtime_authorization_verified": {
+          "type": "boolean"
+        },
+        "runtime_authorization_evidence": {
+          "oneOf": [{"$ref": "#/$defs/artifact"}, {"type": "null"}]
+        },
+        "cleanup_verified": {
+          "type": "boolean"
+        },
+        "cleanup_evidence": {
+          "oneOf": [{"$ref": "#/$defs/artifact"}, {"type": "null"}]
+        },
+        "quiescence_verified": {
+          "type": "boolean"
+        },
+        "quiescence_evidence": {
+          "oneOf": [{"$ref": "#/$defs/artifact"}, {"type": "null"}]
+        }
+      }
+    },
+    "failure_causes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "final_status": {
+      "enum": [
+        "qualified",
+        "unqualified_carrier",
+        "unqualified_decode",
+        "fixture_blocked",
+        "preflight_failed",
+        "aborted",
+        "cleanup_failed",
+        "inconclusive"
+      ]
+    },
+    "qualification_claim": {
+      "type": "boolean"
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "size_bytes",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

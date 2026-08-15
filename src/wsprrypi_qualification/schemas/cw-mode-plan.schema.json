@@ -1,0 +1,397 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_type",
+    "run_id",
+    "mode",
+    "backend",
+    "hardware_profile",
+    "band",
+    "source",
+    "transmitter",
+    "receiver",
+    "rf_path",
+    "protocol",
+    "capture_contract",
+    "thresholds",
+    "resolved_utc"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "evidence_type": {
+      "const": "resolved_cw_mode_plan"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"
+    },
+    "mode": {
+      "enum": [
+        "tone",
+        "cw",
+        "qrss",
+        "fskcw",
+        "dfcw"
+      ]
+    },
+    "backend": {
+      "enum": [
+        "gpio",
+        "si5351"
+      ]
+    },
+    "hardware_profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "band": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parent_revision",
+        "submodule_revision"
+      ],
+      "properties": {
+        "parent_revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "submodule_revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "transmitter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "output", "model", "drive_value", "drive_unit", "clock_reference"],
+      "properties": {
+        "host": {"type": "string", "minLength": 1},
+        "output": {"type": "string", "minLength": 1},
+        "model": {"type": "string", "minLength": 1},
+        "drive_value": {"type": "number"},
+        "drive_unit": {"type": "string", "minLength": 1},
+        "clock_reference": {"type": "string", "minLength": 1}
+      }
+    },
+    "receiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "driver", "device_identity"],
+      "properties": {
+        "host": {"type": "string", "minLength": 1},
+        "driver": {"type": "string", "minLength": 1},
+        "device_identity": {"type": "string", "minLength": 1}
+      }
+    },
+    "rf_path": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attenuation_db", "filter_state", "termination", "antenna_state", "safe_input_basis"],
+      "properties": {
+        "attenuation_db": {"type": "number", "minimum": 0},
+        "filter_state": {"type": "string", "minLength": 1},
+        "termination": {"type": "string", "minLength": 1},
+        "antenna_state": {"type": "string", "minLength": 1},
+        "safe_input_basis": {"type": "string", "minLength": 1}
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "definition",
+        "message",
+        "dot_seconds",
+        "repetitions",
+        "primary_frequency_hz",
+        "secondary_frequency_hz",
+        "tone_cycles",
+        "tone_on_seconds",
+        "tone_off_seconds"
+      ],
+      "properties": {
+        "definition": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*@v[1-9][0-9]*$"
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dot_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "repetitions": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 3
+        },
+        "primary_frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "secondary_frequency_hz": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "tone_cycles": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 3
+        },
+        "tone_on_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "tone_off_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "capture_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "sample_rate_hz",
+        "center_frequency_hz",
+        "sample_count",
+        "overflow_max",
+        "fixed_gain",
+        "agc_enabled",
+        "bias_tee_enabled",
+        "first_read_discarded"
+      ],
+      "properties": {
+        "format": {
+          "const": "CF32LE"
+        },
+        "sample_rate_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "center_frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "sample_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "overflow_max": {
+          "const": 0
+        },
+        "fixed_gain": {
+          "const": true
+        },
+        "agc_enabled": {
+          "const": false
+        },
+        "bias_tee_enabled": {
+          "const": false
+        },
+        "first_read_discarded": {
+          "const": true
+        }
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frequency_tolerance_hz",
+        "spacing_tolerance_hz",
+        "minimum_contrast_db",
+        "timing_tolerance_s",
+        "maximum_transition_s",
+        "maximum_clipping_fraction"
+      ],
+      "properties": {
+        "frequency_tolerance_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "spacing_tolerance_hz": {
+          "type": "number",
+          "minimum": 0
+        },
+        "minimum_contrast_db": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "timing_tolerance_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maximum_transition_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maximum_clipping_fraction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "resolved_utc": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "tone"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "protocol": {
+            "properties": {
+              "message": {
+                "const": null
+              },
+              "dot_seconds": {
+                "const": null
+              },
+              "repetitions": {
+                "const": null
+              },
+              "secondary_frequency_hz": {
+                "const": null
+              },
+              "tone_cycles": {
+                "type": "integer"
+              },
+              "tone_on_seconds": {
+                "type": "number"
+              },
+              "tone_off_seconds": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "enum": [
+              "cw",
+              "qrss"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "protocol": {
+            "properties": {
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "dot_seconds": {
+                "type": "number"
+              },
+              "repetitions": {
+                "type": "integer"
+              },
+              "secondary_frequency_hz": {
+                "const": null
+              },
+              "tone_cycles": {
+                "const": null
+              },
+              "tone_on_seconds": {
+                "const": null
+              },
+              "tone_off_seconds": {
+                "const": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "enum": [
+              "fskcw",
+              "dfcw"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "protocol": {
+            "properties": {
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "dot_seconds": {
+                "type": "number"
+              },
+              "repetitions": {
+                "type": "integer"
+              },
+              "secondary_frequency_hz": {
+                "type": "number"
+              },
+              "tone_cycles": {
+                "const": null
+              },
+              "tone_on_seconds": {
+                "const": null
+              },
+              "tone_off_seconds": {
+                "const": null
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
