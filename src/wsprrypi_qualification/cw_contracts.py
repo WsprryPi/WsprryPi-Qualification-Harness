@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from wsprrypi_qualification.cw_reference import ReferenceEncoderError, generate_expected_events
 from wsprrypi_qualification.offline import (
     FailureCause,
     OfflineAnalysisError,
@@ -81,7 +82,7 @@ def _validate_events(plan: dict[str, Any], expected: dict[str, Any]) -> None:
             "quiet",
             "dot",
             "dash",
-            "intra_character_gap",
+            "intra_element_gap",
             "inter_character_gap",
             "inter_word_gap",
             "transition",
@@ -90,7 +91,7 @@ def _validate_events(plan: dict[str, Any], expected: dict[str, Any]) -> None:
             "quiet",
             "dot",
             "dash",
-            "intra_character_gap",
+            "intra_element_gap",
             "inter_character_gap",
             "inter_word_gap",
             "transition",
@@ -99,7 +100,7 @@ def _validate_events(plan: dict[str, Any], expected: dict[str, Any]) -> None:
             "quiet",
             "mark",
             "space",
-            "intra_character_gap",
+            "intra_element_gap",
             "inter_character_gap",
             "inter_word_gap",
             "transition",
@@ -108,7 +109,7 @@ def _validate_events(plan: dict[str, Any], expected: dict[str, Any]) -> None:
             "quiet",
             "dot",
             "dash",
-            "intra_character_gap",
+            "intra_element_gap",
             "inter_character_gap",
             "inter_word_gap",
             "transition",
@@ -172,6 +173,12 @@ def _validate_events(plan: dict[str, Any], expected: dict[str, Any]) -> None:
     )
     if events[-1]["end_s"] > capture_duration:
         _fail("expected timeline extends beyond the planned capture duration")
+    try:
+        regenerated = generate_expected_events(plan)
+    except ReferenceEncoderError as error:
+        _fail(f"expected timeline cannot be regenerated: {error}")
+    if events != regenerated:
+        _fail("expected timeline does not exactly match the independent reference encoder")
 
 
 def _validate_observations(

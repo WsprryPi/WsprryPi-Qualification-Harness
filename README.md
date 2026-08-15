@@ -105,6 +105,7 @@ wsprrypi-qualification validate-capture-metadata CAPTURE_METADATA.json
 wsprrypi-qualification validate-application-plan examples/application-plan-wsprrypi-wspr.json
 wsprrypi-qualification validate-cw-qualification CW_ANALYSIS.json
 wsprrypi-qualification validate-cw-contract-chain PLAN.json EXPECTED.json OBSERVATIONS.json GATE.json SESSION.json
+wsprrypi-qualification generate-cw-expected-events PLAN.json EXPECTED.json --source-revision GIT_SHA
 wsprrypi-qualification analyze-carrier RF_OFF.cf32 RF_ON.cf32 carrier.json --rf-off-metadata RF_OFF.json --rf-on-metadata RF_ON.json --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification make-slot-wav CAPTURE.cf32 CAPTURE.json WAV_DIRECTORY audio.json --slot 2026-08-09T21:00:00Z --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification decode-wspr SLOT.wav audio.json decoder.json
@@ -119,7 +120,12 @@ session as one hash-bound chain. It recognizes distinct first-class `tone`,
 `cw`, `qrss`, `fskcw`, and `dfcw` modes but remains non-qualifying until later
 analyzer and live-lifecycle phases are implemented and reviewed. See the
 [gap-closure contract](docs/cw-mode-gap-closure-contract.md) and
-[Phase 1 execution prompt](docs/phase-1-cw-contract-execution-prompt.md).
+[Phase 1 execution prompt](docs/phase-1-cw-contract-execution-prompt.md). Phase 2
+adds `generate-cw-expected-events`: a pure, deterministic encoder that refuses
+unknown protocol versions and writes a new plan-authenticated timeline for all
+declared repetitions. It does not inspect IQ or qualify hardware. See the
+[Phase 2 execution prompt](docs/phase-2-cw-reference-encoder-execution-prompt.md)
+and [Phase 2 development guide](docs/development/cw-reference-encoders.md).
 
 The capability report locates future dependencies without executing them. Live
 RF remains unavailable by default, and committed profiles cannot satisfy

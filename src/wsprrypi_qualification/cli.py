@@ -22,6 +22,7 @@ from wsprrypi_qualification.capture_metadata import CaptureMetadataError, load_c
 from wsprrypi_qualification.carrier import analyze_carrier_acquired
 from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contract_chain
 from wsprrypi_qualification.cw_qualification import CwQualificationError, load_cw_qualification
+from wsprrypi_qualification.cw_reference import ReferenceEncoderError, write_expected_events
 from wsprrypi_qualification.decoder import run_wsprd_acquired, summarize_decodes
 from wsprrypi_qualification.deployment import DeploymentError, load_deployment_config
 from wsprrypi_qualification.offline import OfflineAnalysisError, write_offline_failure
@@ -68,6 +69,13 @@ def _parser() -> argparse.ArgumentParser:
     cw_contract.add_argument("observations", type=Path)
     cw_contract.add_argument("mode_gate", type=Path)
     cw_contract.add_argument("session", type=Path)
+    cw_reference = subparsers.add_parser(
+        "generate-cw-expected-events",
+        help="generate a Phase 2 reference timeline without hardware access",
+    )
+    cw_reference.add_argument("plan", type=Path)
+    cw_reference.add_argument("output", type=Path)
+    cw_reference.add_argument("--source-revision", required=True)
     deployment = subparsers.add_parser(
         "validate-helper-deployment", help="validate helper deployment configuration offline"
     )
@@ -239,6 +247,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(str(error), file=sys.stderr)
             return 2
         print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "generate-cw-expected-events":
+        try:
+            document = write_expected_events(
+                args.plan, args.output, source_revision=args.source_revision
+            )
+        except (ReferenceEncoderError, OfflineAnalysisError, OSError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(document, indent=2, sort_keys=True))
         return 0
     if args.command == "validate-helper-deployment":
         try:

@@ -116,6 +116,11 @@
         "repetitions",
         "primary_frequency_hz",
         "secondary_frequency_hz",
+        "pre_quiet_seconds",
+        "post_quiet_seconds",
+        "intra_element_gap_units",
+        "inter_character_gap_units",
+        "inter_word_gap_units",
         "tone_cycles",
         "tone_on_seconds",
         "tone_off_seconds"
@@ -154,6 +159,26 @@
             "number",
             "null"
           ],
+          "exclusiveMinimum": 0
+        },
+        "pre_quiet_seconds": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0
+        },
+        "post_quiet_seconds": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0
+        },
+        "intra_element_gap_units": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0
+        },
+        "inter_character_gap_units": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0
+        },
+        "inter_word_gap_units": {
+          "type": ["number", "null"],
           "exclusiveMinimum": 0
         },
         "tone_cycles": {
@@ -295,6 +320,11 @@
               "secondary_frequency_hz": {
                 "const": null
               },
+              "pre_quiet_seconds": {"const": null},
+              "post_quiet_seconds": {"const": null},
+              "intra_element_gap_units": {"const": null},
+              "inter_character_gap_units": {"const": null},
+              "inter_word_gap_units": {"const": null},
               "tone_cycles": {
                 "type": "integer"
               },
@@ -337,6 +367,11 @@
               "secondary_frequency_hz": {
                 "const": null
               },
+              "pre_quiet_seconds": {"type": "number"},
+              "post_quiet_seconds": {"type": "number"},
+              "intra_element_gap_units": {"type": "number"},
+              "inter_character_gap_units": {"type": "number"},
+              "inter_word_gap_units": {"type": "number"},
               "tone_cycles": {
                 "const": null
               },
@@ -379,6 +414,11 @@
               "secondary_frequency_hz": {
                 "type": "number"
               },
+              "pre_quiet_seconds": {"type": "number"},
+              "post_quiet_seconds": {"type": "number"},
+              "intra_element_gap_units": {"type": "number"},
+              "inter_character_gap_units": {"type": "number"},
+              "inter_word_gap_units": {"type": "number"},
               "tone_cycles": {
                 "const": null
               },

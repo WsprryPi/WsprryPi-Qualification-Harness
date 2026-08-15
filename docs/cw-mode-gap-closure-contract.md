@@ -261,6 +261,11 @@ contradictory claims, post-selected thresholds, and unsupported positive claims.
 
 ### Phase 2 - Independent reference encoders
 
+**Status:** Implemented and locally validated on 2026-08-15. This status covers
+only portable expected-event generation. Pushed cross-platform CI remains the
+exit confirmation; Phase 3 IQ fixture/analyzer work and all hardware activity
+remain unfinished and separately gated.
+
 - Implement pure, portable encoders for CW, QRSS, FSKCW, and DFCW.
 - Generate exact expected events from normalized plans.
 - Keep tone as the simpler off-on-off state-plan generator.

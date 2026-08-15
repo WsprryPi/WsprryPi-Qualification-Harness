@@ -74,6 +74,8 @@
         "additionalProperties": false,
         "required": [
           "index",
+          "repetition",
+          "message_position",
           "symbol",
           "role",
           "start_s",
@@ -85,6 +87,14 @@
         "properties": {
           "index": {
             "type": "integer",
+            "minimum": 0
+          },
+          "repetition": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "message_position": {
+            "type": ["integer", "null"],
             "minimum": 0
           },
           "symbol": {
@@ -99,7 +109,7 @@
               "carrier",
               "dot",
               "dash",
-              "intra_character_gap",
+              "intra_element_gap",
               "inter_character_gap",
               "inter_word_gap",
               "mark",

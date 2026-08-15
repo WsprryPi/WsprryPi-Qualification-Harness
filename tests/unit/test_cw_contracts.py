@@ -6,6 +6,7 @@ import pytest
 
 from wsprrypi_qualification.cli import main
 from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contract_chain
+from wsprrypi_qualification.cw_reference import generate_expected_events
 
 
 def _write(path: Path, document: dict) -> None:
@@ -53,7 +54,7 @@ def _chain(tmp_path: Path, mode: str) -> tuple[Path, Path, Path, Path, Path]:
     gate_path = tmp_path / "gate.json"
     session_path = tmp_path / "session.json"
     capture_path = tmp_path / "capture.cf32"
-    capture_path.write_bytes(b"\0" * 5600)
+    capture_path.write_bytes(b"\0" * 800000)
     plan = {
         "schema_version": 1,
         "evidence_type": "resolved_cw_mode_plan",
@@ -89,7 +90,12 @@ def _chain(tmp_path: Path, mode: str) -> tuple[Path, Path, Path, Path, Path]:
             "dot_seconds": None if tone else 1.0,
             "repetitions": None if tone else 3,
             "primary_frequency_hz": 137500.0,
-            "secondary_frequency_hz": 137510.0 if shifted else None,
+            "secondary_frequency_hz": 137490.0 if shifted else None,
+            "pre_quiet_seconds": None if tone else 1.0,
+            "post_quiet_seconds": None if tone else 1.0,
+            "intra_element_gap_units": None if tone else 0.333333 if mode == "dfcw" else 1.0,
+            "inter_character_gap_units": None if tone else 1.0 if mode == "dfcw" else 3.0,
+            "inter_word_gap_units": None if tone else 3.0 if mode == "dfcw" else 7.0,
             "tone_cycles": 3 if tone else None,
             "tone_on_seconds": 1.0 if tone else None,
             "tone_off_seconds": 1.0 if tone else None,
@@ -98,7 +104,7 @@ def _chain(tmp_path: Path, mode: str) -> tuple[Path, Path, Path, Path, Path]:
             "format": "CF32LE",
             "sample_rate_hz": 100.0,
             "center_frequency_hz": 137500.0,
-            "sample_count": 700,
+            "sample_count": 100000,
             "overflow_max": 0,
             "fixed_gain": True,
             "agc_enabled": False,
@@ -116,39 +122,11 @@ def _chain(tmp_path: Path, mode: str) -> tuple[Path, Path, Path, Path, Path]:
         "resolved_utc": "2026-08-15T12:00:00Z",
     }
     _write(plan_path, plan)
-    events = []
-    event_count = 7 if tone else 3
-    for index in range(event_count):
-        tone_quiet = tone and index % 2 == 0
-        shifted_secondary = shifted and index == 1
-        events.append(
-            {
-                "index": index,
-                "symbol": None if tone else ".",
-                "role": (
-                    "quiet"
-                    if tone_quiet
-                    else "carrier"
-                    if tone
-                    else "mark"
-                    if mode == "fskcw" and not shifted_secondary
-                    else "space"
-                    if mode == "fskcw"
-                    else "dash"
-                    if mode == "dfcw" and shifted_secondary
-                    else "dot"
-                ),
-                "start_s": float(index),
-                "end_s": float(index + 1),
-                "rf_state": (
-                    "off" if tone_quiet else "secondary" if shifted_secondary else "primary"
-                ),
-                "frequency_hz": (
-                    None if tone_quiet else 137510.0 if shifted_secondary else 137500.0
-                ),
-                "continuity_required": shifted or (tone and not tone_quiet),
-            }
-        )
+    if mode == "dfcw":
+        plan["protocol"]["definition"] = "wsprrypi-dfcw@v1"
+        _write(plan_path, plan)
+    events = generate_expected_events(plan)
+    event_count = len(events)
     expected = {
         "schema_version": 1,
         "evidence_type": "cw_expected_events",
@@ -161,7 +139,7 @@ def _chain(tmp_path: Path, mode: str) -> tuple[Path, Path, Path, Path, Path]:
             "version": "1",
             "source_revision": "c" * 40,
         },
-        "protocol_definition": f"wspq-{mode}@v1",
+        "protocol_definition": plan["protocol"]["definition"],
         "events": events,
     }
     _write(expected_path, expected)
@@ -174,7 +152,7 @@ def _chain(tmp_path: Path, mode: str) -> tuple[Path, Path, Path, Path, Path]:
         "expected_events": _artifact(expected_path),
         "capture": {
             **_artifact(capture_path),
-            "sample_count": 700,
+            "sample_count": 100000,
             "sample_rate_hz": 100.0,
             "overflow_count": 0,
             "synthetic": True,
@@ -419,8 +397,19 @@ def test_plan_feasibility_is_semantically_enforced(tmp_path: Path, mutation, mes
 def test_expected_timeline_must_fit_capture(tmp_path: Path) -> None:
     paths = _chain(tmp_path, "cw")
     expected = json.loads(paths[1].read_text(encoding="utf-8"))
-    expected["events"][-1]["end_s"] = 8.0
+    expected["events"][-1]["end_s"] = 1001.0
     _write(paths[1], expected)
     _refresh_chain(paths)
     with pytest.raises(CwContractError, match="capture duration"):
+        load_cw_contract_chain(*paths)
+
+
+def test_plausible_but_mutated_timeline_is_rejected_by_regeneration(tmp_path: Path) -> None:
+    paths = _chain(tmp_path, "cw")
+    expected = json.loads(paths[1].read_text(encoding="utf-8"))
+    event = next(item for item in expected["events"] if item["role"] == "dot")
+    event["message_position"] += 1
+    _write(paths[1], expected)
+    _refresh_chain(paths)
+    with pytest.raises(CwContractError, match="independent reference encoder"):
         load_cw_contract_chain(*paths)
