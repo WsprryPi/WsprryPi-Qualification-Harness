@@ -24,6 +24,11 @@ from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contrac
 from wsprrypi_qualification.cw_iq import CwIqError, analyze_synthetic_iq, generate_synthetic_iq
 from wsprrypi_qualification.cw_qualification import CwQualificationError, load_cw_qualification
 from wsprrypi_qualification.cw_reference import ReferenceEncoderError, write_expected_events
+from wsprrypi_qualification.cw_replay import (
+    CwReplayError,
+    compose_acquired_replay,
+    validate_replay_bundle,
+)
 from wsprrypi_qualification.decoder import run_wsprd_acquired, summarize_decodes
 from wsprrypi_qualification.deployment import DeploymentError, load_deployment_config
 from wsprrypi_qualification.offline import OfflineAnalysisError, write_offline_failure
@@ -96,6 +101,20 @@ def _parser() -> argparse.ArgumentParser:
     cw_analyzer.add_argument("observations", type=Path)
     cw_analyzer.add_argument("mode_gate", type=Path)
     cw_analyzer.add_argument("--source-revision", required=True)
+    cw_replay = subparsers.add_parser(
+        "compose-cw-acquired-replay",
+        help="compose a Phase 4 acquired-IQ replay bundle; never qualifies hardware",
+    )
+    cw_replay.add_argument("plan", type=Path)
+    cw_replay.add_argument("expected_events", type=Path)
+    cw_replay.add_argument("capture_metadata", type=Path)
+    cw_replay.add_argument("output_directory", type=Path)
+    cw_replay.add_argument("--source-revision", required=True)
+    cw_replay_validate = subparsers.add_parser(
+        "validate-cw-acquired-replay",
+        help="authenticate and recompute a non-qualifying Phase 4 replay bundle",
+    )
+    cw_replay_validate.add_argument("bundle", type=Path)
     deployment = subparsers.add_parser(
         "validate-helper-deployment", help="validate helper deployment configuration offline"
     )
@@ -318,6 +337,28 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sort_keys=True,
             )
         )
+        return 0
+    if args.command == "compose-cw-acquired-replay":
+        try:
+            result = compose_acquired_replay(
+                args.plan,
+                args.expected_events,
+                args.capture_metadata,
+                args.output_directory,
+                source_revision=args.source_revision,
+            )
+        except (CwReplayError, CwIqError, OfflineAnalysisError, OSError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "validate-cw-acquired-replay":
+        try:
+            result = validate_replay_bundle(args.bundle, recompute=True)
+        except (CwReplayError, CwIqError, OfflineAnalysisError, OSError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     if args.command == "validate-helper-deployment":
         try:

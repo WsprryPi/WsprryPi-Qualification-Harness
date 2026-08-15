@@ -108,6 +108,8 @@ wsprrypi-qualification validate-cw-contract-chain PLAN.json EXPECTED.json OBSERV
 wsprrypi-qualification generate-cw-expected-events PLAN.json EXPECTED.json --source-revision GIT_SHA
 wsprrypi-qualification generate-cw-synthetic-iq PLAN.json EXPECTED.json CAPTURE.cf32 CAPTURE.json --seed 1
 wsprrypi-qualification analyze-cw-synthetic-iq PLAN.json EXPECTED.json CAPTURE.json OBSERVATIONS.json GATE.json --source-revision GIT_SHA
+wsprrypi-qualification compose-cw-acquired-replay PLAN.json EXPECTED.json CAPTURE-METADATA.json REPLAY-DIRECTORY --source-revision GIT_SHA
+wsprrypi-qualification validate-cw-acquired-replay REPLAY-DIRECTORY
 wsprrypi-qualification analyze-carrier RF_OFF.cf32 RF_ON.cf32 carrier.json --rf-off-metadata RF_OFF.json --rf-on-metadata RF_ON.json --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification make-slot-wav CAPTURE.cf32 CAPTURE.json WAV_DIRECTORY audio.json --slot 2026-08-09T21:00:00Z --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification decode-wspr SLOT.wav audio.json decoder.json
@@ -134,6 +136,12 @@ contrast, continuity, clipping, and IQ-based symbol reconstructions, but every
 output remains explicitly synthetic and non-qualifying. See the
 [Phase 3 execution prompt](docs/phase-3-cw-synthetic-iq-analyzer-execution-prompt.md)
 and [Phase 3 development guide](docs/development/cw-synthetic-iq-analyzer.md).
+Phase 4 authenticates already acquired CF32LE and composes a deterministic,
+portable replay bundle with generated observations, gates, evidence index,
+inconclusive result, and canonical manifest. Replay never accesses hardware and
+cannot prove lifecycle facts or qualify a transmitter. See the
+[Phase 4 execution prompt](docs/phase-4-cw-acquired-iq-replay-execution-prompt.md)
+and [Phase 4 development guide](docs/development/cw-acquired-iq-replay.md).
 
 The capability report locates future dependencies without executing them. Live
 RF remains unavailable by default, and committed profiles cannot satisfy

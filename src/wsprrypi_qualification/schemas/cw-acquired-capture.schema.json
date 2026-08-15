@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_type", "run_id", "mode", "plan", "expected_events", "capture", "format", "sample_count", "sample_rate_hz", "center_frequency_hz", "acquired_sample_count", "overflow_count", "fixed_gain", "agc_enabled", "bias_tee_enabled", "first_read_discarded", "receiver", "acquired_utc", "synthetic"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "cw_acquired_capture"},
+    "run_id": {"type": "string", "minLength": 1},
+    "mode": {"enum": ["tone", "cw", "qrss", "fskcw", "dfcw"]},
+    "plan": {"$ref": "#/$defs/artifact"},
+    "expected_events": {"$ref": "#/$defs/artifact"},
+    "capture": {"$ref": "#/$defs/artifact"},
+    "format": {"const": "CF32LE"},
+    "sample_count": {"type": "integer", "minimum": 1},
+    "sample_rate_hz": {"type": "number", "exclusiveMinimum": 0},
+    "center_frequency_hz": {"type": "number", "exclusiveMinimum": 0},
+    "acquired_sample_count": {"type": "integer", "minimum": 1},
+    "overflow_count": {"const": 0},
+    "fixed_gain": {"const": true},
+    "agc_enabled": {"const": false},
+    "bias_tee_enabled": {"const": false},
+    "first_read_discarded": {"const": true},
+    "receiver": {
+      "type": "object", "additionalProperties": false,
+      "required": ["host", "driver", "device_identity"],
+      "properties": {
+        "host": {"type": "string", "minLength": 1},
+        "driver": {"type": "string", "minLength": 1},
+        "device_identity": {"type": "string", "minLength": 1}
+      }
+    },
+    "acquired_utc": {"type": "string", "format": "date-time"},
+    "synthetic": {"const": false}
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "size_bytes", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

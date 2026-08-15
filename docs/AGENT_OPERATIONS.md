@@ -122,6 +122,12 @@ details and acquired-evidence checks are in
 WSJT-X application bundle; do not claim `wsprd` is absent until discovery has
 checked `/Applications/wsjtx.app/Contents/MacOS/wsprd` as well as `PATH`.
 
+For tone and CW-family retained captures, use the Phase 4 acquired replay
+composer and validator described in
+[`cw-acquired-iq-replay.md`](development/cw-acquired-iq-replay.md). A passing
+replay measurement remains `inconclusive`: it cannot substitute for runtime
+authorization, live-session, cleanup, or quiescence evidence.
+
 ### Live split-host WSPR lifecycle
 
 The maintained topology currently uses `wspr4` for WsprryPi transmission and

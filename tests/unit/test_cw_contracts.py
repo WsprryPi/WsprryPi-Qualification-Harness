@@ -5,10 +5,18 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import wsprrypi_qualification.cw_replay as cw_replay_module
 from wsprrypi_qualification.cli import main
 from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contract_chain
 from wsprrypi_qualification.cw_iq import CwIqError, analyze_synthetic_iq, generate_synthetic_iq
 from wsprrypi_qualification.cw_reference import generate_expected_events
+from wsprrypi_qualification.cw_replay import (
+    CwReplayError,
+    compose_acquired_replay,
+    validate_replay_bundle,
+)
+from wsprrypi_qualification.manifests import write_manifest
+from wsprrypi_qualification.offline import OfflineAnalysisError
 
 
 def _write(path: Path, document: dict) -> None:
@@ -223,6 +231,255 @@ def _chain(tmp_path: Path, mode: str) -> tuple[Path, Path, Path, Path, Path]:
     return plan_path, expected_path, observations_path, gate_path, session_path
 
 
+def _acquired_inputs(tmp_path: Path, mode: str) -> tuple[Path, Path, Path]:
+    plan, expected, *_ = _chain(tmp_path, mode)
+    capture = tmp_path / "source acquired.cf32"
+    synthetic_metadata = tmp_path / "discarded-synthetic-metadata.json"
+    generate_synthetic_iq(plan, expected, capture, synthetic_metadata, seed=71)
+    plan_document = json.loads(plan.read_text(encoding="utf-8"))
+    metadata = {
+        "schema_version": 1,
+        "evidence_type": "cw_acquired_capture",
+        "run_id": plan_document["run_id"],
+        "mode": mode,
+        "plan": _artifact(plan),
+        "expected_events": _artifact(expected),
+        "capture": _artifact(capture),
+        "format": "CF32LE",
+        "sample_count": 100000,
+        "sample_rate_hz": 100.0,
+        "center_frequency_hz": 137500.0,
+        "acquired_sample_count": 100000,
+        "overflow_count": 0,
+        "fixed_gain": True,
+        "agc_enabled": False,
+        "bias_tee_enabled": False,
+        "first_read_discarded": True,
+        "receiver": plan_document["receiver"],
+        "acquired_utc": "2026-08-15T12:00:00Z",
+        "synthetic": False,
+    }
+    acquired_metadata = tmp_path / "acquired.json"
+    _write(acquired_metadata, metadata)
+    return plan, expected, acquired_metadata
+
+
+@pytest.mark.parametrize("mode", ["tone", "cw", "qrss", "fskcw", "dfcw"])
+def test_phase4_acquired_replay_passes_measurement_but_stays_inconclusive(
+    tmp_path: Path, mode: str
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, mode)
+    bundle = tmp_path / f"replay-{mode}"
+    result = compose_acquired_replay(plan, expected, metadata, bundle, source_revision="e" * 40)
+    assert result["measurement"]["carrier_gate"] == "passed"
+    assert result["measurement"]["mode_gate"] == ("not_applicable" if mode == "tone" else "passed")
+    assert result["final_status"] == "inconclusive"
+    assert result["qualification_claim"] is False
+    assert result["lifecycle"] == {
+        "runtime_authorization_evidence": None,
+        "live_session_evidence": None,
+        "cleanup_evidence": None,
+        "quiescence_evidence": None,
+    }
+    assert validate_replay_bundle(bundle, recompute=True)["valid"] is True
+
+
+def test_phase4_replay_is_byte_deterministic_and_portable(tmp_path: Path) -> None:
+    source = tmp_path / "source with spaces"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, "cw")
+    left = tmp_path / "left parent"
+    right = tmp_path / "right parent"
+    left.mkdir()
+    right.mkdir()
+    compose_acquired_replay(plan, expected, metadata, left / "bundle", source_revision="e" * 40)
+    compose_acquired_replay(plan, expected, metadata, right / "other", source_revision="e" * 40)
+    assert {path.name: path.read_bytes() for path in (left / "bundle").iterdir()} == {
+        path.name: path.read_bytes() for path in (right / "other").iterdir()
+    }
+    observations = json.loads((left / "bundle" / "observations.json").read_text(encoding="utf-8"))
+    assert all(
+        not Path(observations[field]["path"]).is_absolute()
+        for field in ("plan", "expected_events", "capture")
+    )
+
+
+def test_phase4_rejects_acquisition_contract_conflict_and_existing_output(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, "tone")
+    document = json.loads(metadata.read_text(encoding="utf-8"))
+    document["agc_enabled"] = True
+    _write(metadata, document)
+    with pytest.raises((CwReplayError, OfflineAnalysisError), match=r"agc_enabled|schema"):
+        compose_acquired_replay(
+            plan, expected, metadata, tmp_path / "bundle", source_revision="e" * 40
+        )
+    existing = tmp_path / "existing"
+    existing.mkdir()
+    with pytest.raises(CwReplayError, match="overwrite"):
+        compose_acquired_replay(plan, expected, metadata, existing, source_revision="e" * 40)
+
+
+def test_phase4_rejects_result_index_and_manifest_tampering(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, "qrss")
+    bundle = tmp_path / "bundle"
+    compose_acquired_replay(plan, expected, metadata, bundle, source_revision="e" * 40)
+    result_path = bundle / "result.json"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    result["qualification_claim"] = True
+    result["final_status"] = "qualified"
+    _write(result_path, result)
+    write_manifest(bundle)
+    with pytest.raises(OfflineAnalysisError, match="schema"):
+        validate_replay_bundle(bundle)
+
+
+def test_phase4_rejects_unexpected_file_and_capture_tampering(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, "fskcw")
+    bundle = tmp_path / "bundle"
+    compose_acquired_replay(plan, expected, metadata, bundle, source_revision="e" * 40)
+    (bundle / "unexpected.txt").write_text("not manifested", encoding="utf-8")
+    with pytest.raises(CwReplayError, match="extras"):
+        validate_replay_bundle(bundle)
+    (bundle / "unexpected.txt").unlink()
+    capture = bundle / "capture.cf32"
+    capture.write_bytes(capture.read_bytes()[:-8])
+    with pytest.raises((CwReplayError, OfflineAnalysisError), match=r"size|SHA-256"):
+        validate_replay_bundle(bundle)
+
+
+def test_phase4_rejects_absolute_internal_reference_even_when_rehashed(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, "cw")
+    bundle = tmp_path / "bundle"
+    compose_acquired_replay(plan, expected, metadata, bundle, source_revision="e" * 40)
+    observations_path = bundle / "observations.json"
+    observations = json.loads(observations_path.read_text(encoding="utf-8"))
+    observations["plan"]["path"] = str((bundle / "plan.json").resolve())
+    _write(observations_path, observations)
+    write_manifest(bundle)
+    with pytest.raises(CwReplayError, match="canonical relative"):
+        validate_replay_bundle(bundle)
+
+
+def test_phase4_requires_explicit_utc_acquisition_time(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, "tone")
+    document = json.loads(metadata.read_text(encoding="utf-8"))
+    document["acquired_utc"] = "2026-08-15T12:00:00+01:00"
+    _write(metadata, document)
+    with pytest.raises(CwReplayError, match="UTC"):
+        compose_acquired_replay(
+            plan, expected, metadata, tmp_path / "bundle", source_revision="e" * 40
+        )
+
+    document["acquired_utc"] = "2099-01-01T00:00:00Z"
+    _write(metadata, document)
+    with pytest.raises(CwReplayError, match="UTC"):
+        compose_acquired_replay(
+            plan, expected, metadata, tmp_path / "other-bundle", source_revision="e" * 40
+        )
+
+
+def test_phase4_rejects_semantically_rewritten_result_causes(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, "qrss")
+    bundle = tmp_path / "bundle"
+    compose_acquired_replay(plan, expected, metadata, bundle, source_revision="e" * 40)
+    result_path = bundle / "result.json"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    result["failure_causes"] = ["invented_cause"]
+    _write(result_path, result)
+    write_manifest(bundle)
+    with pytest.raises(CwReplayError, match="failure causes"):
+        validate_replay_bundle(bundle)
+
+
+def test_phase4_final_validation_failure_does_not_publish_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, "tone")
+    bundle = tmp_path / "bundle"
+
+    def reject(*args: object, **kwargs: object) -> dict:
+        raise CwReplayError("injected final validation failure")
+
+    monkeypatch.setattr(cw_replay_module, "validate_replay_bundle", reject)
+    with pytest.raises(CwReplayError, match="injected"):
+        compose_acquired_replay(plan, expected, metadata, bundle, source_revision="e" * 40)
+    assert not bundle.exists()
+    assert not list(tmp_path.glob(".bundle.incomplete-*"))
+
+
+def test_phase4_detects_iq_shifted_event_boundaries(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, "cw")
+    metadata_document = json.loads(metadata.read_text(encoding="utf-8"))
+    capture = source / metadata_document["capture"]["path"]
+    samples = np.fromfile(capture, dtype="<c8")
+    shifted = np.roll(samples, 20)
+    shifted[:20] = 0
+    shifted.astype("<c8").tofile(capture)
+    metadata_document["capture"] = _artifact(capture)
+    _write(metadata, metadata_document)
+    bundle = tmp_path / "bundle"
+    result = compose_acquired_replay(plan, expected, metadata, bundle, source_revision="e" * 40)
+    observations = json.loads((bundle / "observations.json").read_text(encoding="utf-8"))
+    assert result["measurement"]["carrier_gate"] == "failed"
+    assert "timing_error" in observations["failure_causes"]
+    expected_document = json.loads((bundle / "expected-events.json").read_text(encoding="utf-8"))
+    assert any(
+        measured["measured_start_s"] != event["start_s"]
+        for measured, event in zip(
+            observations["observations"], expected_document["events"], strict=True
+        )
+        if measured["measured_start_s"] is not None
+    )
+
+
+def test_phase4_cli_composes_and_validates_non_qualifying_replay(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, "dfcw")
+    bundle = tmp_path / "bundle"
+    assert (
+        main(
+            [
+                "compose-cw-acquired-replay",
+                str(plan),
+                str(expected),
+                str(metadata),
+                str(bundle),
+                "--source-revision",
+                "e" * 40,
+            ]
+        )
+        == 0
+    )
+    composed = json.loads(capsys.readouterr().out)
+    assert composed["final_status"] == "inconclusive"
+    assert composed["qualification_claim"] is False
+    assert main(["validate-cw-acquired-replay", str(bundle)]) == 0
+    validated = json.loads(capsys.readouterr().out)
+    assert validated["valid"] is True
+    assert validated["qualification_claim"] is False
+
+
 @pytest.mark.parametrize("mode", ["tone", "cw", "qrss", "fskcw", "dfcw"])
 def test_phase3_deterministic_iq_passes_measurement_gate_but_never_qualifies(
     tmp_path: Path, mode: str
@@ -366,6 +623,80 @@ def test_phase3_interrupted_required_carrier_is_detected(tmp_path: Path) -> None
     )
     assert measured["analysis_outcome"] == "failed"
     assert "missing_carrier" in measured["failure_causes"]
+
+
+def test_phase4_enforces_transition_limit_independently_of_timing_tolerance(
+    tmp_path: Path,
+) -> None:
+    plan, expected, *_ = _chain(tmp_path, "fskcw")
+    plan_document = json.loads(plan.read_text(encoding="utf-8"))
+    plan_document["thresholds"]["timing_tolerance_s"] = 0.5
+    plan_document["thresholds"]["maximum_transition_s"] = 0.2
+    _write(plan, plan_document)
+    expected_document = json.loads(expected.read_text(encoding="utf-8"))
+    expected_document["plan"] = _artifact(plan)
+    _write(expected, expected_document)
+    capture = tmp_path / "synthetic.cf32"
+    metadata = tmp_path / "synthetic.json"
+    generate_synthetic_iq(plan, expected, capture, metadata, seed=29)
+    adjacent_boundary = next(
+        float(right["start_s"])
+        for left, right in zip(
+            expected_document["events"], expected_document["events"][1:], strict=False
+        )
+        if left["rf_state"] != "off"
+        and right["rf_state"] != "off"
+        and left["rf_state"] != right["rf_state"]
+    )
+    samples = np.fromfile(capture, dtype="<c8")
+    center = round(adjacent_boundary * 100.0)
+    samples[center - 15 : center + 15] = 0
+    samples.astype("<c8").tofile(capture)
+    metadata_document = json.loads(metadata.read_text(encoding="utf-8"))
+    metadata_document["capture"] = _artifact(capture)
+    _write(metadata, metadata_document)
+    observations, _ = analyze_synthetic_iq(
+        plan,
+        expected,
+        metadata,
+        tmp_path / "transition-observations.json",
+        tmp_path / "transition-gate.json",
+        source_revision="e" * 40,
+    )
+    assert observations["analysis_outcome"] == "failed"
+    assert "carrier_interruption" in observations["failure_causes"]
+    assert any(item["carrier_continuous"] is False for item in observations["observations"])
+
+
+def test_phase4_clipping_blockage_precedes_transition_failure(tmp_path: Path) -> None:
+    plan, expected, *_ = _chain(tmp_path, "fskcw")
+    plan_document = json.loads(plan.read_text(encoding="utf-8"))
+    plan_document["thresholds"]["timing_tolerance_s"] = 0.5
+    _write(plan, plan_document)
+    expected_document = json.loads(expected.read_text(encoding="utf-8"))
+    expected_document["plan"] = _artifact(plan)
+    _write(expected, expected_document)
+    capture = tmp_path / "synthetic.cf32"
+    metadata = tmp_path / "synthetic.json"
+    generate_synthetic_iq(plan, expected, capture, metadata, seed=31)
+    samples = np.fromfile(capture, dtype="<c8")
+    samples *= np.complex64(2.2)
+    samples[385:415] = 0
+    samples.astype("<c8").tofile(capture)
+    metadata_document = json.loads(metadata.read_text(encoding="utf-8"))
+    metadata_document["capture"] = _artifact(capture)
+    _write(metadata, metadata_document)
+    observations, gate = analyze_synthetic_iq(
+        plan,
+        expected,
+        metadata,
+        tmp_path / "clipped-observations.json",
+        tmp_path / "clipped-gate.json",
+        source_revision="e" * 40,
+    )
+    assert observations["analysis_outcome"] == "blocked"
+    assert observations["failure_causes"] == ["clipping"]
+    assert gate["carrier_gate"] == "blocked"
 
 
 @pytest.mark.parametrize("mode", ["tone", "cw", "qrss", "fskcw", "dfcw"])

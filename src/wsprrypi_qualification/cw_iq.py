@@ -107,6 +107,9 @@ def analyze_synthetic_iq(
     gate_path: Path,
     *,
     source_revision: str,
+    _metadata_schema: str = "cw-synthetic-capture.schema.json",
+    _synthetic: bool = True,
+    _artifact_root: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Analyze authenticated synthetic IQ and write observations plus mode gate."""
     if observations_path.exists() or gate_path.exists():
@@ -114,7 +117,7 @@ def analyze_synthetic_iq(
     if len(source_revision) != 40 or any(c not in "0123456789abcdef" for c in source_revision):
         _fail("source revision must be 40 lowercase hexadecimal characters")
     plan, expected = _load_inputs(plan_path, expected_path)
-    metadata = load_json_document(metadata_path, "cw-synthetic-capture.schema.json")
+    metadata = load_json_document(metadata_path, _metadata_schema)
     if metadata["run_id"] != plan["run_id"] or metadata["mode"] != plan["mode"]:
         _fail("capture metadata identifies a different run or mode")
     _bind(metadata["plan"], metadata_path, plan_path, "plan")
@@ -170,6 +173,53 @@ def analyze_synthetic_iq(
             )
     noise_power = float(np.median(powers[quiet_indexes])) if quiet_indexes else 1e-12
     noise_power = max(noise_power, 1e-12)
+    smoothing_samples = max(1, round(time_resolution * rate))
+    kernel = np.full(smoothing_samples, 1.0 / smoothing_samples)
+    smoothed_power = np.convolve(powers, kernel, mode="same")
+    active_threshold = noise_power * 10.0 ** (float(thresholds["minimum_contrast_db"]) / 10.0)
+    detected_states = np.zeros(count, dtype=np.int8)
+    active = smoothed_power >= active_threshold
+    detected_states[active] = 1
+    secondary = plan["protocol"]["secondary_frequency_hz"]
+    if secondary is not None:
+        products = samples[1:] * np.conjugate(samples[:-1])
+        smoothed_products = np.convolve(products, kernel, mode="same")
+        frequencies = center + np.angle(smoothed_products) * rate / (2.0 * math.pi)
+        secondary_samples = np.abs(frequencies - float(secondary)) < np.abs(
+            frequencies - float(plan["protocol"]["primary_frequency_hz"])
+        )
+        detected_states[1:][active[1:] & secondary_samples] = 2
+
+    def measured_run(event: dict[str, Any]) -> tuple[int, int] | None:
+        target = {"off": 0, "primary": 1, "secondary": 2}[event["rf_state"]]
+        expected_start = round(float(event["start_s"]) * rate)
+        expected_end = min(count, round(float(event["end_s"]) * rate))
+        margin = max(smoothing_samples, round(float(thresholds["timing_tolerance_s"]) * rate) + 1)
+        search_start = max(0, expected_start - margin)
+        search_end = min(count, expected_end + margin)
+        matches = detected_states[search_start:search_end] == target
+        candidates: list[tuple[int, int]] = []
+        cursor = 0
+        while cursor < matches.size:
+            if not matches[cursor]:
+                cursor += 1
+                continue
+            run_end = cursor + 1
+            while run_end < matches.size and matches[run_end]:
+                run_end += 1
+            candidates.append((search_start + cursor, search_start + run_end))
+            cursor = run_end
+        if not candidates:
+            return None
+
+        def score(candidate: tuple[int, int]) -> tuple[int, float]:
+            start, end = candidate
+            overlap = max(0, min(end, expected_end) - max(start, expected_start))
+            midpoint_error = abs((start + end) / 2.0 - (expected_start + expected_end) / 2.0)
+            return overlap, -midpoint_error
+
+        return max(candidates, key=score)
+
     clipping_fraction = float(
         np.mean((np.abs(samples.real) >= 0.999) | (np.abs(samples.imag) >= 0.999))
     )
@@ -177,9 +227,14 @@ def analyze_synthetic_iq(
     measured: list[dict[str, Any]] = []
     causes: list[str] = []
     derived_symbols: dict[int, str] = {}
-    for event in expected["events"]:
-        start = round(float(event["start_s"]) * rate)
-        end = min(count, round(float(event["end_s"]) * rate))
+    for event_position, event in enumerate(expected["events"]):
+        run = measured_run(event)
+        start = run[0] if run is not None else round(float(event["start_s"]) * rate)
+        end = run[1] if run is not None else min(count, round(float(event["end_s"]) * rate))
+        if event_position == 0:
+            start = round(float(event["start_s"]) * rate)
+        if event_position == len(expected["events"]) - 1:
+            end = min(count, round(float(event["end_s"]) * rate))
         segment = samples[start:end]
         power = float(np.mean(np.abs(segment.astype(np.complex128)) ** 2))
         contrast = 10.0 * math.log10(max(power, 1e-15) / noise_power)
@@ -187,8 +242,49 @@ def analyze_synthetic_iq(
         frequency: float | None = None
         continuous: bool | None = None
         outcome = "passed"
+        expected_start = round(float(event["start_s"]) * rate)
+        expected_end = min(count, round(float(event["end_s"]) * rate))
+        expected_segment = samples[expected_start:expected_end]
+        if not blocked and state != "off" and expected_segment.size >= 4:
+            frequency = _estimate_frequency(expected_segment, rate, center)
+            expected_chunks = [chunk for chunk in np.array_split(expected_segment, 8) if chunk.size]
+            expected_chunk_contrasts = [
+                10.0
+                * math.log10(
+                    max(float(np.mean(np.abs(chunk.astype(np.complex128)) ** 2)), 1e-15)
+                    / noise_power
+                )
+                for chunk in expected_chunks
+            ]
+            continuous = bool(expected_chunk_contrasts) and min(expected_chunk_contrasts) >= float(
+                thresholds["minimum_contrast_db"]
+            )
+            if not continuous:
+                causes.append("missing_carrier")
+            if abs(frequency - float(event["frequency_hz"])) > float(
+                thresholds["frequency_tolerance_hz"]
+            ):
+                causes.append("wrong_frequency")
+            expected_off = detected_states[expected_start:expected_end] == 0
+            longest_off = 0
+            current_off = 0
+            for is_off in expected_off:
+                current_off = current_off + 1 if is_off else 0
+                longest_off = max(longest_off, current_off)
+            if longest_off / rate > float(thresholds["maximum_transition_s"]):
+                continuous = False
+                causes.append("carrier_interruption")
         if blocked:
             outcome = "blocked"
+        elif run is None:
+            outcome = "failed"
+            causes.append("missing_carrier" if state != "off" else "false_silence")
+        elif max(
+            abs(start / rate - float(event["start_s"])),
+            abs(end / rate - float(event["end_s"])),
+        ) > float(thresholds["timing_tolerance_s"]):
+            outcome = "failed"
+            causes.append("timing_error")
         elif state == "off":
             if contrast >= float(thresholds["minimum_contrast_db"]):
                 outcome = "failed"
@@ -198,7 +294,6 @@ def analyze_synthetic_iq(
                 outcome = "inconclusive"
                 causes.append("event_too_short")
             else:
-                frequency = _estimate_frequency(segment, rate, center)
                 chunks = [chunk for chunk in np.array_split(segment, 8) if chunk.size]
                 chunk_contrasts = [
                     10.0
@@ -208,13 +303,14 @@ def analyze_synthetic_iq(
                     )
                     for chunk in chunks
                 ]
-                continuous = bool(chunk_contrasts) and min(chunk_contrasts) >= float(
+                measured_continuous = bool(chunk_contrasts) and min(chunk_contrasts) >= float(
                     thresholds["minimum_contrast_db"]
                 )
+                continuous = bool(continuous and measured_continuous)
                 if not continuous:
                     outcome = "failed"
                     causes.append("missing_carrier")
-                elif abs(frequency - float(event["frequency_hz"])) > float(
+                elif frequency is None or abs(frequency - float(event["frequency_hz"])) > float(
                     thresholds["frequency_tolerance_hz"]
                 ):
                     outcome = "failed"
@@ -231,14 +327,37 @@ def analyze_synthetic_iq(
         measured.append(
             {
                 "event_index": event["index"],
-                "measured_start_s": float(event["start_s"]),
-                "measured_end_s": float(event["end_s"]),
+                "measured_start_s": start / rate if run is not None else None,
+                "measured_end_s": end / rate if run is not None else None,
                 "measured_frequency_hz": frequency,
                 "contrast_db": contrast,
                 "carrier_continuous": continuous,
                 "outcome": outcome,
             }
         )
+    for position in range(len(expected["events"]) - 1):
+        if blocked:
+            break
+        left_event = expected["events"][position]
+        right_event = expected["events"][position + 1]
+        if (
+            left_event["rf_state"] == "off"
+            or right_event["rf_state"] == "off"
+            or not (left_event["continuity_required"] or right_event["continuity_required"])
+        ):
+            continue
+        left_end = measured[position]["measured_end_s"]
+        right_start = measured[position + 1]["measured_start_s"]
+        if (
+            left_end is not None
+            and right_start is not None
+            and float(right_start) - float(left_end) > float(thresholds["maximum_transition_s"])
+        ):
+            measured[position]["carrier_continuous"] = False
+            measured[position + 1]["carrier_continuous"] = False
+            measured[position]["outcome"] = "failed"
+            measured[position + 1]["outcome"] = "failed"
+            causes.append("carrier_interruption")
     outcomes = {item["outcome"] for item in measured}
     analysis_outcome = "passed"
     for candidate in ("failed", "blocked", "inconclusive"):
@@ -263,19 +382,26 @@ def analyze_synthetic_iq(
         messages.append(
             "".join(reverse_morse.get(by_position[p], "�") for p in sorted(by_position))
         )
+
+    def retained_artifact(path: Path) -> dict[str, Any]:
+        reference = artifact(path.resolve())
+        if _artifact_root is not None:
+            reference["path"] = path.resolve().relative_to(_artifact_root.resolve()).as_posix()
+        return reference
+
     observation_document = {
         "schema_version": 1,
         "evidence_type": "cw_generated_observations",
         "run_id": plan["run_id"],
         "mode": plan["mode"],
-        "plan": artifact(plan_path.resolve()),
-        "expected_events": artifact(expected_path.resolve()),
+        "plan": retained_artifact(plan_path),
+        "expected_events": retained_artifact(expected_path),
         "capture": {
-            **artifact(capture_path.resolve()),
+            **retained_artifact(capture_path),
             "sample_count": count,
             "sample_rate_hz": rate,
             "overflow_count": 0,
-            "synthetic": True,
+            "synthetic": _synthetic,
         },
         "analyzer": {
             "origin": "harness_generated",
@@ -304,9 +430,9 @@ def analyze_synthetic_iq(
         "evidence_type": "cw_mode_gate",
         "run_id": plan["run_id"],
         "mode": plan["mode"],
-        "plan": artifact(plan_path.resolve()),
-        "expected_events": artifact(expected_path.resolve()),
-        "observations": artifact(observations_path.resolve()),
+        "plan": retained_artifact(plan_path),
+        "expected_events": retained_artifact(expected_path),
+        "observations": retained_artifact(observations_path),
         "carrier_gate": carrier_gate,
         "mode_gate": mode_gate,
         "failure_causes": sorted(set(causes)),

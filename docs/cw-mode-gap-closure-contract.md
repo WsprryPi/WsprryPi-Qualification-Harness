@@ -294,6 +294,11 @@ reads, overflow, truncation, and artifact tampering.
 
 ### Phase 4 - Acquired-IQ replay and evidence composition
 
+**Status:** Implemented and locally validated on 2026-08-15. This status covers
+only authenticated offline replay and non-qualifying evidence composition.
+Pushed cross-platform CI remains the exit confirmation; Phase 5 lifecycle work
+and all live/hardware activity remain separately gated.
+
 - Analyze retained acquired captures without creating new RF activity.
 - Bind generated observations to authenticated input artifacts.
 - Compose carrier, mode, evidence-index, result, and manifest documents.

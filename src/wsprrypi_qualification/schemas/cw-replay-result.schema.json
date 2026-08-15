@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "evidence_type", "run_id", "mode", "evidence_index", "measurement", "lifecycle", "failure_causes", "final_status", "qualification_claim"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "cw_replay_result"},
+    "run_id": {"type": "string", "minLength": 1},
+    "mode": {"enum": ["tone", "cw", "qrss", "fskcw", "dfcw"]},
+    "evidence_index": {"$ref": "#/$defs/artifact"},
+    "measurement": {
+      "type": "object", "additionalProperties": false,
+      "required": ["carrier_gate", "mode_gate"],
+      "properties": {
+        "carrier_gate": {"enum": ["passed", "failed", "blocked", "inconclusive"]},
+        "mode_gate": {"enum": ["passed", "failed", "blocked", "inconclusive", "not_applicable"]}
+      }
+    },
+    "lifecycle": {
+      "type": "object", "additionalProperties": false,
+      "required": ["runtime_authorization_evidence", "live_session_evidence", "cleanup_evidence", "quiescence_evidence"],
+      "properties": {
+        "runtime_authorization_evidence": {"type": "null"},
+        "live_session_evidence": {"type": "null"},
+        "cleanup_evidence": {"type": "null"},
+        "quiescence_evidence": {"type": "null"}
+      }
+    },
+    "failure_causes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "final_status": {"const": "inconclusive"},
+    "qualification_claim": {"const": false}
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "size_bytes", "sha256"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}
