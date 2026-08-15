@@ -106,6 +106,8 @@ wsprrypi-qualification validate-application-plan examples/application-plan-wsprr
 wsprrypi-qualification validate-cw-qualification CW_ANALYSIS.json
 wsprrypi-qualification validate-cw-contract-chain PLAN.json EXPECTED.json OBSERVATIONS.json GATE.json SESSION.json
 wsprrypi-qualification generate-cw-expected-events PLAN.json EXPECTED.json --source-revision GIT_SHA
+wsprrypi-qualification generate-cw-synthetic-iq PLAN.json EXPECTED.json CAPTURE.cf32 CAPTURE.json --seed 1
+wsprrypi-qualification analyze-cw-synthetic-iq PLAN.json EXPECTED.json CAPTURE.json OBSERVATIONS.json GATE.json --source-revision GIT_SHA
 wsprrypi-qualification analyze-carrier RF_OFF.cf32 RF_ON.cf32 carrier.json --rf-off-metadata RF_OFF.json --rf-on-metadata RF_ON.json --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification make-slot-wav CAPTURE.cf32 CAPTURE.json WAV_DIRECTORY audio.json --slot 2026-08-09T21:00:00Z --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification decode-wspr SLOT.wav audio.json decoder.json
@@ -126,6 +128,12 @@ unknown protocol versions and writes a new plan-authenticated timeline for all
 declared repetitions. It does not inspect IQ or qualify hardware. See the
 [Phase 2 execution prompt](docs/phase-2-cw-reference-encoder-execution-prompt.md)
 and [Phase 2 development guide](docs/development/cw-reference-encoders.md).
+Phase 3 adds deterministic, hardware-free CF32LE fixtures and an authenticated
+IQ analyzer for all five modes. It derives per-event carrier state, frequency,
+contrast, continuity, clipping, and IQ-based symbol reconstructions, but every
+output remains explicitly synthetic and non-qualifying. See the
+[Phase 3 execution prompt](docs/phase-3-cw-synthetic-iq-analyzer-execution-prompt.md)
+and [Phase 3 development guide](docs/development/cw-synthetic-iq-analyzer.md).
 
 The capability report locates future dependencies without executing them. Live
 RF remains unavailable by default, and committed profiles cannot satisfy

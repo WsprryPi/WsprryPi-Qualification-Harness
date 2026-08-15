@@ -2,10 +2,12 @@ import hashlib
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from wsprrypi_qualification.cli import main
 from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contract_chain
+from wsprrypi_qualification.cw_iq import CwIqError, analyze_synthetic_iq, generate_synthetic_iq
 from wsprrypi_qualification.cw_reference import generate_expected_events
 
 
@@ -219,6 +221,151 @@ def _chain(tmp_path: Path, mode: str) -> tuple[Path, Path, Path, Path, Path]:
     }
     _write(session_path, session)
     return plan_path, expected_path, observations_path, gate_path, session_path
+
+
+@pytest.mark.parametrize("mode", ["tone", "cw", "qrss", "fskcw", "dfcw"])
+def test_phase3_deterministic_iq_passes_measurement_gate_but_never_qualifies(
+    tmp_path: Path, mode: str
+) -> None:
+    plan, expected, *_ = _chain(tmp_path, mode)
+    capture = tmp_path / "synthetic.cf32"
+    metadata = tmp_path / "synthetic.json"
+    observations = tmp_path / "phase3-observations.json"
+    gate = tmp_path / "phase3-gate.json"
+    first = generate_synthetic_iq(plan, expected, capture, metadata, seed=7)
+    measured, derived_gate = analyze_synthetic_iq(
+        plan,
+        expected,
+        metadata,
+        observations,
+        gate,
+        source_revision="d" * 40,
+    )
+    assert first["synthetic"] is True
+    assert measured["capture"]["synthetic"] is True
+    assert measured["analysis_outcome"] == "passed"
+    assert derived_gate["carrier_gate"] == "passed"
+    assert derived_gate["mode_gate"] == ("not_applicable" if mode == "tone" else "passed")
+    if mode != "tone":
+        assert measured["measurement_summary"]["reconstructed_repetitions"] == ["TEST"] * 3
+    assert "qualification_claim" not in measured
+
+
+def test_phase3_fixture_is_byte_deterministic_and_refuses_overwrite(tmp_path: Path) -> None:
+    plan, expected, *_ = _chain(tmp_path, "cw")
+    left = tmp_path / "left.cf32"
+    right = tmp_path / "right.cf32"
+    generate_synthetic_iq(plan, expected, left, tmp_path / "left.json", seed=42)
+    generate_synthetic_iq(plan, expected, right, tmp_path / "right.json", seed=42)
+    assert left.read_bytes() == right.read_bytes()
+    with pytest.raises(CwIqError, match="overwrite"):
+        generate_synthetic_iq(plan, expected, left, tmp_path / "other.json", seed=42)
+
+
+def test_phase3_capture_tampering_and_clipping_fail_closed(tmp_path: Path) -> None:
+    plan, expected, *_ = _chain(tmp_path, "cw")
+    capture = tmp_path / "synthetic.cf32"
+    metadata = tmp_path / "synthetic.json"
+    generate_synthetic_iq(plan, expected, capture, metadata, seed=9)
+    capture.write_bytes(capture.read_bytes()[:-8])
+    with pytest.raises(CwIqError, match=r"size|SHA-256"):
+        analyze_synthetic_iq(
+            plan,
+            expected,
+            metadata,
+            tmp_path / "phase3-observations.json",
+            tmp_path / "phase3-gate.json",
+            source_revision="d" * 40,
+        )
+
+
+def test_phase3_clipping_is_fixture_blockage_not_a_pass(tmp_path: Path) -> None:
+    plan, expected, *_ = _chain(tmp_path, "tone")
+    capture = tmp_path / "synthetic.cf32"
+    metadata = tmp_path / "synthetic.json"
+    generate_synthetic_iq(plan, expected, capture, metadata, seed=3)
+    capture.write_bytes(b"\0\0\x80?\0\0\x80?" * 100000)
+    document = json.loads(metadata.read_text(encoding="utf-8"))
+    document["capture"] = _artifact(capture)
+    _write(metadata, document)
+    measured, gate = analyze_synthetic_iq(
+        plan,
+        expected,
+        metadata,
+        tmp_path / "phase3-observations.json",
+        tmp_path / "phase3-gate.json",
+        source_revision="d" * 40,
+    )
+    assert measured["analysis_outcome"] == "blocked"
+    assert measured["failure_causes"] == ["clipping"]
+    assert gate["carrier_gate"] == "blocked"
+
+
+def test_phase3_rejects_thresholds_tighter_than_resolution(tmp_path: Path) -> None:
+    plan, expected, *_ = _chain(tmp_path, "cw")
+    plan_document = json.loads(plan.read_text(encoding="utf-8"))
+    plan_document["thresholds"]["frequency_tolerance_hz"] = 0.1
+    _write(plan, plan_document)
+    expected_document = json.loads(expected.read_text(encoding="utf-8"))
+    expected_document["plan"] = _artifact(plan)
+    _write(expected, expected_document)
+    capture = tmp_path / "synthetic.cf32"
+    metadata = tmp_path / "synthetic.json"
+    generate_synthetic_iq(plan, expected, capture, metadata, seed=4)
+    with pytest.raises(CwIqError, match="tighter than analyzer resolution"):
+        analyze_synthetic_iq(
+            plan,
+            expected,
+            metadata,
+            tmp_path / "phase3-observations.json",
+            tmp_path / "phase3-gate.json",
+            source_revision="d" * 40,
+        )
+
+
+def test_phase3_conjugate_image_is_detected_from_iq(tmp_path: Path) -> None:
+    plan, expected, *_ = _chain(tmp_path, "fskcw")
+    capture = tmp_path / "synthetic.cf32"
+    metadata = tmp_path / "synthetic.json"
+    generate_synthetic_iq(plan, expected, capture, metadata, seed=11)
+    samples = np.fromfile(capture, dtype="<c8")
+    np.conjugate(samples).astype("<c8").tofile(capture)
+    document = json.loads(metadata.read_text(encoding="utf-8"))
+    document["capture"] = _artifact(capture)
+    _write(metadata, document)
+    measured, _ = analyze_synthetic_iq(
+        plan,
+        expected,
+        metadata,
+        tmp_path / "phase3-observations.json",
+        tmp_path / "phase3-gate.json",
+        source_revision="d" * 40,
+    )
+    assert measured["analysis_outcome"] == "failed"
+    assert "wrong_frequency" in measured["failure_causes"]
+
+
+def test_phase3_interrupted_required_carrier_is_detected(tmp_path: Path) -> None:
+    plan, expected, *_ = _chain(tmp_path, "tone")
+    capture = tmp_path / "synthetic.cf32"
+    metadata = tmp_path / "synthetic.json"
+    generate_synthetic_iq(plan, expected, capture, metadata, seed=12)
+    samples = np.fromfile(capture, dtype="<c8")
+    samples[150:175] = 0
+    samples.astype("<c8").tofile(capture)
+    document = json.loads(metadata.read_text(encoding="utf-8"))
+    document["capture"] = _artifact(capture)
+    _write(metadata, document)
+    measured, _ = analyze_synthetic_iq(
+        plan,
+        expected,
+        metadata,
+        tmp_path / "phase3-observations.json",
+        tmp_path / "phase3-gate.json",
+        source_revision="d" * 40,
+    )
+    assert measured["analysis_outcome"] == "failed"
+    assert "missing_carrier" in measured["failure_causes"]
 
 
 @pytest.mark.parametrize("mode", ["tone", "cw", "qrss", "fskcw", "dfcw"])

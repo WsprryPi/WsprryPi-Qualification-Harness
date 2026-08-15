@@ -21,6 +21,7 @@ from wsprrypi_qualification.capabilities import capability_report
 from wsprrypi_qualification.capture_metadata import CaptureMetadataError, load_capture_metadata
 from wsprrypi_qualification.carrier import analyze_carrier_acquired
 from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contract_chain
+from wsprrypi_qualification.cw_iq import CwIqError, analyze_synthetic_iq, generate_synthetic_iq
 from wsprrypi_qualification.cw_qualification import CwQualificationError, load_cw_qualification
 from wsprrypi_qualification.cw_reference import ReferenceEncoderError, write_expected_events
 from wsprrypi_qualification.decoder import run_wsprd_acquired, summarize_decodes
@@ -76,6 +77,25 @@ def _parser() -> argparse.ArgumentParser:
     cw_reference.add_argument("plan", type=Path)
     cw_reference.add_argument("output", type=Path)
     cw_reference.add_argument("--source-revision", required=True)
+    cw_fixture = subparsers.add_parser(
+        "generate-cw-synthetic-iq",
+        help="generate deterministic Phase 3 synthetic CF32LE without hardware",
+    )
+    cw_fixture.add_argument("plan", type=Path)
+    cw_fixture.add_argument("expected_events", type=Path)
+    cw_fixture.add_argument("capture", type=Path)
+    cw_fixture.add_argument("metadata", type=Path)
+    cw_fixture.add_argument("--seed", type=int, required=True)
+    cw_analyzer = subparsers.add_parser(
+        "analyze-cw-synthetic-iq",
+        help="analyze Phase 3 synthetic IQ; output can never qualify hardware",
+    )
+    cw_analyzer.add_argument("plan", type=Path)
+    cw_analyzer.add_argument("expected_events", type=Path)
+    cw_analyzer.add_argument("metadata", type=Path)
+    cw_analyzer.add_argument("observations", type=Path)
+    cw_analyzer.add_argument("mode_gate", type=Path)
+    cw_analyzer.add_argument("--source-revision", required=True)
     deployment = subparsers.add_parser(
         "validate-helper-deployment", help="validate helper deployment configuration offline"
     )
@@ -257,6 +277,47 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(str(error), file=sys.stderr)
             return 2
         print(json.dumps(document, indent=2, sort_keys=True))
+        return 0
+    if args.command == "generate-cw-synthetic-iq":
+        try:
+            document = generate_synthetic_iq(
+                args.plan,
+                args.expected_events,
+                args.capture,
+                args.metadata,
+                seed=args.seed,
+            )
+        except (CwIqError, OfflineAnalysisError, OSError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(document, indent=2, sort_keys=True))
+        return 0
+    if args.command == "analyze-cw-synthetic-iq":
+        try:
+            observations, gate = analyze_synthetic_iq(
+                args.plan,
+                args.expected_events,
+                args.metadata,
+                args.observations,
+                args.mode_gate,
+                source_revision=args.source_revision,
+            )
+        except (CwIqError, OfflineAnalysisError, OSError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(
+            json.dumps(
+                {
+                    "analysis_outcome": observations["analysis_outcome"],
+                    "carrier_gate": gate["carrier_gate"],
+                    "mode_gate": gate["mode_gate"],
+                    "qualification_claim": False,
+                    "synthetic": True,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
     if args.command == "validate-helper-deployment":
         try:

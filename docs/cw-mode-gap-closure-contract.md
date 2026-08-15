@@ -276,6 +276,11 @@ and timing plans on macOS, Ubuntu, and native Windows CI.
 
 ### Phase 3 - Synthetic raw-IQ analyzer
 
+**Status:** Implemented and locally validated on 2026-08-15. This status covers
+only deterministic synthetic CF32LE generation and non-qualifying analysis.
+Pushed cross-platform CI remains the exit confirmation; acquired-IQ replay,
+lifecycle work, and all hardware activity remain separately gated.
+
 - Generate deterministic tone and mode fixtures.
 - Derive carrier states, frequencies, contrast, transitions, timing, tone
   spacing, and reconstructed messages directly from IQ.
