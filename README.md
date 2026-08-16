@@ -197,6 +197,9 @@ the zero-external-call review surface. The deliberately unavailable-by-default
 `run-live-session` path accepts only the sealed production composition, a
 split wspr4/wspr5 plan, both enable flags, and an exact ephemeral plan-digest
 confirmation. See [split-host live qualification](docs/development/live-three-frame.md).
+The distinct `run-cw-live-tone` command accepts only the carrier-only
+`cw_live_tone` plan variant and terminates after carrier analysis, cleanup,
+service restoration, and backend quiescence; it cannot advance into WSPR.
 
 Hardware-free Raspberry Pi OS deployment preparation provides a strict helper
 deployment configuration, pinned systemd/GPIO/Si5351 command-provider evidence,

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.test_real_session import plan_document
+from tests.unit.test_real_session import plan_document, tone_plan_document
 from wsprrypi_qualification.live_adapters import (
     LiveAdapterPaths,
     ProductionRealSessionAdapters,
@@ -173,6 +173,7 @@ def test_active_receiver_owner_is_stopped_only_after_cleanup_registration(tmp_pa
     adapter.rx_services = FakeServiceProvider(True)
     adapter._initial_services = {}
     adapter._changed_services = []
+    adapter._owned = []
     adapter._cleanup_installed = False
     adapter.inspect_services_and_ownership(plan_document())
     assert adapter.rx_services.running is True
@@ -189,6 +190,114 @@ def test_overall_deadline_is_cumulative_and_reserves_cleanup(tmp_path: Path, mon
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: 90.1)
     with pytest.raises(RealSessionError, match="overall deadline"):
         adapter._remaining(5.0, reserve_cleanup=True)
+
+
+def test_tone_pattern_uses_absolute_deadlines_and_stops_every_cycle(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._owned = []
+    clock = {"now": 100.0}
+    sleeps = []
+    stopped = []
+
+    class Process:
+        def stop(self):
+            stopped.append(clock["now"])
+            return LaunchResult(
+                1,
+                cancelled=True,
+                cleanup_verified=True,
+                handle_id=f"cycle-{len(stopped)}",
+                stop_requested=True,
+                running_before_stop=True,
+            )
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock["now"] += seconds
+
+    def begin(plan, tone, *, cycle=None):
+        assert tone and cycle in {1, 2, 3}
+        process = Process()
+        adapter._owned.append(process)
+        return process
+
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: clock["now"])
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.sleep", sleep)
+    monkeypatch.setattr(adapter, "_begin_transmitter", begin)
+    monkeypatch.setattr(adapter, "_retain_transmitter_result", lambda *args, **kwargs: None)
+    class Worker:
+        running = True
+
+        def is_alive(self):
+            return self.running
+
+        def join(self, timeout=None):
+            self.running = False
+
+    worker = Worker()
+    captured = [{"capture": "complete"}]
+    adapter._capture_tasks = [(worker, threading.Event())]
+    result = adapter._run_tone_pattern(
+        tone_plan_document(), worker, adapter._capture_tasks[0][1], captured, []
+    )
+    assert result == captured[0]
+    assert stopped == [104.0, 108.0, 112.0]
+    assert sum(sleeps) == 14.0
+    assert adapter._owned == []
+
+
+def test_tone_pattern_refuses_late_transition_before_enabling_rf(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = bare_adapter(tmp_path)
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: 103.0)
+    with pytest.raises(RealSessionError, match="absolute cadence"):
+        adapter._sleep_until(102.0)
+
+
+def test_each_live_tone_cycle_uses_its_resolved_remote_watchdog(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._cleanup_installed = True
+    adapter._initial_services = {}
+    adapter._changed_services = []
+    adapter._owned = []
+    adapter.tx_services = FakeServiceProvider(False)
+    adapter.tx_client = object()
+    adapter.tx_launcher = object()
+    observed = {}
+
+    class Launcher:
+        def __init__(self, client, hard_timeout_s, executable_sha256):
+            observed.update(
+                client=client,
+                hard_timeout_s=hard_timeout_s,
+                executable_sha256=executable_sha256,
+            )
+
+        def begin(self, arguments):
+            observed["arguments"] = arguments
+            return object()
+
+    class Application:
+        arguments = ("/tx",)
+
+        def to_document(self):
+            return {}
+
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.SshOwnedProcessLauncher", Launcher)
+    monkeypatch.setattr(adapter, "_application", lambda plan, tone: Application())
+    monkeypatch.setattr(
+        "wsprrypi_qualification.live_adapters.write_json_new", lambda *args, **kwargs: None
+    )
+    plan = tone_plan_document()
+    process = adapter._begin_transmitter(plan, True, cycle=1)
+    assert process in adapter._owned
+    assert observed["hard_timeout_s"] == 2
+    assert observed["executable_sha256"] == plan["wsprrypi"]["sha256"]
 
 
 def test_partial_receiver_service_change_retains_restoration_intent(tmp_path: Path) -> None:

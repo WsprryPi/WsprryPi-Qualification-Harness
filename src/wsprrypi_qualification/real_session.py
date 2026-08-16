@@ -293,7 +293,10 @@ class RealQualificationSession:
             carrier_gate = _validate_carrier(carrier, plan, self.plan.sha256)
             evidence["carrier"] = carrier
             event(RealPhase.CARRIER_GATE, carrier_gate, "authenticated carrier analysis")
-            if carrier_gate == "passed":
+            if carrier_gate == "passed" and plan.get("session_kind") == "cw_live_tone":
+                final_status = "inconclusive"
+                failure_causes.append("phase7_live_tone_only")
+            elif carrier_gate == "passed":
                 coherent = self.adapters.transmit_frames_and_capture(plan, runtime_rf)
                 _validate_capture(
                     coherent, plan, "coherent", plan["coherent_capture"]["sample_count"]
@@ -500,16 +503,47 @@ class RealQualificationSession:
 
 def validate_real_session_plan(document: dict[str, Any]) -> None:
     validate_document(document, "resolved-real-session-plan.schema.json")
-    if document["mode"] != "WSPR" or document["frame_count"] != 3:
-        raise RealSessionError("real qualification currently requires exactly three WSPR frames")
-    capture = document["coherent_capture"]
-    if (
-        capture["duration_s"] != 370
-        or capture["sample_rate_hz"] != 250000
-        or capture["sample_count"] != 92500000
-        or not 0 < capture["margin_before_first_slot_s"] <= 10
-    ):
-        raise RealSessionError("coherent WSPR capture must be 370 s and 92,500,000 CF32 samples")
+    session_kind = document.get("session_kind", "wspr_qualification")
+    if session_kind == "wspr_qualification":
+        if document["mode"] != "WSPR" or document["frame_count"] != 3:
+            raise RealSessionError("WSPR qualification requires exactly three WSPR frames")
+        if "tone_schedule" in document:
+            raise RealSessionError("WSPR qualification cannot contain a live-tone schedule")
+        if "cw_contract" in document:
+            raise RealSessionError("WSPR qualification cannot contain a CW analyzer contract")
+        capture = document["coherent_capture"]
+        if (
+            capture["duration_s"] != 370
+            or capture["sample_rate_hz"] != 250000
+            or capture["sample_count"] != 92500000
+            or not 0 < capture["margin_before_first_slot_s"] <= 10
+        ):
+            raise RealSessionError(
+                "coherent WSPR capture must be 370 s and 92,500,000 CF32 samples"
+            )
+        if document["deadlines"]["receiver_s"] <= 370:
+            raise RealSessionError("WSPR receiver deadline must exceed its coherent capture")
+    elif session_kind == "cw_live_tone":
+        if document["mode"] != "TONE" or document["frame_count"] != 0:
+            raise RealSessionError("carrier-only Phase 7 requires TONE mode and zero frames")
+        schedule = document.get("tone_schedule")
+        if not isinstance(schedule, dict):
+            raise RealSessionError("carrier-only Phase 7 requires an exact tone schedule")
+        if not isinstance(document.get("cw_contract"), dict):
+            raise RealSessionError("carrier-only Phase 7 requires a pinned analyzer contract")
+        rf_on_seconds = schedule["cycles"] * schedule["on_seconds"]
+        if abs(rf_on_seconds - schedule["maximum_rf_on_seconds"]) > 1e-9:
+            raise RealSessionError("tone schedule exceeds its resolved RF-on bound")
+        capture_seconds = schedule["cycles"] * (
+            schedule["off_seconds"] + schedule["on_seconds"]
+        ) + schedule["off_seconds"]
+        expected_samples = round(capture_seconds * document["receiver"]["sample_rate_hz"])
+        if document["carrier"]["rf_on_sample_count"] != expected_samples:
+            raise RealSessionError("tone-pattern capture count differs from its exact schedule")
+        if document["deadlines"]["overall_s"] <= capture_seconds:
+            raise RealSessionError("overall deadline cannot contain the tone schedule")
+    else:
+        raise RealSessionError("unsupported real-session kind")
     if document["random_offset_enabled"] is not False:
         raise RealSessionError("random WSPR offset must be disabled")
     if document["external_access_enabled"] is not True or document["rf_enabled"] is not True:
@@ -825,12 +859,19 @@ def validate_real_session_document(document: dict[str, Any]) -> None:
         or decode_gate != "not_run"
     ):
         raise RealSessionError("aborted status lacks post-registration failure evidence")
-    if status == "inconclusive" and not (
+    hardware_free_complete = (
         document["carrier_gate"] == "passed"
         and document["decode_gate"] == "passed"
         and "incomplete_evidence" in causes
-    ):
-        raise RealSessionError("inconclusive status lacks hardware-free incomplete evidence")
+    )
+    carrier_only_complete = (
+        plan.get("session_kind") == "cw_live_tone"
+        and document["carrier_gate"] == "passed"
+        and document["decode_gate"] == "not_run"
+        and "phase7_live_tone_only" in causes
+    )
+    if status == "inconclusive" and not (hardware_free_complete or carrier_only_complete):
+        raise RealSessionError("inconclusive status lacks its required bounded evidence")
 
 
 def _require_authorization(
@@ -947,12 +988,21 @@ def _validate_carrier(document: dict[str, object], plan: dict[str, Any], digest:
     if requested != plan["frequency_hz"] or abs((strongest - requested) - offset) > 1e-6:
         raise RealSessionError("carrier evidence frequency contradicts the plan")
     claimed = cast(str, details["gate_outcome"])
-    derived = (
+    carrier_derived = (
         "passed"
         if abs(offset) <= plan["carrier"]["offset_gate_hz"]
         and fraction >= plan["carrier"]["best_20hz_share_min"]
         else "failed"
     )
+    mode_gate = details.get("mode_gate", "not_applicable")
+    if plan.get("session_kind") == "cw_live_tone":
+        if mode_gate not in {"passed", "failed", "blocked", "inconclusive"}:
+            raise RealSessionError("carrier-only evidence lacks its maintained mode gate")
+        derived = carrier_derived if carrier_derived != "passed" else mode_gate
+    else:
+        if mode_gate != "not_applicable":
+            raise RealSessionError("WSPR carrier evidence cannot claim a CW mode gate")
+        derived = carrier_derived
     if claimed in {"passed", "failed"} and claimed != derived:
         raise RealSessionError("carrier gate contradicts the maintained threshold calculation")
     return claimed

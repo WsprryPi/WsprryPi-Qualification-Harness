@@ -177,6 +177,27 @@ must retain one coherent 370-second capture containing exactly 92,500,000 CF32
 samples with zero overflow and three consecutive even-UTC slots. Qualification
 requires three independent complete decodes of the configured identity.
 
+### Live carrier-only Phase 7 lifecycle
+
+`run-cw-live-tone` is a separate digest-bound production path for an exact
+leading-off, repeated on/off, and closing-off carrier schedule. It never calls
+the WSPR frame or decoder phases. Its resolved plan must use
+`session_kind: cw_live_tone`, `mode: TONE`, zero frames, an exact
+`tone_schedule`, and an RF-on capture count equal to the complete schedule at
+the resolved sample rate.
+
+```text
+python -m wsprrypi_qualification run-cw-live-tone RESOLVED_PLAN.json \
+  OUTPUT_PARENT --work-directory NEW_WORK_DIRECTORY --ssh /absolute/ssh \
+  --operator OPERATOR --enable-live-tone --enable-rf
+```
+
+This command has the same external-access, exact digest confirmation, cleanup,
+service restoration, and backend-quiescence authorization boundary as the
+WSPR command. A passing carrier result remains Phase 7 evidence with final
+status `inconclusive`; it is not WSPR qualification, calibrated power, or
+spectral-compliance evidence.
+
 ## Evidence review checklist
 
 Treat a status as trustworthy only when all applicable checks pass:

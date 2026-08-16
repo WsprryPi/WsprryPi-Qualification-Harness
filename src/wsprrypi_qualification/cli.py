@@ -192,6 +192,16 @@ def _parser() -> argparse.ArgumentParser:
     live_session.add_argument("--operator", required=True)
     live_session.add_argument("--enable-live-session", action="store_true", required=True)
     live_session.add_argument("--enable-rf", action="store_true", required=True)
+    live_tone = subparsers.add_parser(
+        "run-cw-live-tone", help="run the digest-bound carrier-only live-tone lifecycle"
+    )
+    live_tone.add_argument("plan", type=Path)
+    live_tone.add_argument("output_parent", type=Path)
+    live_tone.add_argument("--work-directory", type=Path, required=True)
+    live_tone.add_argument("--ssh", type=Path, required=True)
+    live_tone.add_argument("--operator", required=True)
+    live_tone.add_argument("--enable-live-tone", action="store_true", required=True)
+    live_tone.add_argument("--enable-rf", action="store_true", required=True)
     simulator = subparsers.add_parser(
         "simulate-qualification", help="run the bounded hardware-free lifecycle simulator"
     )
@@ -255,7 +265,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if (
         LIVE_COMMANDS.intersection(arguments) or "--enable-rf" in arguments
-    ) and "run-live-session" not in arguments:
+    ) and not {"run-live-session", "run-cw-live-tone"}.intersection(arguments):
         print("live RF and hardware actions are unavailable in the portable CLI", file=sys.stderr)
         return 2
     args = _parser().parse_args(arguments)
@@ -529,7 +539,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         return 0
-    if args.command == "run-live-session":
+    if args.command in {"run-live-session", "run-cw-live-tone"}:
         try:
             document = json.loads(args.plan.read_text(encoding="utf-8"))
             if not isinstance(document, dict):
@@ -538,6 +548,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             resolved = plan.validated()
             if resolved["execution_mode"] != "live":
                 raise RealSessionError("live command requires a live resolved plan")
+            session_kind = resolved.get("session_kind", "wspr_qualification")
+            expected_kind = (
+                "cw_live_tone" if args.command == "run-cw-live-tone" else "wspr_qualification"
+            )
+            if session_kind != expected_kind:
+                raise RealSessionError(
+                    f"{args.command} requires session_kind {expected_kind}"
+                )
             print(json.dumps(resolved, indent=2, sort_keys=True))
             response = input(
                 f"Type the resolved plan SHA-256 {plan.sha256} to authorize this run: "
@@ -563,6 +581,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(str(error), file=sys.stderr)
             return 2
         print(json.dumps(result, indent=2, sort_keys=True))
+        if args.command == "run-cw-live-tone":
+            cleanup = result.get("cleanup")
+            quiescence = result.get("quiescence")
+            return (
+                0
+                if result["carrier_gate"] == "passed"
+                and isinstance(cleanup, dict)
+                and cleanup.get("outcome") == "verified"
+                and isinstance(quiescence, dict)
+                and quiescence.get("outcome") == "verified"
+                else 1
+            )
         return 0 if result["final_status"] == "qualified" else 1
     if args.command == "simulate-qualification":
         try:

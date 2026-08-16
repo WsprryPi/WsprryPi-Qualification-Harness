@@ -188,6 +188,44 @@ def plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
     return document
 
 
+def tone_plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
+    document = plan_document(execution_mode=execution_mode)
+    document.update(
+        {
+            "session_kind": "cw_live_tone",
+            "mode": "TONE",
+            "frame_count": 0,
+            "tone_schedule": {
+                "cycles": 3,
+                "off_seconds": 2,
+                "on_seconds": 2,
+                "maximum_rf_on_seconds": 6,
+            },
+            "cw_contract": {
+                "plan": {"path": "/phase7/tone-plan.json", "size_bytes": 1, "sha256": "a" * 64},
+                "expected_events": {
+                    "path": "/phase7/tone-events.json",
+                    "size_bytes": 1,
+                    "sha256": "b" * 64,
+                },
+                "analyzer_source_revision": "3" * 40,
+            },
+        }
+    )
+    document["carrier"]["rf_on_sample_count"] = 3_500_000
+    document["deadlines"] = {
+        "helper_s": 5,
+        "transmitter_s": 20,
+        "receiver_s": 20,
+        "cleanup_s": 10,
+        "overall_s": 60,
+    }
+    digest = helper_configuration_plan_sha256(document)
+    for field in ("remote_helper", "receiver_helper", "capture_helper", "wsprd", "wsprrypi"):
+        document[field]["plan_sha256"] = digest
+    return document
+
+
 def test_helper_digest_breaks_cycle_but_operator_digest_binds_config_hashes() -> None:
     document = plan_document()
     helper_digest = helper_configuration_plan_sha256(document)
@@ -312,6 +350,11 @@ class FakeAdapters:
                 "strongest_frequency_hz": plan["frequency_hz"] + offset,
                 "offset_hz": offset,
                 "best_20hz_fraction": 0.9 if self.carrier != "failed" else 0.4,
+                "mode_gate": (
+                    self.carrier
+                    if plan.get("session_kind") == "cw_live_tone"
+                    else "not_applicable"
+                ),
             },
             deadline_s=plan["deadlines"]["overall_s"],
         )
@@ -438,6 +481,41 @@ def test_failed_carrier_suppresses_frames(tmp_path: Path):
     document = run(tmp_path, adapters)
     assert document["final_status"] == "unqualified_carrier"
     assert "frames" not in adapters.calls and "decode" not in adapters.calls
+
+
+def test_carrier_only_phase7_never_advances_to_wspr_frames(tmp_path: Path):
+    plan = ResolvedRealSessionPlan(tone_plan_document())
+    adapters = FakeAdapters()
+    external, rf = authorizations(plan)
+    document = RealQualificationSession(plan, adapters, now=NOW).run(
+        external, rf, tmp_path
+    )
+    assert document["final_status"] == "inconclusive"
+    assert document["carrier_gate"] == "passed"
+    assert document["decode_gate"] == "not_run"
+    assert "frames" not in adapters.calls and "decode" not in adapters.calls
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (lambda plan: plan.update({"frame_count": 3}), "zero frames"),
+        (
+            lambda plan: plan["tone_schedule"].update({"maximum_rf_on_seconds": 7}),
+            "RF-on bound",
+        ),
+        (
+            lambda plan: plan["carrier"].update({"rf_on_sample_count": 3_499_999}),
+            "capture count",
+        ),
+        (lambda plan: plan.pop("cw_contract"), "analyzer contract"),
+    ],
+)
+def test_carrier_only_plan_rejects_contradictions(mutation, message):
+    document = tone_plan_document()
+    mutation(document)
+    with pytest.raises(RealSessionError, match=message):
+        ResolvedRealSessionPlan(document).validated()
 
 
 def test_carrier_gate_is_recomputed_from_metrics(tmp_path: Path):

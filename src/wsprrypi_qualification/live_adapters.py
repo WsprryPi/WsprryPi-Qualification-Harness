@@ -30,6 +30,8 @@ from wsprrypi_qualification.application_shims import (
     WsprryPiBackendConfig,
     WsprryPiShim,
 )
+from wsprrypi_qualification.cw_iq import analyze_synthetic_iq
+from wsprrypi_qualification.cw_reference import generate_expected_events
 from wsprrypi_qualification.offline import artifact, load_json_document, write_json_new
 from wsprrypi_qualification.offline_context import load_profile_context
 from wsprrypi_qualification.real_capabilities import (
@@ -215,6 +217,13 @@ class ProductionRealSessionAdapters:
         ):
             if artifact(path)["sha256"] != plan["resolved_profiles"][name]["sha256"]:
                 raise RealSessionError(f"resolved {name} profile identity changed")
+        if plan.get("session_kind") == "cw_live_tone":
+            for role in ("plan", "expected_events"):
+                binding = plan["cw_contract"][role]
+                path = Path(binding["path"])
+                if not path.is_absolute() or artifact(path) != binding:
+                    raise RealSessionError(f"pinned CW {role} identity changed")
+            self._validate_tone_contract(plan)
         context = load_profile_context(self.paths.bench_profile, self.paths.test_profile)
         if (
             context.test.frequency_hz != plan["frequency_hz"]
@@ -240,6 +249,49 @@ class ProductionRealSessionAdapters:
             plan["deadlines"]["helper_s"],
             started,
         )
+
+    @staticmethod
+    def _validate_tone_contract(plan: dict[str, Any]) -> None:
+        binding = plan["cw_contract"]
+        mode_plan = load_json_document(Path(binding["plan"]["path"]), "cw-mode-plan.schema.json")
+        expected = load_json_document(
+            Path(binding["expected_events"]["path"]), "cw-expected-events.schema.json"
+        )
+        schedule = plan["tone_schedule"]
+        protocol = mode_plan["protocol"]
+        capture = mode_plan["capture_contract"]
+        receiver = plan["receiver"]
+        expected_plan = Path(expected["plan"]["path"])
+        if not expected_plan.is_absolute():
+            expected_plan = Path(binding["expected_events"]["path"]).parent / expected_plan
+        if (
+            mode_plan["run_id"] != plan["run_id"]
+            or expected["run_id"] != plan["run_id"]
+            or mode_plan["mode"] != "tone"
+            or expected["mode"] != "tone"
+            or artifact(expected_plan) != binding["plan"]
+            or expected["protocol_definition"] != protocol["definition"]
+            or mode_plan["backend"] != plan["backend"]
+            or mode_plan["transmitter"]["host"] != plan["host"]
+            or mode_plan["transmitter"]["output"] != plan["output"]
+            or mode_plan["transmitter"]["drive_value"] != plan["drive"]["value"]
+            or mode_plan["transmitter"]["drive_unit"] != plan["drive"]["unit"]
+            or protocol["primary_frequency_hz"] != plan["frequency_hz"]
+            or protocol["tone_cycles"] != schedule["cycles"]
+            or protocol["tone_on_seconds"] != schedule["on_seconds"]
+            or protocol["tone_off_seconds"] != schedule["off_seconds"]
+            or protocol["pre_quiet_seconds"] != schedule["off_seconds"]
+            or protocol["post_quiet_seconds"] != schedule["off_seconds"]
+            or capture["sample_count"] != plan["carrier"]["rf_on_sample_count"]
+            or capture["sample_rate_hz"] != receiver["sample_rate_hz"]
+            or capture["center_frequency_hz"] != receiver["center_frequency_hz"]
+            or mode_plan["receiver"]["host"] != receiver["host"]
+            or mode_plan["receiver"]["driver"] != receiver["driver"]
+            or mode_plan["receiver"]["device_identity"] != receiver["serial"]
+        ):
+            raise RealSessionError("pinned CW tone contract differs from the live plan")
+        if expected["events"] != generate_expected_events(mode_plan):
+            raise RealSessionError("pinned CW expected events differ from the reference encoder")
 
     def verify_helper(self, plan: dict[str, Any]) -> dict[str, object]:
         started = time.monotonic()
@@ -500,7 +552,9 @@ class ProductionRealSessionAdapters:
         )
         return shim.resolve_plan(f"{plan['run_id']}-{'carrier' if tone else 'frames'}", protocol)
 
-    def _begin_transmitter(self, plan: dict[str, Any], tone: bool) -> OwnedProcess:
+    def _begin_transmitter(
+        self, plan: dict[str, Any], tone: bool, *, cycle: int | None = None
+    ) -> OwnedProcess:
         if not self._cleanup_installed:
             raise RealSessionError("transmitter refused before cleanup registration")
         for name in plan["services"]["transmitter"]:
@@ -512,22 +566,42 @@ class ProductionRealSessionAdapters:
                     raise RealSessionError("transmitter service could not be stopped")
         application = self._application(plan, tone=tone)
         plan_path = self.paths.work_directory / (
-            "carrier-application-plan.json" if tone else "frames-application-plan.json"
+            f"carrier-cycle-{cycle}-application-plan.json"
+            if tone and cycle is not None
+            else "carrier-application-plan.json"
+            if tone
+            else "frames-application-plan.json"
         )
         write_json_new(
             plan_path, application.to_document(), schema_name="application-plan.schema.json"
         )
         self._artifacts.append(plan_path)
-        process = self.tx_launcher.begin(application.arguments)
+        launcher = self.tx_launcher
+        if tone and cycle is not None:
+            launcher = SshOwnedProcessLauncher(
+                self.tx_client,
+                plan["tone_schedule"]["on_seconds"],
+                plan["wsprrypi"]["sha256"],
+            )
+        process = launcher.begin(application.arguments)
         self._owned.append(process)
         return process
 
     def _retain_transmitter_result(
-        self, plan: dict[str, Any], *, tone: bool, result: object
+        self,
+        plan: dict[str, Any],
+        *,
+        tone: bool,
+        result: object,
+        cycle: int | None = None,
     ) -> None:
         execution = cast(Any, result)
         path = self.paths.work_directory / (
-            "carrier-transmitter-execution.json" if tone else "frames-transmitter-execution.json"
+            f"carrier-cycle-{cycle}-transmitter-execution.json"
+            if tone and cycle is not None
+            else "carrier-transmitter-execution.json"
+            if tone
+            else "frames-transmitter-execution.json"
         )
         write_json_new(
             path,
@@ -584,6 +658,8 @@ class ProductionRealSessionAdapters:
         self._capture_tasks.append((worker, cancellation))
         worker.start()
         self._wait_capture_ready(plan, "rf_on", worker, errors)
+        if plan.get("session_kind") == "cw_live_tone":
+            return self._run_tone_pattern(plan, worker, cancellation, captured, errors)
         try:
             process = self._begin_transmitter(plan, True)
         except Exception as exc:
@@ -610,6 +686,72 @@ class ProductionRealSessionAdapters:
             self._owned.remove(process)
             if not worker.is_alive() and (worker, cancellation) in self._capture_tasks:
                 self._capture_tasks.remove((worker, cancellation))
+
+    def _run_tone_pattern(
+        self,
+        plan: dict[str, Any],
+        worker: threading.Thread,
+        cancellation: threading.Event,
+        captured: list[dict[str, object]],
+        errors: list[BaseException],
+    ) -> dict[str, object]:
+        schedule = plan["tone_schedule"]
+        epoch = time.monotonic()
+        interval = schedule["off_seconds"] + schedule["on_seconds"]
+        total_rf_on = 0.0
+        try:
+            for cycle in range(1, schedule["cycles"] + 1):
+                enable_at = epoch + schedule["off_seconds"] + ((cycle - 1) * interval)
+                disable_at = enable_at + schedule["on_seconds"]
+                self._sleep_until(enable_at)
+                if errors or not worker.is_alive():
+                    raise RealSessionError("tone-pattern capture ended before RF enable")
+                launch_started = time.monotonic()
+                process = self._begin_transmitter(plan, True, cycle=cycle)
+                try:
+                    self._sleep_until(disable_at)
+                    total_rf_on += max(0.0, time.monotonic() - launch_started)
+                finally:
+                    result = process.stop()
+                    self._retain_transmitter_result(
+                        plan, tone=True, result=result, cycle=cycle
+                    )
+                    if not _intentional_carrier_stop_verified(result):
+                        raise RealSessionError(
+                            "tone cycle did not satisfy the intentional owned-stop contract"
+                        )
+                    self._owned.remove(process)
+            closing_at = epoch + (schedule["cycles"] * interval) + schedule["off_seconds"]
+            self._sleep_until(closing_at, allow_capture_completion=True, worker=worker)
+            if total_rf_on > schedule["maximum_rf_on_seconds"] + 1e-9:
+                raise RealSessionError("tone pattern exceeded its cumulative RF-on bound")
+            worker.join(self._remaining(plan["deadlines"]["receiver_s"], reserve_cleanup=True))
+            if worker.is_alive() or errors or not captured:
+                cancellation.set()
+                raise RealSessionError("tone-pattern receiver did not complete its exact capture")
+            return captured[0]
+        finally:
+            if worker.is_alive():
+                cancellation.set()
+            if not worker.is_alive() and (worker, cancellation) in self._capture_tasks:
+                self._capture_tasks.remove((worker, cancellation))
+
+    def _sleep_until(
+        self,
+        deadline: float,
+        *,
+        allow_capture_completion: bool = False,
+        worker: threading.Thread | None = None,
+    ) -> None:
+        requested = deadline - time.monotonic()
+        if requested < 0:
+            raise RealSessionError("tone pattern could not meet its absolute cadence")
+        available = self._remaining(requested, reserve_cleanup=True)
+        if available + 1e-9 < requested:
+            raise RealSessionError("tone pattern would consume the cleanup deadline reserve")
+        time.sleep(requested)
+        if worker is not None and not worker.is_alive() and not allow_capture_completion:
+            raise RealSessionError("tone-pattern capture ended before a scheduled transition")
 
     def _capture_into(
         self,
@@ -674,12 +816,76 @@ class ProductionRealSessionAdapters:
         document = load_json_document(evidence, "carrier-analysis.schema.json")
         self._artifacts.append(evidence)
         metrics = document["metrics"]
+        gate_outcome = document["gate_outcome"]
+        mode_gate = "not_applicable"
+        if plan.get("session_kind") == "cw_live_tone":
+            native_metadata = load_json_document(on_metadata, "capture-metadata.schema.json")
+            acquired = self.paths.work_directory / "tone-acquired-capture.json"
+            observations = self.paths.work_directory / "tone-observations.json"
+            mode_gate_path = self.paths.work_directory / "tone-mode-gate.json"
+            contract = plan["cw_contract"]
+            write_json_new(
+                acquired,
+                {
+                    "schema_version": 1,
+                    "evidence_type": "cw_acquired_capture",
+                    "run_id": plan["run_id"],
+                    "mode": "tone",
+                    "plan": contract["plan"],
+                    "expected_events": contract["expected_events"],
+                    "capture": artifact(on),
+                    "format": "CF32LE",
+                    "sample_count": plan["carrier"]["rf_on_sample_count"],
+                    "sample_rate_hz": plan["receiver"]["sample_rate_hz"],
+                    "center_frequency_hz": plan["receiver"]["center_frequency_hz"],
+                    "acquired_sample_count": native_metadata["retained_sample_count"],
+                    "overflow_count": native_metadata["overflow_count"],
+                    "fixed_gain": True,
+                    "agc_enabled": plan["receiver"]["agc"],
+                    "bias_tee_enabled": plan["receiver"]["bias_tee"],
+                    "first_read_discarded": native_metadata["first_read"]["discarded"],
+                    "receiver": {
+                        "host": plan["receiver"]["host"],
+                        "driver": plan["receiver"]["driver"],
+                        "device_identity": plan["receiver"]["serial"],
+                    },
+                    "acquired_utc": native_metadata["timestamps"][
+                        "retained_capture_start_utc"
+                    ],
+                    "synthetic": False,
+                },
+                schema_name="cw-acquired-capture.schema.json",
+            )
+            _, generated_gate = analyze_synthetic_iq(
+                Path(contract["plan"]["path"]),
+                Path(contract["expected_events"]["path"]),
+                acquired,
+                observations,
+                mode_gate_path,
+                source_revision=contract["analyzer_source_revision"],
+                _metadata_schema="cw-acquired-capture.schema.json",
+                _synthetic=False,
+                _artifact_root=self.paths.work_directory,
+            )
+            mode_gate = generated_gate["mode_gate"]
+            self._artifacts.extend(
+                (
+                    Path(contract["plan"]["path"]),
+                    Path(contract["expected_events"]["path"]),
+                    acquired,
+                    observations,
+                    mode_gate_path,
+                )
+            )
+            if gate_outcome == "passed" and mode_gate != "passed":
+                gate_outcome = mode_gate
         return self._stage(
             plan,
             "carrier_analysis",
             "completed",
             {
-                "gate_outcome": document["gate_outcome"],
+                "gate_outcome": gate_outcome,
+                "mode_gate": mode_gate,
                 "requested_frequency_hz": plan["frequency_hz"],
                 "strongest_frequency_hz": metrics["strongest_transmitter_added_frequency_hz"],
                 "offset_hz": metrics["strongest_offset_hz"],
