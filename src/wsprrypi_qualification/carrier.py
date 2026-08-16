@@ -93,11 +93,6 @@ def analyze_carrier(
             raise OfflineAnalysisError("RF-off and RF-on receiver identities differ")
         if off_metadata.actual_settings != on_metadata.actual_settings:
             raise OfflineAnalysisError("RF-off and RF-on receiver settings differ")
-        if (
-            off_metadata.retained_sample_count != on_metadata.retained_sample_count
-            or off_metadata.requested_sample_count != on_metadata.requested_sample_count
-        ):
-            raise OfflineAnalysisError("RF-off and RF-on exact sample counts differ")
         if off_metadata.wire_format != on_metadata.wire_format:
             raise OfflineAnalysisError("RF-off and RF-on wire formats differ")
         if off_metadata.clipping_threshold != on_metadata.clipping_threshold:
@@ -180,6 +175,10 @@ def analyze_carrier(
             "fft_bin_hz": parameters.sample_rate_hz / parameters.fft_size,
             "rf_off_blocks": off_blocks,
             "rf_on_blocks": on_blocks,
+            "unequal_capture_policy": (
+                "validate each exact count independently; average all complete FFT blocks "
+                "per capture without truncation or repetition"
+            ),
             "capture_metadata_validation": metadata_validation,
             "profiles": profile_evidence,
             "resolved_threshold_interpretation": (

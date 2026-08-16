@@ -566,10 +566,7 @@ class ProductionRealSessionAdapters:
         for name in plan["services"]["transmitter"]:
             key = ("transmitter", name)
             if self._initial_services.get(key) is True and key not in self._changed_services:
-                self._changed_services.append(key)
-                self.tx_services.set_running(name, False)
-                if self.tx_services.inspect(name).running:
-                    raise RealSessionError("transmitter service could not be stopped")
+                raise RealSessionError("transmitter service was not prepared before RF cadence")
         application = self._application(plan, tone=tone)
         plan_path = self.paths.work_directory / (
             f"carrier-cycle-{cycle}-application-plan.json"
@@ -592,6 +589,18 @@ class ProductionRealSessionAdapters:
         process = launcher.begin(application.arguments)
         self._owned.append(process)
         return process
+
+    def _prepare_transmitter_services(self, plan: dict[str, Any]) -> None:
+        if not self._cleanup_installed:
+            raise RealSessionError("transmitter preparation refused before cleanup registration")
+        for name in plan["services"]["transmitter"]:
+            key = ("transmitter", name)
+            if self._initial_services.get(key) is not True or key in self._changed_services:
+                continue
+            self._changed_services.append(key)
+            self.tx_services.set_running(name, False)
+            if self.tx_services.inspect(name).running:
+                raise RealSessionError("transmitter service could not be stopped")
 
     def _retain_transmitter_result(
         self,
@@ -647,6 +656,7 @@ class ProductionRealSessionAdapters:
         self, plan: dict[str, Any], authorization: RuntimeAuthorization
     ) -> dict[str, object]:
         del authorization
+        self._prepare_transmitter_services(plan)
         captured: list[dict[str, object]] = []
         errors: list[BaseException] = []
         cancellation = threading.Event()

@@ -57,8 +57,11 @@ AGC, bias tee, channel, and format before comparison. Direct API calls may omit
 metadata only for explicitly labeled synthetic fixtures; that evidence records
 the limitation and is not acceptable as acquired qualification evidence.
 
-RF-off and RF-on exact sample counts, helper/wire contracts, settings, and
-clipping thresholds must match; unequal trailing samples are never discarded.
+RF-off and RF-on requested and retained sample counts are validated exactly for
+each capture but may differ. The analyzer averages every complete FFT block in
+each capture independently; it never truncates the longer capture, repeats the
+shorter capture, or assigns fabricated equal statistical weight. Helper/wire
+contracts, settings, and clipping thresholds must still match.
 
 The default analysis uses non-overlapping 262,144-sample Hann-window blocks,
 averages power in the linear domain, and subtracts averaged RF-off power from

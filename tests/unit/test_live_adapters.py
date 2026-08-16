@@ -271,6 +271,44 @@ def test_tone_pattern_uses_absolute_deadlines_and_stops_every_cycle(
     assert adapter._owned == []
 
 
+def test_transmitter_service_preparation_precedes_tone_epoch(tmp_path: Path, monkeypatch) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._cleanup_installed = True
+    adapter._initial_services = {("transmitter", "wsprrypi.service"): True}
+    adapter._changed_services = []
+    adapter.tx_services = FakeServiceProvider(True)
+    clock = {"now": 100.0}
+
+    def set_running(name: str, running: bool) -> None:
+        assert name == "wsprrypi.service"
+        clock["now"] += 1.75
+        adapter.tx_services.running = running
+
+    monkeypatch.setattr(adapter.tx_services, "set_running", set_running)
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: clock["now"])
+    plan = tone_plan_document()
+    plan["services"]["transmitter"] = ["wsprrypi.service"]
+
+    adapter._prepare_transmitter_services(plan)
+    epoch = time.monotonic()
+
+    assert epoch == 101.75
+    assert adapter._changed_services == [("transmitter", "wsprrypi.service")]
+    assert adapter.tx_services.running is False
+
+
+def test_scheduled_transmitter_launch_refuses_unprepared_service(tmp_path: Path) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._cleanup_installed = True
+    adapter._initial_services = {("transmitter", "wsprrypi.service"): True}
+    adapter._changed_services = []
+    plan = tone_plan_document()
+    plan["services"]["transmitter"] = ["wsprrypi.service"]
+
+    with pytest.raises(RealSessionError, match="not prepared before RF cadence"):
+        adapter._begin_transmitter(plan, True, cycle=1)
+
+
 def test_tone_pattern_refuses_late_transition_before_enabling_rf(
     tmp_path: Path, monkeypatch
 ) -> None:

@@ -145,7 +145,7 @@ def test_capture_metadata_pair_must_match_artifacts_and_settings(tmp_path: Path)
         )
 
 
-def test_carrier_rejects_unequal_exact_counts(tmp_path: Path) -> None:
+def test_carrier_averages_unequal_exact_counts_independently(tmp_path: Path) -> None:
     from tests.unit.test_capture_metadata import capture_document
 
     off = write_cf32(tmp_path / "off.cf32", np.zeros(1024))
@@ -164,12 +164,14 @@ def test_carrier_rejects_unequal_exact_counts(tmp_path: Path) -> None:
         path.write_text(json.dumps(document), encoding="utf-8")
         return path
 
-    with pytest.raises(OfflineAnalysisError, match="sample counts differ"):
-        analyze_carrier(
-            off,
-            on,
-            CarrierParameters(4096, 10_000, 10_500, fft_size=1024, dc_exclusion_hz=100),
-            tmp_path / "result.json",
-            rf_off_metadata_path=metadata(tmp_path / "off.json", off, 1024),
-            rf_on_metadata_path=metadata(tmp_path / "on.json", on, 2048),
-        )
+    result = analyze_carrier(
+        off,
+        on,
+        CarrierParameters(4096, 10_000, 10_500, fft_size=1024, dc_exclusion_hz=100),
+        tmp_path / "result.json",
+        rf_off_metadata_path=metadata(tmp_path / "off.json", off, 1024),
+        rf_on_metadata_path=metadata(tmp_path / "on.json", on, 2048),
+    )
+    assert result["contract"]["rf_off_blocks"] == 1
+    assert result["contract"]["rf_on_blocks"] == 2
+    assert "without truncation or repetition" in result["contract"]["unequal_capture_policy"]
