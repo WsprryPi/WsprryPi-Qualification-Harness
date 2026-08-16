@@ -36,3 +36,17 @@ the mode gate, verifies the canonical manifest, and recomputes the acquired-IQ
 observations. Every replay result is `inconclusive` with
 `qualification_claim: false` and explicitly absent lifecycle evidence. Phase 5
 mock bounded lifecycle work is the next separately reviewed phase.
+
+## Retained wspr5 intake lesson
+
+The 2026-08-16 retained `wspr5` keyed-mode files were evaluated as possible
+Phase 4 inputs. They contain one repetition per independently acquired file,
+whereas the current resolved-plan contract requires at least three repetitions
+described by one regenerated timeline and bound to one capture. The QRSS file
+also lacks structured acquisition UTC metadata. The composer correctly cannot
+represent those facts by pretending that separate files form one coherent
+capture or by inventing metadata.
+
+See [wspr5-retained-evidence-intake.md](wspr5-retained-evidence-intake.md) for
+the authenticated inventory, exact blockers, promoted drift-aware analysis,
+and deferred WSPR regression input.

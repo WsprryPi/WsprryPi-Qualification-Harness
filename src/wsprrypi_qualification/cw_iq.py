@@ -19,7 +19,7 @@ from wsprrypi_qualification.offline import (
 )
 
 ANALYZER_NAME = "wsprrypi-qualification-cw-iq"
-ANALYZER_VERSION = "1"
+ANALYZER_VERSION = "2"
 
 
 class CwIqError(OfflineAnalysisError):
@@ -97,6 +97,91 @@ def _estimate_frequency(values: np.ndarray, rate: float, center: float) -> float
     products = values[1:] * np.conjugate(values[:-1])
     phase = float(np.angle(np.sum(products, dtype=np.complex128)))
     return center + phase * rate / (2.0 * math.pi)
+
+
+def _shifted_frequency_model(
+    plan: dict[str, Any],
+    expected: dict[str, Any],
+    measured: list[dict[str, Any]],
+) -> tuple[dict[str, float | int] | None, list[str]]:
+    """Separate common linear drift from the commanded shifted-CW state."""
+    if plan["mode"] not in {"fskcw", "dfcw"}:
+        return None, []
+    rows: list[tuple[float, float, float]] = []
+    for event, observation in zip(expected["events"], measured, strict=True):
+        frequency = observation["measured_frequency_hz"]
+        start = observation["measured_start_s"]
+        end = observation["measured_end_s"]
+        if event["rf_state"] not in {"primary", "secondary"} or any(
+            value is None for value in (frequency, start, end)
+        ):
+            continue
+        rows.append(
+            (
+                (float(start) + float(end)) / 2.0,
+                1.0 if event["rf_state"] == "secondary" else 0.0,
+                float(frequency),
+            )
+        )
+    if len(rows) < 3 or {row[1] for row in rows} != {0.0, 1.0}:
+        return None, ["unresolvable_frequency_model", "wrong_frequency"]
+    reference_s = sum(row[0] for row in rows) / len(rows)
+    design = np.asarray([[1.0, time - reference_s, state] for time, state, _ in rows])
+    frequencies = np.asarray([frequency for _, _, frequency in rows])
+    coefficients, _, rank, singular = np.linalg.lstsq(design, frequencies, rcond=None)
+    if (
+        rank != 3
+        or singular.size != 3
+        or not np.all(np.isfinite(coefficients))
+        or singular[-1] <= 0
+        or singular[0] / singular[-1] > 1e8
+    ):
+        return None, ["unresolvable_frequency_model", "wrong_frequency"]
+    primary, drift, signed_spacing = (float(value) for value in coefficients)
+    predicted = design @ coefficients
+    maximum_residual = float(np.max(np.abs(frequencies - predicted)))
+    times = np.asarray([row[0] for row in rows])
+    maximum_drift_excursion = float(np.max(np.abs(drift * (times - reference_s))))
+    protocol = plan["protocol"]
+    expected_primary = float(protocol["primary_frequency_hz"])
+    expected_secondary = float(protocol["secondary_frequency_hz"])
+    expected_signed_spacing = expected_secondary - expected_primary
+    thresholds = plan["thresholds"]
+    frequency_tolerance = float(thresholds["frequency_tolerance_hz"])
+    spacing_tolerance = float(thresholds["spacing_tolerance_hz"])
+    causes: list[str] = []
+    if abs(primary - expected_primary) > frequency_tolerance:
+        causes.append("wrong_frequency")
+    if abs(signed_spacing - expected_signed_spacing) > spacing_tolerance:
+        causes.append("tone_spacing")
+    if maximum_residual > frequency_tolerance:
+        causes.append("frequency_model_residual")
+    if maximum_drift_excursion > frequency_tolerance:
+        causes.append("frequency_drift")
+    transition_count = 0
+    correct_transition_count = 0
+    previous: tuple[float, float, float] | None = None
+    for row in rows:
+        if previous is not None and row[1] != previous[1]:
+            transition_count += 1
+            corrected_jump = (row[2] - previous[2]) - drift * (row[0] - previous[0])
+            expected_direction = row[1] - previous[1]
+            if corrected_jump * expected_direction * expected_signed_spacing > 0:
+                correct_transition_count += 1
+        previous = row
+    if transition_count == 0 or correct_transition_count != transition_count:
+        causes.append("transition_direction")
+    return {
+        "reference_s": reference_s,
+        "primary_frequency_hz": primary,
+        "secondary_frequency_hz": primary + signed_spacing,
+        "signed_spacing_hz": signed_spacing,
+        "drift_hz_per_s": drift,
+        "maximum_drift_excursion_hz": maximum_drift_excursion,
+        "maximum_residual_hz": maximum_residual,
+        "transition_count": transition_count,
+        "correct_transition_count": correct_transition_count,
+    }, sorted(set(causes))
 
 
 def analyze_synthetic_iq(
@@ -261,9 +346,9 @@ def analyze_synthetic_iq(
             )
             if not continuous:
                 causes.append("missing_carrier")
-            if abs(frequency - float(event["frequency_hz"])) > float(
-                thresholds["frequency_tolerance_hz"]
-            ):
+            if plan["mode"] not in {"fskcw", "dfcw"} and abs(
+                frequency - float(event["frequency_hz"])
+            ) > float(thresholds["frequency_tolerance_hz"]):
                 causes.append("wrong_frequency")
             expected_off = detected_states[expected_start:expected_end] == 0
             longest_off = 0
@@ -310,8 +395,10 @@ def analyze_synthetic_iq(
                 if not continuous:
                     outcome = "failed"
                     causes.append("missing_carrier")
-                elif frequency is None or abs(frequency - float(event["frequency_hz"])) > float(
-                    thresholds["frequency_tolerance_hz"]
+                elif frequency is None or (
+                    plan["mode"] not in {"fskcw", "dfcw"}
+                    and abs(frequency - float(event["frequency_hz"]))
+                    > float(thresholds["frequency_tolerance_hz"])
                 ):
                     outcome = "failed"
                     causes.append("wrong_frequency")
@@ -358,6 +445,12 @@ def analyze_synthetic_iq(
             measured[position]["outcome"] = "failed"
             measured[position + 1]["outcome"] = "failed"
             causes.append("carrier_interruption")
+    shifted_model, shifted_causes = _shifted_frequency_model(plan, expected, measured)
+    if not blocked and shifted_causes:
+        causes.extend(shifted_causes)
+        for event, observation in zip(expected["events"], measured, strict=True):
+            if event["rf_state"] in {"primary", "secondary"}:
+                observation["outcome"] = "failed"
     outcomes = {item["outcome"] for item in measured}
     analysis_outcome = "passed"
     for candidate in ("failed", "blocked", "inconclusive"):
@@ -417,6 +510,7 @@ def analyze_synthetic_iq(
             "reconstructed_repetitions": [
                 messages[repetition] for repetition in range(len(messages))
             ],
+            "shifted_frequency_model": shifted_model,
             "qualification_claim": False,
         },
         "analysis_outcome": analysis_outcome,

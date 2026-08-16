@@ -8,7 +8,12 @@ import pytest
 import wsprrypi_qualification.cw_replay as cw_replay_module
 from wsprrypi_qualification.cli import main
 from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contract_chain
-from wsprrypi_qualification.cw_iq import CwIqError, analyze_synthetic_iq, generate_synthetic_iq
+from wsprrypi_qualification.cw_iq import (
+    CwIqError,
+    _shifted_frequency_model,
+    analyze_synthetic_iq,
+    generate_synthetic_iq,
+)
 from wsprrypi_qualification.cw_lifecycle import (
     INJECTIONS,
     CwLifecycleError,
@@ -606,6 +611,142 @@ def test_phase3_conjugate_image_is_detected_from_iq(tmp_path: Path) -> None:
     )
     assert measured["analysis_outcome"] == "failed"
     assert "wrong_frequency" in measured["failure_causes"]
+
+
+def _shifted_model_inputs(
+    tmp_path: Path, *, spacing_hz: float = -10.0, drift_hz_per_s: float = 0.005
+) -> tuple[dict, dict, list[dict]]:
+    plan_path, expected_path, *_ = _chain(tmp_path, "fskcw")
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    expected = json.loads(expected_path.read_text(encoding="utf-8"))
+    active_midpoints = [
+        (float(event["start_s"]) + float(event["end_s"])) / 2
+        for event in expected["events"]
+        if event["rf_state"] != "off"
+    ]
+    reference = sum(active_midpoints) / len(active_midpoints)
+    measured = []
+    for event in expected["events"]:
+        start = float(event["start_s"])
+        end = float(event["end_s"])
+        state = event["rf_state"]
+        frequency = None
+        if state != "off":
+            midpoint = (start + end) / 2
+            frequency = 137500.0 + drift_hz_per_s * (midpoint - reference)
+            if state == "secondary":
+                frequency += spacing_hz
+        measured.append(
+            {
+                "measured_start_s": start,
+                "measured_end_s": end,
+                "measured_frequency_hz": frequency,
+            }
+        )
+    return plan, expected, measured
+
+
+def test_shifted_frequency_model_separates_bounded_common_drift(tmp_path: Path) -> None:
+    plan, expected, measured = _shifted_model_inputs(tmp_path)
+    model, causes = _shifted_frequency_model(plan, expected, measured)
+    assert causes == []
+    assert model is not None
+    assert model["signed_spacing_hz"] == pytest.approx(-10.0)
+    assert model["drift_hz_per_s"] == pytest.approx(0.005)
+    assert model["correct_transition_count"] == model["transition_count"]
+
+
+def test_phase3_shifted_iq_with_bounded_common_drift_passes(tmp_path: Path) -> None:
+    plan, expected, *_ = _chain(tmp_path, "fskcw")
+    capture = tmp_path / "synthetic.cf32"
+    metadata = tmp_path / "synthetic.json"
+    generate_synthetic_iq(plan, expected, capture, metadata, seed=41)
+    samples = np.fromfile(capture, dtype="<c8")
+    rate = 100.0
+    times = np.arange(samples.size, dtype=np.float64) / rate
+    reference = times[-1] / 2.0
+    drift_rate = 0.001
+    samples *= np.exp(1j * np.pi * drift_rate * (times - reference) ** 2).astype(np.complex64)
+    samples.astype("<c8").tofile(capture)
+    metadata_document = json.loads(metadata.read_text(encoding="utf-8"))
+    metadata_document["capture"] = _artifact(capture)
+    _write(metadata, metadata_document)
+    observations, gate = analyze_synthetic_iq(
+        plan,
+        expected,
+        metadata,
+        tmp_path / "drift-observations.json",
+        tmp_path / "drift-gate.json",
+        source_revision="d" * 40,
+    )
+    assert observations["analysis_outcome"] == "passed"
+    model = observations["measurement_summary"]["shifted_frequency_model"]
+    assert model is not None
+    assert model["drift_hz_per_s"] == pytest.approx(drift_rate, abs=0.0002)
+    assert gate["mode_gate"] == "passed"
+
+
+@pytest.mark.parametrize(
+    ("spacing_hz", "drift_hz_per_s", "expected_cause"),
+    [(-7.5, 0.0, "tone_spacing"), (10.0, 0.0, "tone_spacing"), (-10.0, 0.05, "frequency_drift")],
+)
+def test_shifted_frequency_model_rejects_wrong_state_spacing_or_excessive_drift(
+    tmp_path: Path, spacing_hz: float, drift_hz_per_s: float, expected_cause: str
+) -> None:
+    plan, expected, measured = _shifted_model_inputs(
+        tmp_path, spacing_hz=spacing_hz, drift_hz_per_s=drift_hz_per_s
+    )
+    _, causes = _shifted_frequency_model(plan, expected, measured)
+    assert expected_cause in causes
+    if spacing_hz > 0:
+        assert "transition_direction" in causes
+
+
+def test_shifted_frequency_model_fails_closed_without_both_states(tmp_path: Path) -> None:
+    plan, expected, measured = _shifted_model_inputs(tmp_path)
+    for event, observation in zip(expected["events"], measured, strict=True):
+        if event["rf_state"] == "secondary":
+            observation["measured_frequency_hz"] = None
+    model, causes = _shifted_frequency_model(plan, expected, measured)
+    assert model is None
+    assert causes == ["unresolvable_frequency_model", "wrong_frequency"]
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "message"),
+    [
+        ("reference_s", 0.0, "reference contradicts"),
+        ("secondary_frequency_hz", 140000.0, "frequencies contradict"),
+        ("maximum_drift_excursion_hz", 0.5, "drift contradicts"),
+        ("maximum_residual_hz", 0.5, "residual contradicts"),
+        ("correct_transition_count", 100000, "transition counts contradict"),
+    ],
+)
+def test_phase1_rejects_tampered_shifted_frequency_summary(
+    tmp_path: Path, field: str, replacement: float | int, message: str
+) -> None:
+    paths = _chain(tmp_path, "fskcw")
+    plan, expected, observations, gate, _ = paths
+    capture = tmp_path / "tamper-source.cf32"
+    metadata = tmp_path / "tamper-source.json"
+    generate_synthetic_iq(plan, expected, capture, metadata, seed=43)
+    observations.unlink()
+    gate.unlink()
+    analyze_synthetic_iq(
+        plan,
+        expected,
+        metadata,
+        observations,
+        gate,
+        source_revision="d" * 40,
+    )
+    _refresh_chain(paths)
+    document = json.loads(observations.read_text(encoding="utf-8"))
+    document["measurement_summary"]["shifted_frequency_model"][field] = replacement
+    _write(observations, document)
+    _refresh_chain(paths)
+    with pytest.raises(CwContractError, match=message):
+        load_cw_contract_chain(*paths)
 
 
 def test_phase3_interrupted_required_carrier_is_detected(tmp_path: Path) -> None:

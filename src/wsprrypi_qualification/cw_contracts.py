@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -227,6 +228,105 @@ def _validate_observations(
         _fail("analysis outcome contradicts generated event observations")
     if (derived == "passed") == bool(observations["failure_causes"]):
         _fail("analysis failure causes contradict the analysis outcome")
+    shifted_model = observations.get("measurement_summary", {}).get("shifted_frequency_model")
+    if plan["mode"] not in {"fskcw", "dfcw"}:
+        if shifted_model is not None:
+            _fail("unshifted modes cannot contain a shifted-frequency model")
+    elif shifted_model is None:
+        if derived == "passed":
+            _fail("passing shifted-CW observations require a frequency model")
+    else:
+        active_rows = []
+        for event, item in zip(expected["events"], measured, strict=True):
+            if event["rf_state"] not in {"primary", "secondary"}:
+                continue
+            if any(
+                item[field] is None
+                for field in ("measured_start_s", "measured_end_s", "measured_frequency_hz")
+            ):
+                continue
+            active_rows.append(
+                (
+                    (float(item["measured_start_s"]) + float(item["measured_end_s"])) / 2.0,
+                    1.0 if event["rf_state"] == "secondary" else 0.0,
+                    float(item["measured_frequency_hz"]),
+                )
+            )
+        if not active_rows:
+            _fail("shifted-frequency model requires measured active events")
+        reference_s = sum(row[0] for row in active_rows) / len(active_rows)
+        primary_hz = float(shifted_model["primary_frequency_hz"])
+        spacing_hz = float(shifted_model["signed_spacing_hz"])
+        drift_hz_per_s = float(shifted_model["drift_hz_per_s"])
+        expected_excursion = max(
+            abs(drift_hz_per_s * (time_s - reference_s)) for time_s, _, _ in active_rows
+        )
+        expected_residual = max(
+            abs(
+                frequency_hz
+                - (primary_hz + drift_hz_per_s * (time_s - reference_s) + state * spacing_hz)
+            )
+            for time_s, state, frequency_hz in active_rows
+        )
+        expected_transition_count = 0
+        expected_correct_transition_count = 0
+        previous_row: tuple[float, float, float] | None = None
+        for row in active_rows:
+            if previous_row is not None and row[1] != previous_row[1]:
+                expected_transition_count += 1
+                corrected_jump = (row[2] - previous_row[2]) - drift_hz_per_s * (
+                    row[0] - previous_row[0]
+                )
+                expected_direction = row[1] - previous_row[1]
+                if corrected_jump * expected_direction * spacing_hz > 0:
+                    expected_correct_transition_count += 1
+            previous_row = row
+        if not math.isclose(float(shifted_model["reference_s"]), reference_s, abs_tol=1e-9):
+            _fail("shifted-frequency model reference contradicts measured events")
+        if not math.isclose(
+            float(shifted_model["secondary_frequency_hz"]),
+            primary_hz + spacing_hz,
+            abs_tol=1e-9,
+        ):
+            _fail("shifted-frequency model frequencies contradict signed spacing")
+        if not math.isclose(
+            float(shifted_model["maximum_drift_excursion_hz"]),
+            expected_excursion,
+            abs_tol=1e-9,
+        ):
+            _fail("shifted-frequency model drift contradicts measured events")
+        if not math.isclose(
+            float(shifted_model["maximum_residual_hz"]), expected_residual, abs_tol=1e-9
+        ):
+            _fail("shifted-frequency model residual contradicts measured events")
+        if (
+            shifted_model["transition_count"] != expected_transition_count
+            or shifted_model["correct_transition_count"] != expected_correct_transition_count
+        ):
+            _fail("shifted-frequency model transition counts contradict measured events")
+    if plan["mode"] in {"fskcw", "dfcw"} and derived == "passed":
+        assert shifted_model is not None
+        expected_spacing = float(plan["protocol"]["secondary_frequency_hz"]) - float(
+            plan["protocol"]["primary_frequency_hz"]
+        )
+        if abs(float(shifted_model["signed_spacing_hz"]) - expected_spacing) > float(
+            thresholds["spacing_tolerance_hz"]
+        ):
+            _fail("passing shifted-CW observations contradict planned tone spacing")
+        if abs(
+            float(shifted_model["primary_frequency_hz"])
+            - float(plan["protocol"]["primary_frequency_hz"])
+        ) > float(thresholds["frequency_tolerance_hz"]):
+            _fail("passing shifted-CW observations contradict planned frequency")
+        if max(
+            float(shifted_model["maximum_drift_excursion_hz"]),
+            float(shifted_model["maximum_residual_hz"]),
+        ) > float(thresholds["frequency_tolerance_hz"]):
+            _fail("passing shifted-CW observations exceed the frequency tolerance")
+        if shifted_model["transition_count"] <= 0 or (
+            shifted_model["correct_transition_count"] != shifted_model["transition_count"]
+        ):
+            _fail("passing shifted-CW observations contradict transition direction")
 
 
 def _validate_gate(mode: str, observations: dict[str, Any], gate: dict[str, Any]) -> None:
