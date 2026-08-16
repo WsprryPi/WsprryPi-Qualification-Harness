@@ -534,9 +534,10 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         rf_on_seconds = schedule["cycles"] * schedule["on_seconds"]
         if abs(rf_on_seconds - schedule["maximum_rf_on_seconds"]) > 1e-9:
             raise RealSessionError("tone schedule exceeds its resolved RF-on bound")
-        capture_seconds = schedule["cycles"] * (
-            schedule["off_seconds"] + schedule["on_seconds"]
-        ) + schedule["off_seconds"]
+        capture_seconds = (
+            schedule["cycles"] * (schedule["off_seconds"] + schedule["on_seconds"])
+            + schedule["off_seconds"]
+        )
         expected_samples = round(capture_seconds * document["receiver"]["sample_rate_hz"])
         if document["carrier"]["rf_on_sample_count"] != expected_samples:
             raise RealSessionError("tone-pattern capture count differs from its exact schedule")

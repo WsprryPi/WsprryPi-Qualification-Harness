@@ -351,9 +351,7 @@ class FakeAdapters:
                 "offset_hz": offset,
                 "best_20hz_fraction": 0.9 if self.carrier != "failed" else 0.4,
                 "mode_gate": (
-                    self.carrier
-                    if plan.get("session_kind") == "cw_live_tone"
-                    else "not_applicable"
+                    self.carrier if plan.get("session_kind") == "cw_live_tone" else "not_applicable"
                 ),
             },
             deadline_s=plan["deadlines"]["overall_s"],
@@ -487,9 +485,7 @@ def test_carrier_only_phase7_never_advances_to_wspr_frames(tmp_path: Path):
     plan = ResolvedRealSessionPlan(tone_plan_document())
     adapters = FakeAdapters()
     external, rf = authorizations(plan)
-    document = RealQualificationSession(plan, adapters, now=NOW).run(
-        external, rf, tmp_path
-    )
+    document = RealQualificationSession(plan, adapters, now=NOW).run(external, rf, tmp_path)
     assert document["final_status"] == "inconclusive"
     assert document["carrier_gate"] == "passed"
     assert document["decode_gate"] == "not_run"

@@ -713,9 +713,7 @@ class ProductionRealSessionAdapters:
                     total_rf_on += max(0.0, time.monotonic() - launch_started)
                 finally:
                     result = process.stop()
-                    self._retain_transmitter_result(
-                        plan, tone=True, result=result, cycle=cycle
-                    )
+                    self._retain_transmitter_result(plan, tone=True, result=result, cycle=cycle)
                     if not _intentional_carrier_stop_verified(result):
                         raise RealSessionError(
                             "tone cycle did not satisfy the intentional owned-stop contract"
@@ -849,9 +847,7 @@ class ProductionRealSessionAdapters:
                         "driver": plan["receiver"]["driver"],
                         "device_identity": plan["receiver"]["serial"],
                     },
-                    "acquired_utc": native_metadata["timestamps"][
-                        "retained_capture_start_utc"
-                    ],
+                    "acquired_utc": native_metadata["timestamps"]["retained_capture_start_utc"],
                     "synthetic": False,
                 },
                 schema_name="cw-acquired-capture.schema.json",

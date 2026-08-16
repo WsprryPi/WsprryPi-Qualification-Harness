@@ -227,6 +227,7 @@ def test_tone_pattern_uses_absolute_deadlines_and_stops_every_cycle(
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.sleep", sleep)
     monkeypatch.setattr(adapter, "_begin_transmitter", begin)
     monkeypatch.setattr(adapter, "_retain_transmitter_result", lambda *args, **kwargs: None)
+
     class Worker:
         running = True
 

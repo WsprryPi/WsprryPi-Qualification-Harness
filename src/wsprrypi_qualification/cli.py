@@ -263,9 +263,10 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
-    if (
-        LIVE_COMMANDS.intersection(arguments) or "--enable-rf" in arguments
-    ) and not {"run-live-session", "run-cw-live-tone"}.intersection(arguments):
+    if (LIVE_COMMANDS.intersection(arguments) or "--enable-rf" in arguments) and not {
+        "run-live-session",
+        "run-cw-live-tone",
+    }.intersection(arguments):
         print("live RF and hardware actions are unavailable in the portable CLI", file=sys.stderr)
         return 2
     args = _parser().parse_args(arguments)
@@ -553,9 +554,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "cw_live_tone" if args.command == "run-cw-live-tone" else "wspr_qualification"
             )
             if session_kind != expected_kind:
-                raise RealSessionError(
-                    f"{args.command} requires session_kind {expected_kind}"
-                )
+                raise RealSessionError(f"{args.command} requires session_kind {expected_kind}")
             print(json.dumps(resolved, indent=2, sort_keys=True))
             response = input(
                 f"Type the resolved plan SHA-256 {plan.sha256} to authorize this run: "
