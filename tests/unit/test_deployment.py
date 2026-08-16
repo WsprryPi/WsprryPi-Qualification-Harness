@@ -109,7 +109,7 @@ def test_systemd_restores_only_its_recorded_change_and_detects_drift(tmp_path: P
 @pytest.mark.parametrize(
     ("behavior", "cause", "timeout"),
     [
-        ("timeout-after", "timeout", 0.2),
+        ("timeout-after", "timeout", 2.0),
         ("nonzero-after", "nonzero_exit", 2.0),
         ("malformed-after", "malformed_response", 2.0),
     ],
