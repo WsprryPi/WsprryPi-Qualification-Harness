@@ -47,6 +47,20 @@ module, process, and service observations. The outcome remained `blocked`:
 
 No state was corrected during preflight. Phase 7 remains unauthorized.
 
+## Actual-host prerequisite refresh on 2026-08-16
+
+A new digest-bound read-only bundle at harness revision `9961be0` validated the
+current host identities, synchronized clocks, required groups and tools, clean
+repositories, and exact WsprryPi revisions `0bb9600` on `wspr4` and `c83c19b`
+on `wspr5`. The immutable bundle and machine-local plan remain in
+`/private/tmp`; they are not portable fixtures and are not committed.
+
+The result remains `blocked`. Current Gate D `executionReady: true` evidence is
+not available, current physical RF-path facts are not declared, `wsprrypi` is
+active on `wspr4`, and `SoapySDRServer` is active on `wspr5`. The bundle's
+manifest and semantic validator pass, `next_phase_authorized` is false, and no
+host state was changed. Phase 7 remains unauthorized.
+
 ## Invocation
 
 ```text
