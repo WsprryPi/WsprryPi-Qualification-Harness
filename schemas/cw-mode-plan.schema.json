@@ -320,8 +320,14 @@
               "secondary_frequency_hz": {
                 "const": null
               },
-              "pre_quiet_seconds": {"const": null},
-              "post_quiet_seconds": {"const": null},
+              "pre_quiet_seconds": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "post_quiet_seconds": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
               "intra_element_gap_units": {"const": null},
               "inter_character_gap_units": {"const": null},
               "inter_word_gap_units": {"const": null},

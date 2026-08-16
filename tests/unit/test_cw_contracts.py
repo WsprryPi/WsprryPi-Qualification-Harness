@@ -112,8 +112,8 @@ def _chain(tmp_path: Path, mode: str) -> tuple[Path, Path, Path, Path, Path]:
             "repetitions": None if tone else 3,
             "primary_frequency_hz": 137500.0,
             "secondary_frequency_hz": 137490.0 if shifted else None,
-            "pre_quiet_seconds": None if tone else 1.0,
-            "post_quiet_seconds": None if tone else 1.0,
+            "pre_quiet_seconds": 1.0,
+            "post_quiet_seconds": 1.0,
             "intra_element_gap_units": None if tone else 0.333333 if mode == "dfcw" else 1.0,
             "inter_character_gap_units": None if tone else 1.0 if mode == "dfcw" else 3.0,
             "inter_word_gap_units": None if tone else 3.0 if mode == "dfcw" else 7.0,
@@ -950,6 +950,16 @@ def test_post_selected_plan_threshold_breaks_hash_chain(tmp_path: Path) -> None:
     plan["thresholds"]["timing_tolerance_s"] = 99.0
     _write(paths[0], plan)
     with pytest.raises(CwContractError, match=r"size|SHA-256"):
+        load_cw_contract_chain(*paths)
+
+
+def test_tone_requires_explicit_leading_and_closing_quiet(tmp_path: Path) -> None:
+    paths = _chain(tmp_path, "tone")
+    plan = json.loads(paths[0].read_text(encoding="utf-8"))
+    plan["protocol"]["pre_quiet_seconds"] = None
+    plan["protocol"]["post_quiet_seconds"] = None
+    _write(paths[0], plan)
+    with pytest.raises(Exception, match=r"pre_quiet_seconds|post_quiet_seconds"):
         load_cw_contract_chain(*paths)
 
 
