@@ -184,3 +184,14 @@ temporary. No unresolved material finding remains before full validation.
 - Candidate-file inspection found no generated inventory, raw capture, local
   archive, run directory, distribution artifact, or file larger than 10 MiB in
   the tracked change set. Cross-platform CI remains the post-push gate.
+
+### Assessment 3 - cross-platform CI
+
+The first pushed run exposed a pre-existing timing race in the deployment
+failure-injection test on macOS/Python 3.13: the shared 0.2-second timeout could
+expire during interpreter startup before the immediate nonzero-exit behavior
+ran, misclassifying it as a timeout. Closure: only the intentional sleep case
+uses the 0.2-second deadline; immediate nonzero and malformed-response cases
+use a bounded 2-second deadline. Production behavior and safety policy are
+unchanged. The focused test is repeated under load before republishing, and a
+new full matrix is required at the repaired revision.

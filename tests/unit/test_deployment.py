@@ -107,15 +107,17 @@ def test_systemd_restores_only_its_recorded_change_and_detects_drift(tmp_path: P
 
 
 @pytest.mark.parametrize(
-    ("behavior", "cause"),
+    ("behavior", "cause", "timeout"),
     [
-        ("timeout-after", "timeout"),
-        ("nonzero-after", "nonzero_exit"),
-        ("malformed-after", "malformed_response"),
+        ("timeout-after", "timeout", 0.2),
+        ("nonzero-after", "nonzero_exit", 2.0),
+        ("malformed-after", "malformed_response", 2.0),
     ],
 )
-def test_uncertain_systemd_mutation_remains_restorable(tmp_path: Path, behavior: str, cause: str):
-    provider = command(tmp_path / behavior, "systemd", timeout=0.2)
+def test_uncertain_systemd_mutation_remains_restorable(
+    tmp_path: Path, behavior: str, cause: str, timeout: float
+):
+    provider = command(tmp_path / behavior, "systemd", timeout=timeout)
     script = Path(provider.prefix_arguments[0])
     script.with_suffix(".behavior").write_text(behavior, encoding="utf-8")
     transaction = SystemdRestoration(provider, "wsprrypi.service", frozenset({"wsprrypi.service"}))
