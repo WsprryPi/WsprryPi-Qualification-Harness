@@ -83,6 +83,12 @@ def _intentional_carrier_stop_verified(result: object) -> bool:
     )
 
 
+def _owned_process_released(result: object) -> bool:
+    """Return whether the helper proved that it no longer owns the process."""
+    execution = cast(Any, result)
+    return bool(execution.stop_requested and execution.cleanup_verified)
+
+
 @dataclass(frozen=True)
 class LiveAdapterPaths:
     work_directory: Path
@@ -679,11 +685,12 @@ class ProductionRealSessionAdapters:
         finally:
             result = process.stop()
             self._retain_transmitter_result(plan, tone=True, result=result)
+            if _owned_process_released(result):
+                self._owned.remove(process)
             if not _intentional_carrier_stop_verified(result):
                 raise RealSessionError(
                     "carrier transmitter did not satisfy the intentional owned-stop contract"
                 )
-            self._owned.remove(process)
             if not worker.is_alive() and (worker, cancellation) in self._capture_tasks:
                 self._capture_tasks.remove((worker, cancellation))
 
@@ -714,11 +721,12 @@ class ProductionRealSessionAdapters:
                 finally:
                     result = process.stop()
                     self._retain_transmitter_result(plan, tone=True, result=result, cycle=cycle)
+                    if _owned_process_released(result):
+                        self._owned.remove(process)
                     if not _intentional_carrier_stop_verified(result):
                         raise RealSessionError(
                             "tone cycle did not satisfy the intentional owned-stop contract"
                         )
-                    self._owned.remove(process)
             closing_at = epoch + (schedule["cycles"] * interval) + schedule["off_seconds"]
             self._sleep_until(closing_at, allow_capture_completion=True, worker=worker)
             if total_rf_on > schedule["maximum_rf_on_seconds"] + 1e-9:

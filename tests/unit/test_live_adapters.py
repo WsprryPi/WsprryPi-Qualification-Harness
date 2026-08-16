@@ -14,6 +14,7 @@ from wsprrypi_qualification.live_adapters import (
     ProductionRealSessionAdapters,
     _coherent_capture_launch_epoch,
     _intentional_carrier_stop_verified,
+    _owned_process_released,
     _retained_capture_has_margin,
 )
 from wsprrypi_qualification.offline import artifact
@@ -139,6 +140,27 @@ def test_intentional_carrier_stop_contract_is_fail_closed() -> None:
     ):
         values = good.__dict__ | changed
         assert not _intentional_carrier_stop_verified(LaunchResult(**values))
+
+
+def test_verified_early_exit_releases_owned_process_without_claiming_intentional_stop() -> None:
+    early_exit = LaunchResult(
+        1,
+        cancelled=True,
+        cleanup_verified=True,
+        stop_requested=True,
+        running_before_stop=False,
+    )
+    assert _owned_process_released(early_exit)
+    assert not _intentional_carrier_stop_verified(early_exit)
+    assert not _owned_process_released(
+        LaunchResult(
+            1,
+            cancelled=True,
+            cleanup_verified=False,
+            stop_requested=True,
+            running_before_stop=False,
+        )
+    )
 
 
 def test_coherent_capture_guard_and_retained_margin_are_distinct() -> None:

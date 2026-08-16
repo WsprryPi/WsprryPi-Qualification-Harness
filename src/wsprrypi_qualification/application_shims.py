@@ -149,13 +149,17 @@ class WsprryPiShim:
         if not math.isfinite(config.ppm) or not -200 <= config.ppm <= 200:
             raise ApplicationPlanError("backend PPM must be finite and within +/-200")
         if self.backend == "si5351":
+            drive_level = config.drive_or_power_level
             if None in (
                 config.i2c_bus,
                 config.i2c_address,
                 config.reference_frequency_hz,
-                config.drive_or_power_level,
+                drive_level,
             ):
                 raise ApplicationPlanError("complete Si5351 transient configuration is required")
+            assert drive_level is not None
+            if not 1 <= drive_level <= 4:
+                raise ApplicationPlanError("Si5351 power level must be within 1 through 4")
             return (
                 "--si5351-i2c-bus",
                 str(config.i2c_bus),
@@ -166,12 +170,14 @@ class WsprryPiShim:
                 "--si5351-tx-output",
                 config.output,
                 "--si5351-power-level",
-                str(config.drive_or_power_level),
+                str(drive_level),
                 "--si5351-ppm",
                 self._number(config.ppm) if config.ppm > 0 else str(config.ppm),
             )
         if config.gpio_pin is None or config.drive_or_power_level is None:
             raise ApplicationPlanError("complete GPIO transient configuration is required")
+        if not 0 <= config.drive_or_power_level <= 7:
+            raise ApplicationPlanError("GPIO power level must be within 0 through 7")
         return (
             "--transmit-gpio",
             str(config.gpio_pin),

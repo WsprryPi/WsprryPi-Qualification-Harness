@@ -12,8 +12,8 @@
     "backend_contract": {
       "oneOf": [
         {"type": "null"},
-        {"type":"object","additionalProperties":false,"required":["output","ppm","i2c_bus","i2c_address","reference_frequency_hz","drive_or_power_level"],"properties":{"output":{"type":"string","minLength":1},"ppm":{"type":"number","minimum":-200,"maximum":200},"i2c_bus":{"type":"integer","minimum":0},"i2c_address":{"type":"string","minLength":1},"reference_frequency_hz":{"type":"integer","minimum":1},"drive_or_power_level":{"type":"integer","minimum":1}}},
-        {"type":"object","additionalProperties":false,"required":["output","ppm","drive_or_power_level","gpio_pin"],"properties":{"output":{"type":"string","minLength":1},"ppm":{"type":"number","minimum":-200,"maximum":200},"drive_or_power_level":{"type":"integer","minimum":1},"gpio_pin":{"type":"integer","minimum":0}}}
+        {"type":"object","additionalProperties":false,"required":["output","ppm","i2c_bus","i2c_address","reference_frequency_hz","drive_or_power_level"],"properties":{"output":{"type":"string","minLength":1},"ppm":{"type":"number","minimum":-200,"maximum":200},"i2c_bus":{"type":"integer","minimum":0},"i2c_address":{"type":"string","minLength":1},"reference_frequency_hz":{"type":"integer","minimum":1},"drive_or_power_level":{"type":"integer","minimum":1,"maximum":4}}},
+        {"type":"object","additionalProperties":false,"required":["output","ppm","drive_or_power_level","gpio_pin"],"properties":{"output":{"type":"string","minLength":1},"ppm":{"type":"number","minimum":-200,"maximum":200},"drive_or_power_level":{"type":"integer","minimum":0,"maximum":7},"gpio_pin":{"type":"integer","minimum":0}}}
       ]
     },
     "protocol": {"enum":["wspr","qrss","fskcw","dfcw","tone"]},

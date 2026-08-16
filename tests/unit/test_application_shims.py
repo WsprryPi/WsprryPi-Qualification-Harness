@@ -61,8 +61,8 @@ def test_carrier_tone_plan_requires_external_supervisor() -> None:
         ),
         (
             "gpio",
-            WsprryPiBackendConfig("GPIO4", -1.25, drive_or_power_level=7, gpio_pin=4),
-            ("--transmit-gpio", "4", "--gpio-power-level", "7"),
+            WsprryPiBackendConfig("GPIO4", -1.25, drive_or_power_level=0, gpio_pin=4),
+            ("--transmit-gpio", "4", "--gpio-power-level", "0"),
         ),
     ),
 )
@@ -80,6 +80,28 @@ def test_resolved_backend_contract_authenticates_complete_arguments(
     changed["arguments"] = arguments
     with pytest.raises(ApplicationPlanError, match="backend contract"):
         validate_application_plan(changed)
+
+
+@pytest.mark.parametrize("level", (-1, 8))
+def test_gpio_power_level_is_bounded_by_application_contract(level: int) -> None:
+    with pytest.raises(ApplicationPlanError, match="0 through 7"):
+        WsprryPiShim(
+            identity(),
+            backend="gpio",
+            backend_config=WsprryPiBackendConfig(
+                "GPIO4", 0, drive_or_power_level=level, gpio_pin=4
+            ),
+        ).resolve_plan("gpio-level", ToneProtocol(14_097_100))
+
+
+@pytest.mark.parametrize("level", (0, 5))
+def test_si5351_power_level_is_bounded_by_application_contract(level: int) -> None:
+    with pytest.raises(ApplicationPlanError, match="1 through 4"):
+        WsprryPiShim(
+            identity(),
+            backend="si5351",
+            backend_config=WsprryPiBackendConfig("CLK0", 0, 1, "0x60", 27_000_000, level),
+        ).resolve_plan("si5351-level", ToneProtocol(14_097_100))
 
 
 @pytest.mark.parametrize(
