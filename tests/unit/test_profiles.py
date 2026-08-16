@@ -205,6 +205,22 @@ def test_required_decodes_must_fit_frame_count(tmp_path: Path) -> None:
         load_test_profile(write_json(tmp_path / "frame count.json", document))
 
 
+def test_tone_profile_records_zero_wspr_frames(tmp_path: Path) -> None:
+    document = load_example("test-si5351-160m.json")
+    document["mode"] = "TONE"
+    document["frame_count"] = 0
+    document["gates"]["required_consecutive_decodes"] = 0
+    profile = load_test_profile(write_json(tmp_path / "tone.json", document))
+    assert profile.frame_count == 0
+
+
+def test_tone_profile_rejects_wspr_frame_claim(tmp_path: Path) -> None:
+    document = load_example("test-si5351-160m.json")
+    document["mode"] = "TONE"
+    with pytest.raises(ProfileError, match=r"0 was expected"):
+        load_test_profile(write_json(tmp_path / "tone-with-frames.json", document))
+
+
 def test_backend_specific_fields_are_required_semantically(tmp_path: Path) -> None:
     document = load_example("test-si5351-160m.json")
     del document["transmitter"]["i2c_address"]

@@ -36,11 +36,12 @@
       }
     },
     "band": {"type": "string", "minLength": 1},
+    "mode": {"enum": ["WSPR", "TONE"]},
     "frequency_hz": {"type": "number", "exclusiveMinimum": 0},
     "receiver_center_hz": {"type": "number", "exclusiveMinimum": 0},
     "receiver_gain_db": {"type": "number"},
     "ppm": {"type": "number"},
-    "frame_count": {"type": "integer", "minimum": 1},
+    "frame_count": {"type": "integer", "minimum": 0},
     "bounded_duration_s": {"type": "integer", "minimum": 1},
     "random_offset_enabled": {"const": false},
     "identity": {
@@ -60,7 +61,7 @@
       "properties": {
         "carrier_offset_max_hz": {"type": "number", "minimum": 0},
         "best_20hz_share_min": {"type": "number", "minimum": 0, "maximum": 1},
-        "required_consecutive_decodes": {"type": "integer", "minimum": 1}
+        "required_consecutive_decodes": {"type": "integer", "minimum": 0}
       }
     },
     "stopping_procedure": {
@@ -75,5 +76,22 @@
         "emergency_stop_note": {"type": "string", "minLength": 1}
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"mode": {"const": "TONE"}}, "required": ["mode"]},
+      "then": {
+        "properties": {
+          "frame_count": {"const": 0},
+          "gates": {"properties": {"required_consecutive_decodes": {"const": 0}}}
+        }
+      },
+      "else": {
+        "properties": {
+          "frame_count": {"minimum": 1},
+          "gates": {"properties": {"required_consecutive_decodes": {"minimum": 1}}}
+        }
+      }
+    }
+  ]
 }
