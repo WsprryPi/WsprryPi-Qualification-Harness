@@ -1,5 +1,12 @@
 # Phase 7 Digest-Bound Live-Tone Execution Prompt
 
+> **Superseded:** The authorization for the digest in this document was
+> consumed by the fail-closed preflight attempt on 2026-08-16. Do not reuse it.
+> The remediated candidate has canonical digest
+> `0bb13cd0a7eb03d6c9b013e30b79adceb89b02bd852823caca5830a6456fccb4`
+> and requires a new, separately rendered execution prompt and explicit
+> digest-specific authorization.
+
 ## Objective
 
 Execute the already staged Phase 7 conducted live-tone candidate exactly once,
