@@ -89,6 +89,11 @@ def _sha256_json(value: Any) -> str:
     ).hexdigest()
 
 
+def _gate_d_satisfied(plan: dict[str, Any]) -> bool:
+    """Return whether the candidate clears the RP1-specific Gate D input."""
+    return plan["gate_d_status"] in {"complete", "not_applicable"}
+
+
 def _validate_token(token: str) -> None:
     if not token or not SAFE_TOKEN.fullmatch(token) or token in PROHIBITED_TOKENS:
         raise CwHostPreflightError(f"unsafe remote command token: {token!r}")
@@ -440,7 +445,7 @@ def run_cw_actual_host_preflight(
     write_json_new(root / "command-records.json", {"records": all_records})
     outcomes = [check["outcome"] for host in host_results for check in host["checks"]]
     blockers = list(plan["known_blockers"])
-    if plan["gate_d_status"] != "complete":
+    if not _gate_d_satisfied(plan):
         blockers.append("rp1-gpclk-dkms-gate-d-incomplete")
     if any(outcome in {"failed", "blocked"} for outcome in outcomes):
         blockers.append("one-or-more-preflight-checks-not-passed")
@@ -520,7 +525,7 @@ def validate_cw_actual_host_preflight_bundle(root: Path) -> dict[str, Any]:
     if result["host_results"] != recomputed_hosts:
         raise CwHostPreflightError("retained result does not match recomputed probe semantics")
     expected_blockers = set(plan["known_blockers"])
-    if plan["gate_d_status"] != "complete":
+    if not _gate_d_satisfied(plan):
         expected_blockers.add("rp1-gpclk-dkms-gate-d-incomplete")
     if any(
         check["outcome"] in {"failed", "blocked"}
@@ -530,8 +535,6 @@ def validate_cw_actual_host_preflight_bundle(root: Path) -> dict[str, Any]:
         expected_blockers.add("one-or-more-preflight-checks-not-passed")
     if result["blockers"] != sorted(expected_blockers):
         raise CwHostPreflightError("retained blockers do not match recomputed evidence")
-    if result["overall_outcome"] == "ready" and (
-        result["blockers"] or plan["gate_d_status"] != "complete"
-    ):
+    if result["overall_outcome"] == "ready" and (result["blockers"] or not _gate_d_satisfied(plan)):
         raise CwHostPreflightError("ready outcome contradicts its blockers or Gate D status")
     return result

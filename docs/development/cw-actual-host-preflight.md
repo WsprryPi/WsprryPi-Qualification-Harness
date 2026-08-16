@@ -5,6 +5,12 @@ ready for later live validation, or retains a specific fail-closed reason. It
 never transmits, opens an SDR, changes GPIO or clocks, changes a service,
 installs software, or makes a qualification claim.
 
+The plan records the transmitter backend and RP1-GPCLK-DKMS Gate D as
+`complete`, `incomplete`, or `not_applicable`. The schema accepts
+`not_applicable` only with an explicit `legacy_gpio` or `si5351` backend, such
+as a frozen Raspberry Pi 4 legacy-GPIO candidate. It rejects that exemption
+for `rp1_gpclk`; an incomplete RP1 candidate remains blocked.
+
 ## Safety boundary
 
 The plan fixes each host, role, strict OpenSSH host-key alias, expected hardware

@@ -150,6 +150,83 @@ def test_blocked_bundle_is_immutable_and_validated(tmp_path: Path) -> None:
     assert all("sudo" not in record["arguments"] for record in records)
 
 
+@pytest.mark.parametrize("gate_d_status", ["complete", "not_applicable"])
+def test_rp1_gate_d_complete_or_not_applicable_can_be_ready(
+    tmp_path: Path, gate_d_status: str
+) -> None:
+    document = plan()
+    document["run_id"] = f"20260815T120002Z-{gate_d_status.replace('_', '-')}"
+    document["gate_d_status"] = gate_d_status
+    if gate_d_status == "not_applicable":
+        document["transmitter_backend"] = "legacy_gpio"
+    document["known_blockers"] = []
+    document["rf_path"] = {
+        "declared_current": True,
+        "antenna_state": "not connected",
+        "termination": "conducted GPIO4 to SDR through two 10 dB attenuators",
+        "attenuation": "20 dB total",
+        "safe_input_basis": "source and attenuation are operator confirmed",
+    }
+    plan_path = tmp_path / f"{gate_d_status}.json"
+    plan_path.write_text(json.dumps(document, sort_keys=True) + "\n", encoding="utf-8")
+    ssh = tmp_path / "ssh"
+    if not ssh.exists():
+        ssh.write_text("fake\n", encoding="utf-8")
+    result = run_cw_actual_host_preflight(
+        plan_path,
+        tmp_path,
+        ssh_path=ssh.resolve(),
+        confirmation_sha256=hashlib.sha256(plan_path.read_bytes()).hexdigest(),
+        enabled=True,
+        runner=FakeRunner(),
+    )
+    assert result["overall_outcome"] == "ready"
+    assert result["blockers"] == []
+
+
+@pytest.mark.parametrize("transmitter_backend", [None, "rp1_gpclk"])
+def test_gate_d_not_applicable_requires_explicit_non_rp1_backend(
+    tmp_path: Path, transmitter_backend: str | None
+) -> None:
+    document = plan()
+    document["gate_d_status"] = "not_applicable"
+    if transmitter_backend is not None:
+        document["transmitter_backend"] = transmitter_backend
+    plan_path = tmp_path / "invalid-not-applicable.json"
+    plan_path.write_text(json.dumps(document, sort_keys=True) + "\n", encoding="utf-8")
+    ssh = tmp_path / "ssh"
+    ssh.write_text("fake\n", encoding="utf-8")
+    with pytest.raises(Exception, match=r"transmitter_backend|not_applicable"):
+        run_cw_actual_host_preflight(
+            plan_path,
+            tmp_path,
+            ssh_path=ssh.resolve(),
+            confirmation_sha256=hashlib.sha256(plan_path.read_bytes()).hexdigest(),
+            enabled=True,
+            runner=FakeRunner(),
+        )
+
+
+def test_incomplete_rp1_gate_d_remains_a_blocker(tmp_path: Path) -> None:
+    document = plan()
+    document["run_id"] = "20260815T120003Z-incomplete"
+    document["known_blockers"] = []
+    plan_path = tmp_path / "incomplete.json"
+    plan_path.write_text(json.dumps(document, sort_keys=True) + "\n", encoding="utf-8")
+    ssh = tmp_path / "ssh"
+    ssh.write_text("fake\n", encoding="utf-8")
+    result = run_cw_actual_host_preflight(
+        plan_path,
+        tmp_path,
+        ssh_path=ssh.resolve(),
+        confirmation_sha256=hashlib.sha256(plan_path.read_bytes()).hexdigest(),
+        enabled=True,
+        runner=FakeRunner(),
+    )
+    assert result["overall_outcome"] == "blocked"
+    assert "rp1-gpclk-dkms-gate-d-incomplete" in result["blockers"]
+
+
 def test_manifest_or_command_tampering_is_rejected(tmp_path: Path) -> None:
     plan_path = tmp_path / "plan.json"
     plan_path.write_text(json.dumps(plan(), sort_keys=True) + "\n", encoding="utf-8")

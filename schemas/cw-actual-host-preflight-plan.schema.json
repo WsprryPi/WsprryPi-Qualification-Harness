@@ -8,7 +8,8 @@
     "evidence_type": {"const": "cw_actual_host_preflight_plan"},
     "run_id": {"type": "string", "pattern": "^[0-9]{8}T[0-9]{6}Z-[a-z0-9-]+$"},
     "controller_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-    "gate_d_status": {"enum": ["complete", "incomplete"]},
+    "transmitter_backend": {"enum": ["legacy_gpio", "rp1_gpclk", "si5351"]},
+    "gate_d_status": {"enum": ["complete", "incomplete", "not_applicable"]},
     "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
     "known_blockers": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
     "rf_path": {
@@ -42,5 +43,18 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"gate_d_status": {"const": "not_applicable"}}},
+      "then": {
+        "required": ["transmitter_backend"],
+        "properties": {"transmitter_backend": {"enum": ["legacy_gpio", "si5351"]}}
+      }
+    },
+    {
+      "if": {"properties": {"transmitter_backend": {"const": "rp1_gpclk"}}, "required": ["transmitter_backend"]},
+      "then": {"properties": {"gate_d_status": {"enum": ["complete", "incomplete"]}}}
+    }
+  ]
 }
