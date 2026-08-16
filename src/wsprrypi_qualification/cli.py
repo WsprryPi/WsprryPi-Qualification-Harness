@@ -16,6 +16,11 @@ from wsprrypi_qualification.application_shims import (
     ApplicationPlanError,
     validate_application_plan,
 )
+from wsprrypi_qualification.archive_intake import (
+    ArchiveIntakeError,
+    inventory_archive,
+    validate_multi_capture_session,
+)
 from wsprrypi_qualification.audio import create_slot_wav_acquired
 from wsprrypi_qualification.capabilities import capability_report
 from wsprrypi_qualification.capture_metadata import CaptureMetadataError, load_capture_metadata
@@ -73,6 +78,17 @@ def _parser() -> argparse.ArgumentParser:
         "validate-application-plan", help="validate a hardware-free application plan"
     )
     application_plan.add_argument("path", type=Path)
+    archive_inventory = subparsers.add_parser(
+        "inventory-archive", help="authenticate a preserved offline archive manifest"
+    )
+    archive_inventory.add_argument("archive_root", type=Path)
+    archive_inventory.add_argument("manifest", type=Path)
+    archive_inventory.add_argument("output", type=Path)
+    archive_inventory.add_argument("--archive-id", required=True)
+    multi_capture = subparsers.add_parser(
+        "validate-cw-multi-capture", help="validate a non-qualifying multi-capture session"
+    )
+    multi_capture.add_argument("path", type=Path)
     cw_evidence = subparsers.add_parser(
         "validate-cw-qualification", help="authenticate and validate offline CW evidence"
     )
@@ -248,6 +264,35 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "capabilities":
         print(json.dumps(capability_report(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "inventory-archive":
+        try:
+            document = inventory_archive(
+                args.archive_root, args.manifest, args.output, archive_id=args.archive_id
+            )
+        except (ArchiveIntakeError, OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(
+            json.dumps(
+                {
+                    "archive_id": document["archive_id"],
+                    "inventory_path": str(args.output),
+                    "summary": document["summary"],
+                    "qualification_claim": False,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+    if args.command == "validate-cw-multi-capture":
+        try:
+            document = validate_multi_capture_session(args.path)
+        except (ArchiveIntakeError, OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(document, indent=2, sort_keys=True))
         return 0
     if args.command == "validate-profile":
         try:

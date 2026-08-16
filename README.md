@@ -118,6 +118,8 @@ wsprrypi-qualification analyze-carrier RF_OFF.cf32 RF_ON.cf32 carrier.json --rf-
 wsprrypi-qualification make-slot-wav CAPTURE.cf32 CAPTURE.json WAV_DIRECTORY audio.json --slot 2026-08-09T21:00:00Z --bench-profile BENCH.json --test-profile TEST.json
 wsprrypi-qualification decode-wspr SLOT.wav audio.json decoder.json
 wsprrypi-qualification summarize-decodes decode-summary.json slot-2100.json slot-2102.json slot-2104.json
+wsprrypi-qualification inventory-archive ARCHIVE_ROOT ARCHIVE-SHA256SUMS inventory.json --archive-id ARCHIVE_ID
+wsprrypi-qualification validate-cw-multi-capture multi-capture-session.json
 ```
 
 `validate-cw-qualification` retains the legacy version-1, manually summarized

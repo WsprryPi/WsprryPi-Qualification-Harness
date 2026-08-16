@@ -128,6 +128,12 @@ composer and validator described in
 replay measurement remains `inconclusive`: it cannot substitute for runtime
 authorization, live-session, cleanup, or quiescence evidence.
 
+For preserved whole-host evidence and separately acquired keyed repetitions,
+use the non-qualifying archive inventory and multi-capture validator described
+in [`archive-normalization.md`](development/archive-normalization.md). These
+commands authenticate intake relationships only; they cannot establish a
+coherent capture, lifecycle evidence, or hardware qualification.
+
 For the hardware-free Phase 5 lifecycle rehearsal, use
 `run-cw-mock-lifecycle` and `validate-cw-mock-lifecycle` as described in
 [`cw-mock-bounded-lifecycle.md`](development/cw-mock-bounded-lifecycle.md).
@@ -235,6 +241,7 @@ hosted-CI result into a hardware qualification claim.
 - Bounded carrier evidence: [`bounded-carrier-evidence.md`](development/bounded-carrier-evidence.md)
 - Split-host live sequence: [`live-three-frame.md`](development/live-three-frame.md)
 - Current actual-host record: [`cross-platform-actual-host-validation.md`](development/cross-platform-actual-host-validation.md)
+- Preserved archive intake: [`archive-normalization.md`](development/archive-normalization.md)
 
 For the newest state, prefer the current Git revision, CLI help, schemas, CI,
 and newest immutable evidence bundle over prose that describes an older slice.

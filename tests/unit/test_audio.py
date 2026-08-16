@@ -153,3 +153,20 @@ def test_resampler_suppresses_out_of_band_alias_and_is_deterministic() -> None:
     wanted = spectrum[round(50 * len(first) / output_rate)]
     aliased = spectrum[round(100 * len(first) / output_rate)]
     assert 20 * np.log10(aliased / wanted) < -60
+
+
+def test_complex_translation_does_not_create_positive_frequency_copies() -> None:
+    rate, output_rate, count = 1000, 200, 120_000
+    samples = np.arange(count)
+    iq = np.asarray(0.2 * np.exp(2j * np.pi * 100 * samples / rate), dtype="<c8")
+    audio = _resample_mixed(
+        iq,
+        0,
+        count,
+        AudioParameters(rate, 10_000, 10_100, output_rate_hz=output_rate, target_audio_hz=50),
+    )
+    spectrum = np.abs(np.fft.rfft(audio * np.hanning(len(audio))))
+    peak = round(50 * len(audio) / output_rate)
+    protected = spectrum.copy()
+    protected[max(0, peak - 2) : peak + 3] = 0
+    assert np.max(protected) / spectrum[peak] < 1e-4

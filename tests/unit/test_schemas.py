@@ -27,6 +27,8 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         "cw-mode-gate.schema.json",
         "cw-final-session.schema.json",
         "cw-mock-lifecycle.schema.json",
+        "archive-inventory.schema.json",
+        "cw-multi-capture-session.schema.json",
         "slice6-session-plan.schema.json",
         "slice6-session.schema.json",
         "slice6-offline-evidence-index.schema.json",
