@@ -511,6 +511,107 @@ def test_tone_pattern_uses_absolute_deadlines_and_stops_every_cycle(
     assert adapter._owned == []
 
 
+def test_tone_pattern_scheduler_overshoot_does_not_consume_extra_rf_budget(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._owned = []
+    clock = {"now": 100.0}
+    launches = []
+
+    class Process:
+        def stop(self):
+            return LaunchResult(
+                1,
+                cancelled=True,
+                cleanup_verified=True,
+                handle_id=f"cycle-{len(launches)}",
+                stop_requested=True,
+                running_before_stop=True,
+            )
+
+    def sleep(seconds):
+        clock["now"] += seconds + 0.01
+
+    def begin(plan, tone, *, cycle=None):
+        assert tone and cycle in {1, 2, 3}
+        launches.append(cycle)
+        process = Process()
+        adapter._owned.append(process)
+        return process
+
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: clock["now"])
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.sleep", sleep)
+    monkeypatch.setattr(adapter, "_begin_transmitter", begin)
+    monkeypatch.setattr(adapter, "_retain_transmitter_result", lambda *args, **kwargs: None)
+
+    class Worker:
+        running = True
+
+        def is_alive(self):
+            return self.running
+
+        def join(self, timeout=None):
+            self.running = False
+
+    worker = Worker()
+    captured = [{"capture": "complete"}]
+    cancellation = threading.Event()
+    adapter._capture_tasks = [(worker, cancellation)]
+
+    assert (
+        adapter._run_tone_pattern(tone_plan_document(), worker, cancellation, captured, [])
+        == captured[0]
+    )
+    assert launches == [1, 2, 3]
+
+
+def test_tone_pattern_rejects_over_budget_cycle_before_launch(tmp_path: Path, monkeypatch) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._owned = []
+    clock = {"now": 100.0}
+    launches = []
+
+    class Process:
+        def stop(self):
+            return LaunchResult(
+                1,
+                cancelled=True,
+                cleanup_verified=True,
+                handle_id=f"cycle-{len(launches)}",
+                stop_requested=True,
+                running_before_stop=True,
+            )
+
+    def sleep(seconds):
+        clock["now"] += seconds
+
+    def begin(plan, tone, *, cycle=None):
+        launches.append(cycle)
+        process = Process()
+        adapter._owned.append(process)
+        return process
+
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: clock["now"])
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.sleep", sleep)
+    monkeypatch.setattr(adapter, "_begin_transmitter", begin)
+    monkeypatch.setattr(adapter, "_retain_transmitter_result", lambda *args, **kwargs: None)
+
+    class Worker:
+        def is_alive(self):
+            return True
+
+    plan = tone_plan_document()
+    plan["tone_schedule"]["maximum_rf_on_seconds"] = 3
+    worker = Worker()
+    cancellation = threading.Event()
+    adapter._capture_tasks = [(worker, cancellation)]
+
+    with pytest.raises(RealSessionError, match="exceeds its cumulative RF-on bound"):
+        adapter._run_tone_pattern(plan, worker, cancellation, [], [])
+    assert launches == [1]
+
+
 def test_transmitter_service_preparation_precedes_tone_epoch(tmp_path: Path, monkeypatch) -> None:
     adapter = bare_adapter(tmp_path)
     adapter._cleanup_installed = True

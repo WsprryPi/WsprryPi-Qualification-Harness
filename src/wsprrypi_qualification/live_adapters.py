@@ -789,7 +789,7 @@ class ProductionRealSessionAdapters:
         schedule = plan["tone_schedule"]
         epoch = time.monotonic()
         interval = schedule["off_seconds"] + schedule["on_seconds"]
-        total_rf_on = 0.0
+        reserved_rf_on = 0
         try:
             for cycle in range(1, schedule["cycles"] + 1):
                 enable_at = epoch + schedule["off_seconds"] + ((cycle - 1) * interval)
@@ -797,11 +797,13 @@ class ProductionRealSessionAdapters:
                 self._sleep_until(enable_at)
                 if errors or not worker.is_alive():
                     raise RealSessionError("tone-pattern capture ended before RF enable")
-                launch_started = time.monotonic()
+                next_reserved_rf_on = reserved_rf_on + schedule["on_seconds"]
+                if next_reserved_rf_on > schedule["maximum_rf_on_seconds"]:
+                    raise RealSessionError("tone pattern exceeds its cumulative RF-on bound")
+                reserved_rf_on = next_reserved_rf_on
                 process = self._begin_transmitter(plan, True, cycle=cycle)
                 try:
                     self._sleep_until(disable_at)
-                    total_rf_on += max(0.0, time.monotonic() - launch_started)
                 finally:
                     result = process.stop()
                     self._retain_transmitter_result(plan, tone=True, result=result, cycle=cycle)
@@ -813,8 +815,6 @@ class ProductionRealSessionAdapters:
                         )
             closing_at = epoch + (schedule["cycles"] * interval) + schedule["off_seconds"]
             self._sleep_until(closing_at, allow_capture_completion=True, worker=worker)
-            if total_rf_on > schedule["maximum_rf_on_seconds"] + 1e-9:
-                raise RealSessionError("tone pattern exceeded its cumulative RF-on bound")
             worker.join(self._remaining(plan["deadlines"]["receiver_s"], reserve_cleanup=True))
             if worker.is_alive() or errors or not captured:
                 cancellation.set()
