@@ -19,16 +19,26 @@ by claiming to be live.
 The plan separately pins the two helper identities/configurations, OpenSSH,
 the native Soapy capture helper, WsprryPi, `wsprd`, service providers, and the
 backend quiescence provider. Transmitter and receiver service lists are
-separate. The receiver-helper, capture-helper, and decoder host must match the
-receiver; the WsprryPi and transmitter-helper host must match the transmitter.
+separate. `services.receiver` is the complete receiver-side service allowlist;
+the optional `services.receiver_required` must be a subset and identifies
+services that must run during local capture. Other receiver services remain
+conflicting owners that are stopped for capture. The receiver-helper,
+capture-helper, and decoder host must match the receiver; the WsprryPi and
+transmitter-helper host must match the transmitter.
+
+Local SDRplay capture still uses the SoapySDR API and the `sdrplay` Soapy
+module. Its vendor API daemon may therefore be declared as a required receiver
+service. SoapyRemote is a separate network-export layer and is not required
+when the capture helper runs locally on the receiver host.
 
 The lifecycle is intentionally ordered:
 
 1. validate the complete plan and ephemeral authorizations;
 2. authenticate local executable/profile bytes and both helper sessions;
 3. inspect service ownership on both hosts and initial transmitter quiescence;
-4. register cleanup;
-5. capture RF-off;
+4. register cleanup, stop named conflicting receiver services, start named
+   required receiver services, and verify every requested state;
+5. capture RF-off only after required receiver services are running;
 6. stop only named transmitter services, start an owned bounded tone, capture
    RF-on, and stop the owned tone;
 7. recompute the acquired carrier gate from retained IQ and profiles;

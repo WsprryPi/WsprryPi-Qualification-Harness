@@ -443,13 +443,17 @@ class ProductionRealSessionAdapters:
     def install_cleanup(self, plan: dict[str, Any]) -> dict[str, object]:
         started = time.monotonic()
         self._cleanup_installed = True
+        required = set(plan["services"].get("receiver_required", []))
         for name in plan["services"]["receiver"]:
             key = ("receiver", name)
-            if self._initial_services.get(key) is True:
+            initial_running = self._initial_services.get(key)
+            requested_running = name in required
+            if initial_running is not requested_running:
                 self._changed_services.append(key)
-                self.rx_services.set_running(name, False)
-                if self.rx_services.inspect(name).running:
-                    raise RealSessionError("receiver service could not be stopped")
+                self.rx_services.set_running(name, requested_running)
+                if self.rx_services.inspect(name).running is not requested_running:
+                    requested = "started" if requested_running else "stopped"
+                    raise RealSessionError(f"receiver service could not be {requested}")
         return self._stage(
             plan,
             "cleanup_registration",

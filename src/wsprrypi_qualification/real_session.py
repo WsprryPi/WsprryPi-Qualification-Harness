@@ -568,6 +568,12 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         raise RealSessionError("resolved receiver host is not an allowed observed-host alias")
     if document["receiver"]["sample_rate_hz"] != 250000:
         raise RealSessionError("preserved receiver contract requires 250,000 samples/s")
+    receiver_services = document["services"]["receiver"]
+    required_receiver_services = document["services"].get("receiver_required", [])
+    if not set(required_receiver_services).issubset(receiver_services):
+        raise RealSessionError(
+            "required receiver services must be included in the receiver service allowlist"
+        )
     if set(document["capability_bindings"]) != {
         "transmitter_ssh",
         "receiver_transport",

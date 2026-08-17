@@ -518,6 +518,14 @@ def test_carrier_only_plan_rejects_contradictions(mutation, message):
         ResolvedRealSessionPlan(document).validated()
 
 
+def test_required_receiver_services_must_be_in_receiver_allowlist():
+    document = plan_document()
+    document["services"]["receiver_required"] = ["sdrplay.service"]
+
+    with pytest.raises(RealSessionError, match="receiver service allowlist"):
+        ResolvedRealSessionPlan(document).validated()
+
+
 def test_carrier_gate_is_recomputed_from_metrics(tmp_path: Path):
     class ForgedCarrier(FakeAdapters):
         def analyze_carrier(self, plan, rf_off, rf_on):

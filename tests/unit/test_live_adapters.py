@@ -205,6 +205,98 @@ def test_active_receiver_owner_is_stopped_only_after_cleanup_registration(tmp_pa
     assert adapter._changed_services == [("receiver", "SoapySDRServer")]
 
 
+def test_inactive_required_receiver_service_starts_only_after_cleanup_registration(
+    tmp_path: Path,
+) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter.tx_services = FakeServiceProvider(False)
+    adapter.rx_services = FakeServiceProvider(False)
+    adapter._initial_services = {}
+    adapter._changed_services = []
+    adapter._owned = []
+    adapter._cleanup_installed = False
+    plan = plan_document()
+    plan["services"]["receiver_required"] = ["SoapySDRServer"]
+
+    adapter.inspect_services_and_ownership(plan)
+    assert adapter.rx_services.running is False
+    adapter.install_cleanup(plan)
+
+    assert adapter._cleanup_installed is True
+    assert adapter.rx_services.running is True
+    assert adapter._changed_services == [("receiver", "SoapySDRServer")]
+
+
+def test_initially_active_required_receiver_service_is_preserved(tmp_path: Path) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter.tx_services = FakeServiceProvider(False)
+    adapter.rx_services = FakeServiceProvider(True)
+    adapter._initial_services = {}
+    adapter._changed_services = []
+    adapter._owned = []
+    adapter._cleanup_installed = False
+    plan = plan_document()
+    plan["services"]["receiver_required"] = ["SoapySDRServer"]
+
+    adapter.inspect_services_and_ownership(plan)
+    adapter.install_cleanup(plan)
+
+    assert adapter.rx_services.running is True
+    assert adapter._changed_services == []
+
+
+def test_required_receiver_start_failure_retains_restoration_intent(tmp_path: Path) -> None:
+    class StartFailure(FakeServiceProvider):
+        def set_running(self, name: str, running: bool) -> None:
+            assert running is True
+
+    adapter = bare_adapter(tmp_path)
+    adapter.tx_services = FakeServiceProvider(False)
+    adapter.rx_services = StartFailure(False)
+    adapter._initial_services = {("receiver", "SoapySDRServer"): False}
+    adapter._changed_services = []
+    adapter._owned = []
+    adapter._cleanup_installed = False
+    plan = plan_document()
+    plan["services"]["receiver_required"] = ["SoapySDRServer"]
+
+    with pytest.raises(RealSessionError, match="could not be started"):
+        adapter.install_cleanup(plan)
+
+    assert adapter._changed_services == [("receiver", "SoapySDRServer")]
+
+
+def test_cleanup_restores_required_receiver_service_after_downstream_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class Client:
+        timeout_s = 1.0
+        transport = object()
+
+    adapter = bare_adapter(tmp_path)
+    adapter.tx_services = FakeServiceProvider(False)
+    adapter.rx_services = FakeServiceProvider(False)
+    adapter.tx_client = Client()
+    adapter.rx_client = Client()
+    adapter._initial_services = {}
+    adapter._changed_services = []
+    adapter._owned = []
+    adapter._cleanup_installed = False
+    adapter._final_quiescence = None
+    plan = plan_document()
+    plan["services"]["receiver_required"] = ["SoapySDRServer"]
+    adapter.inspect_services_and_ownership(plan)
+    adapter.install_cleanup(plan)
+    assert adapter.rx_services.running is True
+    monkeypatch.setattr(adapter, "_quiescence", lambda plan, authorization: True)
+    monkeypatch.setattr(adapter, "close", lambda deadline_s=None: True)
+
+    cleanup = adapter.cleanup(plan)
+
+    assert cleanup["outcome"] == "verified"
+    assert adapter.rx_services.running is False
+
+
 def test_overall_deadline_is_cumulative_and_reserves_cleanup(tmp_path: Path, monkeypatch) -> None:
     adapter = bare_adapter(tmp_path)
     adapter._session_deadline = 100.0
