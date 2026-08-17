@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import sys
 import threading
@@ -16,6 +17,7 @@ from wsprrypi_qualification.live_adapters import (
     _intentional_carrier_stop_verified,
     _owned_process_released,
     _retained_capture_has_margin,
+    _stage_bound_artifact,
 )
 from wsprrypi_qualification.offline import artifact
 from wsprrypi_qualification.real_capabilities import LaunchResult, ServiceState
@@ -54,6 +56,129 @@ def bare_adapter(tmp_path: Path) -> ProductionRealSessionAdapters:
     adapter._capture_tasks = []
     adapter._capture_artifacts = {}
     return adapter
+
+
+def test_stage_bound_artifact_retains_external_path_with_spaces(tmp_path: Path) -> None:
+    source_root = tmp_path / "external contract source"
+    source_root.mkdir()
+    source = source_root / "tone plan.json"
+    source.write_text('{"sealed": true}\n', encoding="utf-8")
+    binding = artifact(source)
+    work = tmp_path / "fresh work directory"
+    work.mkdir()
+    destination = work / "tone-plan.json"
+
+    retained = _stage_bound_artifact(binding, destination)
+
+    assert retained == artifact(destination)
+    assert destination.read_bytes() == source.read_bytes()
+    source.unlink()
+    assert destination.read_text(encoding="utf-8") == '{"sealed": true}\n'
+
+
+def test_stage_bound_artifact_rejects_changed_source_and_existing_target(tmp_path: Path) -> None:
+    source = tmp_path / "tone-plan.json"
+    source.write_text("sealed", encoding="utf-8")
+    binding = artifact(source)
+    source.write_text("changed", encoding="utf-8")
+    with pytest.raises(RealSessionError, match="identity changed"):
+        _stage_bound_artifact(binding, tmp_path / "retained.json")
+
+    binding = artifact(source)
+    destination = tmp_path / "existing.json"
+    destination.write_text("preserve", encoding="utf-8")
+    with pytest.raises(RealSessionError, match="refusing to overwrite"):
+        _stage_bound_artifact(binding, destination)
+    assert destination.read_text(encoding="utf-8") == "preserve"
+
+
+def test_live_tone_analysis_stages_external_contract_before_relative_references(
+    tmp_path: Path, monkeypatch
+) -> None:
+    work = tmp_path / "fresh work directory"
+    work.mkdir()
+    external = tmp_path / "sealed inputs outside work"
+    external.mkdir()
+    plan_source = external / "tone plan.json"
+    expected_source = external / "tone events.json"
+    plan_source.write_text('{"kind": "plan"}\n', encoding="utf-8")
+    expected_source.write_text('{"kind": "events"}\n', encoding="utf-8")
+    off = work / "rf-off.cf32"
+    on = work / "rf-on.cf32"
+    off.write_bytes(b"off-data")
+    on.write_bytes(b"on-data")
+    off_metadata = work / "rf-off-metadata.json"
+    on_metadata = work / "rf-on-metadata.json"
+    off_metadata.write_text("{}", encoding="utf-8")
+    on_metadata.write_text("{}", encoding="utf-8")
+
+    plan = tone_plan_document()
+    plan["cw_contract"]["plan"] = artifact(plan_source)
+    plan["cw_contract"]["expected_events"] = artifact(expected_source)
+    adapter = bare_adapter(work)
+    adapter._capture_artifacts = {
+        "rf_off": (off, off_metadata),
+        "rf_on": (on, on_metadata),
+    }
+    observed: dict[str, object] = {}
+
+    monkeypatch.setattr(adapter, "_run_offline", lambda *args, **kwargs: None)
+
+    def load_document(path: Path, schema: str) -> dict[str, object]:
+        if schema == "carrier-analysis.schema.json":
+            return {
+                "gate_outcome": "passed",
+                "metrics": {
+                    "strongest_transmitter_added_frequency_hz": 14_097_200.0,
+                    "strongest_offset_hz": 100.0,
+                    "best_20hz_resolved_power_share": 0.9,
+                    "strongest_feature_contrast_db": 20.0,
+                },
+                "contract": {
+                    "gate_policy": "bounded_relative_carrier_acquisition",
+                    "relative_acquisition_offset_gate_hz": 500.0,
+                    "relative_acquisition_contrast_gate_db": 10.0,
+                },
+            }
+        assert path == on_metadata
+        assert schema == "capture-metadata.schema.json"
+        return {
+            "retained_sample_count": plan["carrier"]["rf_on_sample_count"],
+            "overflow_count": 0,
+            "first_read": {"discarded": True},
+            "timestamps": {"retained_capture_start_utc": "2026-08-17T13:27:36Z"},
+        }
+
+    def write_document(path: Path, document: dict, **kwargs) -> None:
+        path.write_text(json.dumps(document), encoding="utf-8")
+
+    def analyze(plan_path: Path, expected_path: Path, metadata_path: Path, *args, **kwargs):
+        observed["plan_path"] = plan_path
+        observed["expected_path"] = expected_path
+        observed["metadata"] = json.loads(metadata_path.read_text(encoding="utf-8"))
+        observed["artifact_root"] = kwargs["_artifact_root"]
+        return {}, {"mode_gate": "passed"}
+
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.load_json_document", load_document)
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.write_json_new", write_document)
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.analyze_synthetic_iq", analyze)
+
+    result = adapter.analyze_carrier(plan, {}, {})
+
+    retained_plan = work / "tone-plan.json"
+    retained_expected = work / "tone-expected-events.json"
+    assert observed["plan_path"] == retained_plan
+    assert observed["expected_path"] == retained_expected
+    assert observed["artifact_root"] == work
+    metadata = observed["metadata"]
+    assert isinstance(metadata, dict)
+    assert metadata["plan"] == artifact(retained_plan)
+    assert metadata["expected_events"] == artifact(retained_expected)
+    assert plan_source not in adapter._artifacts
+    assert expected_source not in adapter._artifacts
+    assert retained_plan in adapter._artifacts
+    assert retained_expected in adapter._artifacts
+    assert result["details"]["gate_outcome"] == "passed"
 
 
 def test_capture_task_is_cancelled_and_joined_before_cleanup_can_verify(tmp_path: Path) -> None:
@@ -494,3 +619,25 @@ def test_published_artifact_index_rejects_reauthenticated_dependency_tamper(
     retained_iq.write_bytes(b"87654321")
     with pytest.raises(RealSessionError, match="identity changed"):
         adapter.validate_published_artifacts(bundle)
+
+
+def test_published_artifact_index_resolves_relative_source_dependency_offline(
+    tmp_path: Path,
+) -> None:
+    adapter = bare_adapter(tmp_path)
+    source = tmp_path / "source with spaces"
+    source.mkdir()
+    contract = source / "tone-plan.json"
+    contract.write_text('{"sealed": true}\n', encoding="utf-8")
+    evidence = source / "observations.json"
+    reference = artifact(contract)
+    reference["path"] = contract.name
+    evidence.write_text(json.dumps({"plan": reference}), encoding="utf-8")
+    adapter._artifacts = [contract, evidence]
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+
+    adapter.publish_artifacts(bundle)
+    shutil.rmtree(source)
+
+    adapter.validate_published_artifacts(bundle)

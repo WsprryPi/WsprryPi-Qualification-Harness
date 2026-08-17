@@ -57,6 +57,27 @@ from wsprrypi_qualification.real_session import (
 _COHERENT_CAPTURE_STARTUP_GUARD_S = 2.0
 
 
+def _stage_bound_artifact(binding: dict[str, object], destination: Path) -> dict[str, Any]:
+    """Authenticate a sealed input and retain a new private copy for live analysis."""
+    source = Path(str(binding["path"]))
+    try:
+        source_identity = artifact(source)
+    except OSError as error:
+        raise RealSessionError(f"sealed live artifact is unavailable: {source}") from error
+    if any(source_identity[key] != binding[key] for key in ("size_bytes", "sha256")):
+        raise RealSessionError(f"sealed live artifact identity changed: {source}")
+    if destination.exists():
+        raise RealSessionError(f"refusing to overwrite retained live artifact: {destination}")
+    try:
+        shutil.copyfile(source, destination)
+    except OSError as error:
+        raise RealSessionError(f"could not retain sealed live artifact: {source}") from error
+    retained = artifact(destination)
+    if any(retained[key] != binding[key] for key in ("size_bytes", "sha256")):
+        raise RealSessionError(f"retained live artifact identity changed: {destination}")
+    return retained
+
+
 def _coherent_capture_launch_epoch(first_slot: datetime, required_margin_s: float) -> float:
     """Start early enough for receiver setup while preserving the retained-data margin."""
     return first_slot.timestamp() - required_margin_s - _COHERENT_CAPTURE_STARTUP_GUARD_S
@@ -840,10 +861,16 @@ class ProductionRealSessionAdapters:
         mode_gate = "not_applicable"
         if plan.get("session_kind") == "cw_live_tone":
             native_metadata = load_json_document(on_metadata, "capture-metadata.schema.json")
+            contract = plan["cw_contract"]
+            retained_plan = self.paths.work_directory / "tone-plan.json"
+            retained_expected = self.paths.work_directory / "tone-expected-events.json"
+            retained_plan_ref = _stage_bound_artifact(contract["plan"], retained_plan)
+            retained_expected_ref = _stage_bound_artifact(
+                contract["expected_events"], retained_expected
+            )
             acquired = self.paths.work_directory / "tone-acquired-capture.json"
             observations = self.paths.work_directory / "tone-observations.json"
             mode_gate_path = self.paths.work_directory / "tone-mode-gate.json"
-            contract = plan["cw_contract"]
             write_json_new(
                 acquired,
                 {
@@ -851,8 +878,8 @@ class ProductionRealSessionAdapters:
                     "evidence_type": "cw_acquired_capture",
                     "run_id": plan["run_id"],
                     "mode": "tone",
-                    "plan": contract["plan"],
-                    "expected_events": contract["expected_events"],
+                    "plan": retained_plan_ref,
+                    "expected_events": retained_expected_ref,
                     "capture": artifact(on),
                     "format": "CF32LE",
                     "sample_count": plan["carrier"]["rf_on_sample_count"],
@@ -875,8 +902,8 @@ class ProductionRealSessionAdapters:
                 schema_name="cw-acquired-capture.schema.json",
             )
             _, generated_gate = analyze_synthetic_iq(
-                Path(contract["plan"]["path"]),
-                Path(contract["expected_events"]["path"]),
+                retained_plan,
+                retained_expected,
                 acquired,
                 observations,
                 mode_gate_path,
@@ -888,8 +915,8 @@ class ProductionRealSessionAdapters:
             mode_gate = generated_gate["mode_gate"]
             self._artifacts.extend(
                 (
-                    Path(contract["plan"]["path"]),
-                    Path(contract["expected_events"]["path"]),
+                    retained_plan,
+                    retained_expected,
                     acquired,
                     observations,
                     mode_gate_path,
@@ -1319,7 +1346,10 @@ class ProductionRealSessionAdapters:
                 reference_path = reference["path"]
                 if not isinstance(reference_path, str):
                     raise RealSessionError("published artifact reference path is invalid")
-                matched = mapping.get(reference_path)
+                source_reference = Path(reference_path)
+                if not source_reference.is_absolute():
+                    source_reference = Path(record["source"]["path"]).parent / source_reference
+                matched = mapping.get(str(source_reference.resolve()))
                 if matched is None or any(
                     matched[key] != reference[key] for key in ("size_bytes", "sha256")
                 ):
