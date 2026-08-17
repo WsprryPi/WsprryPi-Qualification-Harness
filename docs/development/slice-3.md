@@ -73,8 +73,12 @@ median baseline is substituted. Negative residuals
 are excluded rather than clipped into evidence. The best 20 Hz channel is the
 largest contiguous bin sum divided by all resolved power.
 
-The historical default gate requires the strongest resolved feature within
-100 Hz of the requested frequency and a best-20-Hz share of at least 0.50.
+For an uncalibrated receiver, the gate uses bounded relative acquisition: the
+strongest transmitter-added feature must be within 500 Hz of the requested
+frequency and at least 10 dB above its RF-off power. The historical 100-Hz
+offset and 0.50 best-20-Hz share remain nominal diagnostics rather than
+pass/fail criteria. This tolerates plausible receiver error and thermal drift
+without making a calibrated-frequency claim.
 No resolved transmitter-added power is `inconclusive`, not transmitter
 unqualification. These relative captured-span metrics are neither calibrated
 power nor spectral-compliance measurements.

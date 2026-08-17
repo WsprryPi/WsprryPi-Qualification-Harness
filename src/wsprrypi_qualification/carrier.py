@@ -37,6 +37,8 @@ class CarrierParameters:
     best_channel_hz: float = 20.0
     offset_gate_hz: float = 100.0
     share_gate: float = 0.5
+    relative_acquisition_offset_gate_hz: float = 500.0
+    relative_acquisition_contrast_gate_db: float = 10.0
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,13 @@ def analyze_carrier(
         raise OfflineAnalysisError("sample rate and FFT size must be positive")
     if not 0 <= parameters.share_gate <= 1:
         raise OfflineAnalysisError("share gate must be in [0, 1]")
+    if (
+        parameters.relative_acquisition_offset_gate_hz != 500.0
+        or parameters.relative_acquisition_contrast_gate_db != 10.0
+    ):
+        raise OfflineAnalysisError(
+            "bounded relative acquisition requires the maintained 500 Hz and 10 dB gates"
+        )
     off_threshold = 0.999
     on_threshold = 0.999
     if (rf_off_metadata_path is None) != (rf_on_metadata_path is None):
@@ -143,9 +152,18 @@ def analyze_carrier(
         channel_power = np.convolve(np.where(resolved, residual, 0.0), kernel, mode="same")
         share = float(np.max(channel_power) / np.sum(np.where(resolved, residual, 0.0)))
         offset = abs(float(frequencies[strongest_index] - parameters.requested_frequency_hz))
+        tiny = np.finfo(np.float64).tiny
+        strongest_contrast = float(
+            10
+            * (
+                np.log10(max(on_power[strongest_index], tiny))
+                - np.log10(max(off_power[strongest_index], tiny))
+            )
+        )
         gate = (
             "passed"
-            if offset <= parameters.offset_gate_hz and share >= parameters.share_gate
+            if offset <= parameters.relative_acquisition_offset_gate_hz
+            and strongest_contrast >= parameters.relative_acquisition_contrast_gate_db
             else "failed"
         )
     strongest_hz = float(frequencies[strongest_index])
@@ -186,6 +204,7 @@ def analyze_carrier(
                 "the corresponding RF-off power, with positive RF-on-minus-RF-off residual"
             ),
             "edge_channel_policy": "same-length convolution; zero outside usable span",
+            "gate_policy": "bounded_relative_carrier_acquisition",
         },
         "metrics": {
             "requested_frequency_hz": parameters.requested_frequency_hz,
@@ -194,6 +213,11 @@ def analyze_carrier(
             "requested_bin_contrast_db": contrast(requested_index),
             "strongest_feature_contrast_db": contrast(strongest_index),
             "best_20hz_resolved_power_share": share,
+            "nominal_offset_gate_passed": (
+                abs(strongest_hz - parameters.requested_frequency_hz) <= parameters.offset_gate_hz
+            ),
+            "nominal_share_gate_passed": share >= parameters.share_gate,
+            "relative_acquisition_passed": gate == "passed",
             "resolved_bin_count": int(np.count_nonzero(resolved)),
             "strongest_features": [
                 {
@@ -205,7 +229,10 @@ def analyze_carrier(
             ],
         },
         "limitations": [
-            "relative captured-span measurement; not calibrated power or spectral compliance"
+            "relative captured-span measurement; not calibrated frequency, power, or "
+            "spectral compliance",
+            "bounded carrier acquisition tolerates receiver frequency error and thermal drift; "
+            "nominal offset and best-20-Hz concentration remain diagnostic only",
         ],
     }
     # pathlib values from asdict are made explicit for portable JSON.

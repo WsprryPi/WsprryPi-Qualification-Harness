@@ -904,6 +904,14 @@ class ProductionRealSessionAdapters:
                 "strongest_frequency_hz": metrics["strongest_transmitter_added_frequency_hz"],
                 "offset_hz": metrics["strongest_offset_hz"],
                 "best_20hz_fraction": metrics["best_20hz_resolved_power_share"],
+                "strongest_contrast_db": metrics["strongest_feature_contrast_db"],
+                "carrier_gate_policy": document["contract"]["gate_policy"],
+                "relative_acquisition_offset_gate_hz": document["contract"][
+                    "relative_acquisition_offset_gate_hz"
+                ],
+                "relative_acquisition_contrast_gate_db": document["contract"][
+                    "relative_acquisition_contrast_gate_db"
+                ],
             },
             plan["deadlines"]["overall_s"],
             started,

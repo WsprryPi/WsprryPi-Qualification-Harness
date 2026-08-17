@@ -310,7 +310,7 @@ def _run_simulation_inner(plan: SimulatorPlan) -> dict[str, Any]:
         off = temporary / "rf-off.cf32"
         on = temporary / "rf-on.cf32"
         np.zeros(fft * 3, dtype="<c8").tofile(off)
-        tone_offset = 700.0 if plan.injection == "carrier_fail" else offset
+        tone_offset = 1200.0 if plan.injection == "carrier_fail" else offset
         np.asarray(0.3 * np.exp(2j * np.pi * tone_offset * samples / rate), dtype="<c8").tofile(on)
         children.append(
             _bounded_child(
@@ -867,8 +867,9 @@ def validate_simulator_bundle(root: Path) -> None:
         )
         expected_gate = (
             "passed"
-            if abs(measured_offset) <= contract["offset_gate_hz"]
-            and metrics["best_20hz_resolved_power_share"] >= contract["share_gate"]
+            if abs(measured_offset) <= contract["relative_acquisition_offset_gate_hz"]
+            and metrics["strongest_feature_contrast_db"]
+            >= contract["relative_acquisition_contrast_gate_db"]
             else "failed"
         )
         if (

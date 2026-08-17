@@ -54,11 +54,49 @@ def test_carrier_gate_pass_fail_full_span_and_determinism(tmp_path: Path) -> Non
     failed = analyze_carrier(
         off,
         on,
-        CarrierParameters(rate, center, center + 700, fft_size=size, dc_exclusion_hz=100),
+        CarrierParameters(rate, center, center + 1200, fft_size=size, dc_exclusion_hz=100),
         tmp_path / "fail.json",
     )
     assert failed["gate_outcome"] == "failed"
     assert failed["metrics"]["strongest_features"]
+
+
+def test_relative_acquisition_accepts_plausible_uncalibrated_receiver_offset(
+    tmp_path: Path,
+) -> None:
+    rate, size, center = 4096, 1024, 10_000.0
+    off = write_cf32(tmp_path / "off.cf32", np.zeros(size * 2))
+    on = write_cf32(tmp_path / "on.cf32", tone(size * 2, rate, 668))
+    result = analyze_carrier(
+        off,
+        on,
+        CarrierParameters(rate, center, center + 500, fft_size=size, dc_exclusion_hz=100),
+        tmp_path / "result.json",
+    )
+    assert result["gate_outcome"] == "passed"
+    assert result["metrics"]["strongest_offset_hz"] == 168
+    assert result["metrics"]["nominal_offset_gate_passed"] is False
+    assert result["metrics"]["relative_acquisition_passed"] is True
+    assert result["contract"]["gate_policy"] == "bounded_relative_carrier_acquisition"
+
+
+def test_relative_acquisition_thresholds_cannot_be_silently_relaxed(tmp_path: Path) -> None:
+    off = write_cf32(tmp_path / "off.cf32", np.zeros(1024))
+    on = write_cf32(tmp_path / "on.cf32", tone(1024, 4096, 500))
+    with pytest.raises(OfflineAnalysisError, match="maintained 500 Hz and 10 dB"):
+        analyze_carrier(
+            off,
+            on,
+            CarrierParameters(
+                4096,
+                10_000,
+                10_500,
+                fft_size=1024,
+                dc_exclusion_hz=100,
+                relative_acquisition_offset_gate_hz=5_000,
+            ),
+            tmp_path / "result.json",
+        )
 
 
 def test_silence_is_inconclusive_and_outputs_are_immutable(tmp_path: Path) -> None:

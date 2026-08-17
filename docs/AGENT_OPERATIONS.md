@@ -212,7 +212,8 @@ Treat a status as trustworthy only when all applicable checks pass:
 - captures have exact counts, first-read discard, zero overflow, and acceptable
   clipping/timeout/cancellation outcomes;
 - carrier metrics are recomputed from retained RF-off/RF-on IQ and enforce the
-  offset and best-20-Hz-share gates;
+  bounded relative offset and contrast gate while retaining nominal offset and
+  best-20-Hz-share diagnostics;
 - frame evidence exists only after a passing carrier gate;
 - WAV names, UTC slots, PCM structure, hashes, and decoder arguments agree;
 - complete `wsprd` stdout/stderr and decoder-created artifacts are retained;

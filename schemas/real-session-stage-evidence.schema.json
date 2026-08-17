@@ -42,8 +42,8 @@
     },
     "carrier": {
       "type": "object", "additionalProperties": false,
-      "required": ["gate_outcome", "requested_frequency_hz", "strongest_frequency_hz", "offset_hz", "best_20hz_fraction"],
-      "properties": {"gate_outcome": {"enum": ["passed", "failed", "blocked", "inconclusive"]}, "mode_gate": {"enum": ["not_applicable", "passed", "failed", "blocked", "inconclusive"]}, "requested_frequency_hz": {"type": "number", "exclusiveMinimum": 0}, "strongest_frequency_hz": {"type": "number", "exclusiveMinimum": 0}, "offset_hz": {"type": "number"}, "best_20hz_fraction": {"type": "number", "minimum": 0, "maximum": 1}}
+      "required": ["gate_outcome", "requested_frequency_hz", "strongest_frequency_hz", "offset_hz", "best_20hz_fraction", "strongest_contrast_db", "carrier_gate_policy", "relative_acquisition_offset_gate_hz", "relative_acquisition_contrast_gate_db"],
+      "properties": {"gate_outcome": {"enum": ["passed", "failed", "blocked", "inconclusive"]}, "mode_gate": {"enum": ["not_applicable", "passed", "failed", "blocked", "inconclusive"]}, "requested_frequency_hz": {"type": "number", "exclusiveMinimum": 0}, "strongest_frequency_hz": {"type": "number", "exclusiveMinimum": 0}, "offset_hz": {"type": "number"}, "best_20hz_fraction": {"type": "number", "minimum": 0, "maximum": 1}, "strongest_contrast_db": {"type": "number"}, "carrier_gate_policy": {"const": "bounded_relative_carrier_acquisition"}, "relative_acquisition_offset_gate_hz": {"const": 500.0}, "relative_acquisition_contrast_gate_db": {"const": 10.0}}
     },
     "slot": {
       "type": "object", "additionalProperties": false,

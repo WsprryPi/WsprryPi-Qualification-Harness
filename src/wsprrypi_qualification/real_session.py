@@ -985,14 +985,18 @@ def _validate_carrier(document: dict[str, object], plan: dict[str, Any], digest:
     offset = cast(float, details["offset_hz"])
     requested = cast(float, details["requested_frequency_hz"])
     strongest = cast(float, details["strongest_frequency_hz"])
-    fraction = cast(float, details["best_20hz_fraction"])
+    policy = details["carrier_gate_policy"]
+    contrast = cast(float, details["strongest_contrast_db"])
+    relative_offset_gate = cast(float, details["relative_acquisition_offset_gate_hz"])
+    relative_contrast_gate = cast(float, details["relative_acquisition_contrast_gate_db"])
     if requested != plan["frequency_hz"] or abs((strongest - requested) - offset) > 1e-6:
         raise RealSessionError("carrier evidence frequency contradicts the plan")
     claimed = cast(str, details["gate_outcome"])
+    if policy != "bounded_relative_carrier_acquisition":
+        raise RealSessionError("carrier evidence uses an unsupported gate policy")
     carrier_derived = (
         "passed"
-        if abs(offset) <= plan["carrier"]["offset_gate_hz"]
-        and fraction >= plan["carrier"]["best_20hz_share_min"]
+        if abs(offset) <= relative_offset_gate and contrast >= relative_contrast_gate
         else "failed"
     )
     mode_gate = details.get("mode_gate", "not_applicable")
@@ -1005,7 +1009,7 @@ def _validate_carrier(document: dict[str, object], plan: dict[str, Any], digest:
             raise RealSessionError("WSPR carrier evidence cannot claim a CW mode gate")
         derived = carrier_derived
     if claimed in {"passed", "failed"} and claimed != derived:
-        raise RealSessionError("carrier gate contradicts the maintained threshold calculation")
+        raise RealSessionError("carrier gate contradicts the maintained relative acquisition")
     return claimed
 
 

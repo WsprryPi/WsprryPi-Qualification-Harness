@@ -106,9 +106,12 @@ profile defaults for the preserved bench, not universal requirements.
 The carrier gate compares fixed-gain RF-on and RF-off intervals in linear
 power, using a Hann window and a documented FFT/averaging contract. Record the
 strongest transmitter-added feature, requested-frequency offset, on/off
-contrast, and best-20-Hz share. The historical gate required the strongest
-feature within 100 Hz and at least 50 percent of resolved transmitter-added
-power in the best 20 Hz.
+contrast, and best-20-Hz share. When the receiver is not frequency-calibrated,
+the gate uses bounded relative acquisition: the strongest transmitter-added
+feature must be within 500 Hz of the requested frequency and at least 10 dB
+above its RF-off power. The historical 100-Hz offset and 50-percent best-20-Hz
+thresholds remain recorded as nominal diagnostics; they are not calibrated
+frequency or thermal-stability claims.
 
 Only a passing carrier advances to WSPR decoding. A qualifying run contains
 one coherent 370-second capture spanning three consecutive bounded frames,

@@ -339,7 +339,7 @@ class FakeAdapters:
 
     def analyze_carrier(self, plan, rf_off, rf_on):
         self.calls.append("carrier_analysis")
-        offset = 0 if self.carrier != "failed" else 200
+        offset = 0 if self.carrier != "failed" else 600
         return self._call(
             "carrier_analysis",
             "completed",
@@ -350,6 +350,10 @@ class FakeAdapters:
                 "strongest_frequency_hz": plan["frequency_hz"] + offset,
                 "offset_hz": offset,
                 "best_20hz_fraction": 0.9 if self.carrier != "failed" else 0.4,
+                "strongest_contrast_db": 20.0,
+                "carrier_gate_policy": "bounded_relative_carrier_acquisition",
+                "relative_acquisition_offset_gate_hz": 500.0,
+                "relative_acquisition_contrast_gate_db": 10.0,
                 "mode_gate": (
                     self.carrier if plan.get("session_kind") == "cw_live_tone" else "not_applicable"
                 ),
@@ -527,6 +531,10 @@ def test_carrier_gate_is_recomputed_from_metrics(tmp_path: Path):
                     "strongest_frequency_hz": plan["frequency_hz"] + 10000,
                     "offset_hz": 10000,
                     "best_20hz_fraction": 0.01,
+                    "strongest_contrast_db": 1.0,
+                    "carrier_gate_policy": "bounded_relative_carrier_acquisition",
+                    "relative_acquisition_offset_gate_hz": 500.0,
+                    "relative_acquisition_contrast_gate_db": 10.0,
                 },
             )
 

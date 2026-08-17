@@ -370,7 +370,7 @@ def test_failure_matrix(tmp_path: Path, injection: Injection, status: str, frame
 
 def test_carrier_failure_comes_from_retained_analysis(tmp_path: Path) -> None:
     base = session_plan()
-    plan = replace(base, offline_evidence=retained_evidence(tmp_path, base, carrier_tone_hz=300))
+    plan = replace(base, offline_evidence=retained_evidence(tmp_path, base, carrier_tone_hz=-500))
     output = QualificationSession(plan, now=NOW).run(confirmation(plan), tmp_path / "bundle")
     assert output["result"]["status"] == "unqualified_carrier"  # type: ignore[index]
     assert output["session"]["frames_started"] is False  # type: ignore[index]
@@ -457,7 +457,7 @@ def test_bundled_derivatives_survive_fixture_removal(tmp_path: Path) -> None:
 
 def test_failing_carrier_does_not_require_frame_evidence(tmp_path: Path) -> None:
     base = session_plan()
-    evidence = retained_evidence(tmp_path, base, carrier_tone_hz=300)
+    evidence = retained_evidence(tmp_path, base, carrier_tone_hz=-500)
     evidence.decode_summary.unlink()
     plan = replace(base, offline_evidence=evidence)
     output = QualificationSession(plan, now=NOW).run(confirmation(plan), tmp_path / "bundle")
