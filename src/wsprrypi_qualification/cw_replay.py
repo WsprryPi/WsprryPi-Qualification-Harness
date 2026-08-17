@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,16 @@ def _relative_artifact(path: Path) -> dict[str, Any]:
     return reference
 
 
+def _bind_authenticated_copy(reference: dict[str, Any], supplied: Path, label: str) -> None:
+    """Bind an explicit local copy by immutable size and SHA-256, not stale origin path."""
+    try:
+        supplied_artifact = artifact(supplied.resolve(strict=True))
+    except OSError as error:
+        raise CwReplayError(f"{label} input is unavailable: {supplied}") from error
+    if any(reference[field] != supplied_artifact[field] for field in ("size_bytes", "sha256")):
+        _fail(f"{label} authenticated copy does not match its retained reference")
+
+
 def _load_acquired_inputs(
     plan_path: Path, expected_path: Path, metadata_path: Path
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], Path]:
@@ -56,9 +67,9 @@ def _load_acquired_inputs(
     expected = load_json_document(expected_path, "cw-expected-events.schema.json")
     metadata = load_json_document(metadata_path, "cw-acquired-capture.schema.json")
     try:
-        _bind(expected["plan"], expected_path, plan_path, "plan")
-        _bind(metadata["plan"], metadata_path, plan_path, "plan")
-        _bind(metadata["expected_events"], metadata_path, expected_path, "expected events")
+        _bind_authenticated_copy(expected["plan"], plan_path, "plan")
+        _bind_authenticated_copy(metadata["plan"], plan_path, "plan")
+        _bind_authenticated_copy(metadata["expected_events"], expected_path, "expected events")
         capture_path = _resolved_reference(metadata["capture"], metadata_path)
         _validate_events(plan, expected)
     except CwContractError as error:
@@ -84,10 +95,12 @@ def _load_acquired_inputs(
     for field, expected_value in comparisons.items():
         if metadata[field] != expected_value:
             _fail(f"acquired capture {field} contradicts the resolved plan")
-    if metadata["acquired_utc"] != plan["resolved_utc"] or not metadata["acquired_utc"].endswith(
-        "Z"
-    ):
-        _fail("acquired capture timestamp must exactly bind the resolved plan UTC")
+    if not metadata["acquired_utc"].endswith("Z"):
+        _fail("acquired capture timestamp must be canonical UTC")
+    acquired_utc = datetime.fromisoformat(metadata["acquired_utc"].replace("Z", "+00:00"))
+    resolved_utc = datetime.fromisoformat(plan["resolved_utc"].replace("Z", "+00:00"))
+    if acquired_utc < resolved_utc:
+        _fail("acquired capture timestamp cannot precede plan resolution")
     if metadata["capture"]["size_bytes"] != int(contract["sample_count"]) * 8:
         _fail("acquired capture byte length is not exact-count CF32LE")
     return plan, expected, metadata, capture_path

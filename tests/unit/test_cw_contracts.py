@@ -11,6 +11,7 @@ from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contrac
 from wsprrypi_qualification.cw_iq import (
     CwIqError,
     _shifted_frequency_model,
+    _unshifted_frequency_model,
     analyze_synthetic_iq,
     generate_synthetic_iq,
 )
@@ -381,7 +382,9 @@ def test_phase4_rejects_absolute_internal_reference_even_when_rehashed(tmp_path:
         validate_replay_bundle(bundle)
 
 
-def test_phase4_requires_explicit_utc_acquisition_time(tmp_path: Path) -> None:
+def test_phase4_requires_canonical_utc_but_allows_capture_after_plan_resolution(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "source"
     source.mkdir()
     plan, expected, metadata = _acquired_inputs(source, "tone")
@@ -393,12 +396,44 @@ def test_phase4_requires_explicit_utc_acquisition_time(tmp_path: Path) -> None:
             plan, expected, metadata, tmp_path / "bundle", source_revision="e" * 40
         )
 
-    document["acquired_utc"] = "2099-01-01T00:00:00Z"
+    document["acquired_utc"] = "2026-08-15T12:01:00Z"
     _write(metadata, document)
-    with pytest.raises(CwReplayError, match="UTC"):
+    result = compose_acquired_replay(
+        plan, expected, metadata, tmp_path / "other-bundle", source_revision="e" * 40
+    )
+    assert result["qualification_claim"] is False
+
+    before = tmp_path / "before"
+    source_before = tmp_path / "source-before"
+    source_before.mkdir()
+    plan_before, expected_before, metadata_before = _acquired_inputs(source_before, "tone")
+    before_document = json.loads(metadata_before.read_text(encoding="utf-8"))
+    before_document["acquired_utc"] = "2026-08-15T11:59:59Z"
+    _write(metadata_before, before_document)
+    with pytest.raises(CwReplayError, match="cannot precede"):
         compose_acquired_replay(
-            plan, expected, metadata, tmp_path / "other-bundle", source_revision="e" * 40
+            plan_before, expected_before, metadata_before, before, source_revision="e" * 40
         )
+
+
+def test_phase4_accepts_hash_identical_local_copies_with_stale_origin_paths(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, "tone")
+    expected_document = json.loads(expected.read_text(encoding="utf-8"))
+    expected_document["plan"]["path"] = "/original/pi/path/tone-plan.json"
+    _write(expected, expected_document)
+    metadata_document = json.loads(metadata.read_text(encoding="utf-8"))
+    metadata_document["expected_events"] = _artifact(expected)
+    metadata_document["expected_events"]["path"] = "/original/pi/path/tone-events.json"
+    metadata_document["plan"]["path"] = "/original/pi/path/tone-plan.json"
+    _write(metadata, metadata_document)
+    result = compose_acquired_replay(
+        plan, expected, metadata, tmp_path / "bundle", source_revision="e" * 40
+    )
+    assert result["qualification_claim"] is False
 
 
 def test_phase4_rejects_semantically_rewritten_result_causes(tmp_path: Path) -> None:
@@ -654,6 +689,34 @@ def test_shifted_frequency_model_separates_bounded_common_drift(tmp_path: Path) 
     assert model["signed_spacing_hz"] == pytest.approx(-10.0)
     assert model["drift_hz_per_s"] == pytest.approx(0.005)
     assert model["correct_transition_count"] == model["transition_count"]
+
+
+@pytest.mark.parametrize(
+    ("offset_hz", "jitter_hz", "expected_cause"),
+    [(169.0, 0.2, None), (501.0, 0.2, "wrong_frequency"), (169.0, 2.0, "frequency_model_residual")],
+)
+def test_unshifted_frequency_model_uses_bounded_relative_centering(
+    tmp_path: Path, offset_hz: float, jitter_hz: float, expected_cause: str | None
+) -> None:
+    plan_path, expected_path, *_ = _chain(tmp_path, "tone")
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    expected = json.loads(expected_path.read_text(encoding="utf-8"))
+    measured = []
+    active_index = 0
+    for event in expected["events"]:
+        frequency = None
+        if event["rf_state"] != "off":
+            frequency = float(event["frequency_hz"]) + offset_hz
+            frequency += jitter_hz if active_index % 2 else -jitter_hz
+            active_index += 1
+        measured.append({"measured_frequency_hz": frequency})
+    model, causes = _unshifted_frequency_model(plan, expected, measured)
+    assert model is not None
+    assert model["common_offset_hz"] == pytest.approx(offset_hz, abs=jitter_hz + 1e-6)
+    if expected_cause is None:
+        assert causes == []
+    else:
+        assert expected_cause in causes
 
 
 def test_phase3_shifted_iq_with_bounded_common_drift_passes(tmp_path: Path) -> None:

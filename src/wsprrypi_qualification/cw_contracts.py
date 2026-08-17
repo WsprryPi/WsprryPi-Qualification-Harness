@@ -6,6 +6,8 @@ import math
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from wsprrypi_qualification.cw_reference import ReferenceEncoderError, generate_expected_events
 from wsprrypi_qualification.offline import (
     FailureCause,
@@ -202,7 +204,9 @@ def _validate_observations(
         _fail("frequency tolerance is tighter than analyzer resolution")
     if thresholds["timing_tolerance_s"] < analyzer["time_resolution_s"]:
         _fail("timing tolerance is tighter than analyzer resolution")
-    if thresholds["spacing_tolerance_hz"] < analyzer["frequency_resolution_hz"]:
+    if plan["mode"] in {"fskcw", "dfcw"} and (
+        thresholds["spacing_tolerance_hz"] < analyzer["frequency_resolution_hz"]
+    ):
         _fail("spacing tolerance is tighter than analyzer resolution")
     if thresholds["maximum_transition_s"] < analyzer["time_resolution_s"]:
         _fail("transition threshold is tighter than analyzer resolution")
@@ -229,9 +233,42 @@ def _validate_observations(
     if (derived == "passed") == bool(observations["failure_causes"]):
         _fail("analysis failure causes contradict the analysis outcome")
     shifted_model = observations.get("measurement_summary", {}).get("shifted_frequency_model")
+    unshifted_model = observations.get("measurement_summary", {}).get("unshifted_frequency_model")
+    if plan["mode"] in {"fskcw", "dfcw"} and unshifted_model is not None:
+        _fail("shifted modes cannot contain an unshifted-frequency model")
     if plan["mode"] not in {"fskcw", "dfcw"}:
         if shifted_model is not None:
             _fail("unshifted modes cannot contain a shifted-frequency model")
+        if unshifted_model is None:
+            if derived == "passed":
+                _fail("passing unshifted observations require a relative-frequency model")
+        else:
+            minimum_contrast = float(thresholds["minimum_contrast_db"])
+            active_frequencies = [
+                float(item["measured_frequency_hz"])
+                for event, item in zip(expected["events"], measured, strict=True)
+                if event["rf_state"] != "off"
+                and item["measured_frequency_hz"] is not None
+                and item["carrier_continuous"] is True
+                and float(item["contrast_db"]) >= minimum_contrast
+            ]
+            if not active_frequencies:
+                _fail("unshifted-frequency model requires reliable active events")
+            measured_primary = float(np.median(np.asarray(active_frequencies)))
+            commanded_primary = float(plan["protocol"]["primary_frequency_hz"])
+            maximum_residual = max(
+                abs(frequency - measured_primary) for frequency in active_frequencies
+            )
+            if (
+                unshifted_model["commanded_primary_frequency_hz"] != commanded_primary
+                or abs(unshifted_model["measured_primary_frequency_hz"] - measured_primary) > 1e-6
+                or abs(unshifted_model["common_offset_hz"] - (measured_primary - commanded_primary))
+                > 1e-6
+                or abs(unshifted_model["maximum_residual_hz"] - maximum_residual) > 1e-6
+                or unshifted_model["observation_count"] != len(active_frequencies)
+                or unshifted_model["acquisition_offset_gate_hz"] != 500.0
+            ):
+                _fail("unshifted-frequency model contradicts measured active events")
     elif shifted_model is None:
         if derived == "passed":
             _fail("passing shifted-CW observations require a frequency model")

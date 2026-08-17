@@ -19,7 +19,8 @@ from wsprrypi_qualification.offline import (
 )
 
 ANALYZER_NAME = "wsprrypi-qualification-cw-iq"
-ANALYZER_VERSION = "2"
+ANALYZER_VERSION = "3"
+RELATIVE_ACQUISITION_OFFSET_GATE_HZ = 500.0
 
 
 class CwIqError(OfflineAnalysisError):
@@ -184,6 +185,45 @@ def _shifted_frequency_model(
     }, sorted(set(causes))
 
 
+def _unshifted_frequency_model(
+    plan: dict[str, Any],
+    expected: dict[str, Any],
+    measured: list[dict[str, Any]],
+) -> tuple[dict[str, float | int] | None, list[str]]:
+    """Center unshifted modes on a bounded common receiver-frequency offset."""
+    if plan["mode"] in {"fskcw", "dfcw"}:
+        return None, []
+    minimum_contrast = float(plan["thresholds"]["minimum_contrast_db"])
+    rows = [
+        float(observation["measured_frequency_hz"])
+        for event, observation in zip(expected["events"], measured, strict=True)
+        if event["rf_state"] != "off"
+        and observation["measured_frequency_hz"] is not None
+        and observation.get("carrier_continuous", True) is True
+        and float(observation.get("contrast_db", minimum_contrast)) >= minimum_contrast
+    ]
+    if not rows:
+        return None, ["unresolvable_frequency_model"]
+    expected_primary = float(plan["protocol"]["primary_frequency_hz"])
+    measured_primary = float(np.median(np.asarray(rows)))
+    common_offset = measured_primary - expected_primary
+    maximum_residual = max(abs(value - measured_primary) for value in rows)
+    tolerance = float(plan["thresholds"]["frequency_tolerance_hz"])
+    causes: list[str] = []
+    if abs(common_offset) > RELATIVE_ACQUISITION_OFFSET_GATE_HZ:
+        causes.append("wrong_frequency")
+    if maximum_residual > tolerance:
+        causes.append("frequency_model_residual")
+    return {
+        "commanded_primary_frequency_hz": expected_primary,
+        "measured_primary_frequency_hz": measured_primary,
+        "common_offset_hz": common_offset,
+        "maximum_residual_hz": maximum_residual,
+        "observation_count": len(rows),
+        "acquisition_offset_gate_hz": RELATIVE_ACQUISITION_OFFSET_GATE_HZ,
+    }, sorted(set(causes))
+
+
 def analyze_synthetic_iq(
     plan_path: Path,
     expected_path: Path,
@@ -236,7 +276,7 @@ def analyze_synthetic_iq(
         for event in expected["events"]
         if event["rf_state"] != "off"
     ]
-    frequency_resolution = rate / min(256, min(active_lengths))
+    frequency_resolution = rate / min(active_lengths)
     thresholds = plan["thresholds"]
     if float(thresholds["timing_tolerance_s"]) < time_resolution:
         _fail("timing tolerance is tighter than analyzer resolution")
@@ -244,7 +284,10 @@ def analyze_synthetic_iq(
         _fail("transition threshold is tighter than analyzer resolution")
     if float(thresholds["frequency_tolerance_hz"]) < frequency_resolution:
         _fail("frequency tolerance is tighter than analyzer resolution")
-    if float(thresholds["spacing_tolerance_hz"]) < frequency_resolution:
+    if (
+        plan["mode"] in {"fskcw", "dfcw"}
+        and float(thresholds["spacing_tolerance_hz"]) < frequency_resolution
+    ):
         _fail("spacing tolerance is tighter than analyzer resolution")
     powers = np.abs(samples.astype(np.complex128)) ** 2
     quiet_indexes: list[int] = []
@@ -346,10 +389,6 @@ def analyze_synthetic_iq(
             )
             if not continuous:
                 causes.append("missing_carrier")
-            if plan["mode"] not in {"fskcw", "dfcw"} and abs(
-                frequency - float(event["frequency_hz"])
-            ) > float(thresholds["frequency_tolerance_hz"]):
-                causes.append("wrong_frequency")
             expected_off = detected_states[expected_start:expected_end] == 0
             longest_off = 0
             current_off = 0
@@ -395,11 +434,7 @@ def analyze_synthetic_iq(
                 if not continuous:
                     outcome = "failed"
                     causes.append("missing_carrier")
-                elif frequency is None or (
-                    plan["mode"] not in {"fskcw", "dfcw"}
-                    and abs(frequency - float(event["frequency_hz"]))
-                    > float(thresholds["frequency_tolerance_hz"])
-                ):
+                elif frequency is None:
                     outcome = "failed"
                     causes.append("wrong_frequency")
                 repetition = event["repetition"]
@@ -446,10 +481,16 @@ def analyze_synthetic_iq(
             measured[position + 1]["outcome"] = "failed"
             causes.append("carrier_interruption")
     shifted_model, shifted_causes = _shifted_frequency_model(plan, expected, measured)
+    unshifted_model, unshifted_causes = _unshifted_frequency_model(plan, expected, measured)
     if not blocked and shifted_causes:
         causes.extend(shifted_causes)
         for event, observation in zip(expected["events"], measured, strict=True):
             if event["rf_state"] in {"primary", "secondary"}:
+                observation["outcome"] = "failed"
+    if not blocked and unshifted_causes:
+        causes.extend(unshifted_causes)
+        for event, observation in zip(expected["events"], measured, strict=True):
+            if event["rf_state"] != "off":
                 observation["outcome"] = "failed"
     outcomes = {item["outcome"] for item in measured}
     analysis_outcome = "passed"
@@ -511,6 +552,7 @@ def analyze_synthetic_iq(
                 messages[repetition] for repetition in range(len(messages))
             ],
             "shifted_frequency_model": shifted_model,
+            "unshifted_frequency_model": unshifted_model,
             "qualification_claim": False,
         },
         "analysis_outcome": analysis_outcome,

@@ -19,6 +19,13 @@ continuity in eight subwindows, and frequency from complex phase progression.
 RF-off intervals are measured too, so false silence cannot pass. Clipping is a
 fixture blockage rather than transmitter failure.
 
+Frequency resolution uses the full shortest active interval consumed by the
+phase-progress estimator; it is not truncated to an artificial 256-sample FFT
+limit. Tone, CW, and QRSS use a bounded common receiver offset of at most
+500 Hz and enforce the plan tolerance against residual event-to-event error.
+Shifted modes retain their separate spacing, state, transition, and drift model.
+Spacing resolution is therefore applicable only to FSKCW and DFCW.
+
 ```text
 wsprrypi-qualification generate-cw-synthetic-iq \
   PLAN.json EXPECTED.json CAPTURE.cf32 CAPTURE.json --seed 1

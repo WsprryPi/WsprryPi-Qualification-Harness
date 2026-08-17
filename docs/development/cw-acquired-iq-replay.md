@@ -13,6 +13,12 @@ fixed gain, disabled AGC and bias tee, discarded first read, and exact receiver
 identity. `synthetic` is required to be false. This is an acquired-artifact
 contract, not independent lifecycle proof.
 
+Explicit local copies of the plan and expected-event documents are accepted
+when their retained size and SHA-256 match exactly. Their recorded origin path
+is provenance, not a requirement that replay recreate a Pi filesystem path.
+The acquisition UTC records when capture actually began and is intentionally
+distinct from the plan's earlier `resolved_utc`; neither timestamp is rewritten.
+
 ```text
 wsprrypi-qualification compose-cw-acquired-replay \
   PLAN.json EXPECTED.json CAPTURE-METADATA.json REPLAY-DIRECTORY \
