@@ -28,6 +28,27 @@ class RealFixtureBlocked(RealSessionError):
     """The receiver, RF path, ownership, or required fixture is unavailable."""
 
 
+HELPER_VERIFICATION_OPERATIONS = (
+    "transmitter_service_inspect",
+    "receiver_service_inspect",
+    "parent_revision_inspect",
+    "submodule_revision_inspect",
+)
+
+
+def helper_verification_deadline(plan: dict[str, Any]) -> float:
+    """Return the explicit aggregate bound for sequential helper verification."""
+    return cast(float, plan["deadlines"]["helper_s"]) * len(HELPER_VERIFICATION_OPERATIONS)
+
+
+def helper_verification_contract(plan: dict[str, Any]) -> dict[str, object]:
+    return {
+        "operations": list(HELPER_VERIFICATION_OPERATIONS),
+        "per_operation_deadline_s": plan["deadlines"]["helper_s"],
+        "aggregate_deadline_s": helper_verification_deadline(plan),
+    }
+
+
 class RealPhase(StrEnum):
     REQUESTED = "requested"
     VALIDATED = "validated"
@@ -203,10 +224,14 @@ class RealQualificationSession:
             event(RealPhase.CAPABILITIES, "passed", "all required capabilities discovered")
             helper = self.adapters.verify_helper(plan)
             _validate_stage(
-                helper, "helper", self.plan.sha256, "passed", plan["deadlines"]["helper_s"]
+                helper,
+                "helper",
+                self.plan.sha256,
+                "passed",
+                helper_verification_deadline(plan),
             )
             helper_details = cast(dict[str, object], helper["details"])
-            expected_helpers = {
+            expected_helpers: dict[str, object] = {
                 "transmitter": {
                     key: plan["remote_helper"][key]
                     for key in (
@@ -230,6 +255,7 @@ class RealQualificationSession:
                     )
                 },
             }
+            expected_helpers["verification_contract"] = helper_verification_contract(plan)
             if helper_details != expected_helpers:
                 raise RealSessionError("helper evidence differs from the resolved helper")
             evidence["helper"] = helper
@@ -619,7 +645,9 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         raise RealSessionError("WSPR slots must be three consecutive even UTC boundaries")
     deadlines = document["deadlines"]
     if deadlines["overall_s"] <= max(
-        deadlines["helper_s"], deadlines["transmitter_s"], deadlines["receiver_s"]
+        helper_verification_deadline(document),
+        deadlines["transmitter_s"],
+        deadlines["receiver_s"],
     ):
         raise RealSessionError("overall deadline must exceed every component deadline")
     digest = helper_configuration_plan_sha256(document)
@@ -646,9 +674,21 @@ def validate_real_session_document(document: dict[str, Any]) -> None:
     plan = document["resolved_plan"]
     digest = document["resolved_plan_sha256"]
     evidence = document["evidence"]
+    helper_evidence = evidence.get("helper")
+    helper_has_aggregate_contract = (
+        isinstance(helper_evidence, dict)
+        and isinstance(helper_evidence.get("details"), dict)
+        and "verification_contract" in helper_evidence["details"]
+    )
     simple_stages = {
         "capabilities": ("capabilities", "passed", plan["deadlines"]["helper_s"]),
-        "helper": ("helper", "passed", plan["deadlines"]["helper_s"]),
+        "helper": (
+            "helper",
+            "passed",
+            helper_verification_deadline(plan)
+            if helper_has_aggregate_contract
+            else plan["deadlines"]["helper_s"],
+        ),
         "ownership": ("ownership", "passed", plan["deadlines"]["helper_s"]),
         "initial_rf_idle": ("rf_idle", "passed", plan["deadlines"]["helper_s"]),
         "cleanup_registration": (
@@ -664,13 +704,15 @@ def validate_real_session_document(document: dict[str, Any]) -> None:
         "bindings": plan["capability_bindings"]
     }:
         raise RealSessionError("retained capability evidence differs from the plan")
-    expected_helpers = {
+    expected_helpers: dict[str, object] = {
         side: {
             key: plan[field][key]
             for key in ("host", "path", "sha256", "identity", "config_path", "config_sha256")
         }
         for side, field in (("transmitter", "remote_helper"), ("receiver", "receiver_helper"))
     }
+    if helper_has_aggregate_contract:
+        expected_helpers["verification_contract"] = helper_verification_contract(plan)
     if "helper" in evidence and evidence["helper"]["details"] != expected_helpers:
         raise RealSessionError("retained helper evidence differs from the plan")
     expected_ownership = {

@@ -16,11 +16,12 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 from wsprrypi_qualification.application_shims import (
     ApplicationIdentity,
@@ -49,12 +50,16 @@ from wsprrypi_qualification.real_capabilities import (
     capability_plan_sha256,
 )
 from wsprrypi_qualification.real_session import (
+    HELPER_VERIFICATION_OPERATIONS,
     RealSessionError,
     helper_configuration_plan_sha256,
+    helper_verification_contract,
+    helper_verification_deadline,
     resolved_real_plan_sha256,
 )
 
 _COHERENT_CAPTURE_STARTUP_GUARD_S = 2.0
+_T = TypeVar("_T")
 
 
 def _stage_bound_artifact(binding: dict[str, object], destination: Path) -> dict[str, Any]:
@@ -323,39 +328,69 @@ class ProductionRealSessionAdapters:
     def verify_helper(self, plan: dict[str, Any]) -> dict[str, object]:
         started = time.monotonic()
         # A signed, plan-bound response proves both persistent helper sessions.
-        for provider, services in (
-            (self.tx_services, plan["services"]["transmitter"]),
-            (self.rx_services, plan["services"]["receiver"]),
+        for operation_name, provider, services in (
+            (
+                HELPER_VERIFICATION_OPERATIONS[0],
+                self.tx_services,
+                plan["services"]["transmitter"],
+            ),
+            (
+                HELPER_VERIFICATION_OPERATIONS[1],
+                self.rx_services,
+                plan["services"]["receiver"],
+            ),
         ):
             if not services:
                 raise RealSessionError("each live host requires an inspectable service binding")
-            provider.inspect(services[0])
+
+            def inspect_service(
+                provider: HelperServiceProvider = provider, service: str = services[0]
+            ) -> object:
+                return provider.inspect(service)
+
+            self._bounded_helper_operation(
+                operation_name,
+                plan["deadlines"]["helper_s"],
+                inspect_service,
+            )
         source = plan["source"]
         observed = []
-        for arguments in (
+        for operation_name, arguments in (
             (
-                source["git_path"],
-                "-c",
-                f"safe.directory={source['repository_path']}",
-                "-C",
-                source["repository_path"],
-                "rev-parse",
-                "HEAD",
+                HELPER_VERIFICATION_OPERATIONS[2],
+                (
+                    source["git_path"],
+                    "-c",
+                    f"safe.directory={source['repository_path']}",
+                    "-C",
+                    source["repository_path"],
+                    "rev-parse",
+                    "HEAD",
+                ),
             ),
             (
-                source["git_path"],
-                "-c",
-                f"safe.directory={source['repository_path']}",
-                "-C",
-                source["repository_path"],
-                "rev-parse",
-                f"HEAD:{source['submodule_path']}",
+                HELPER_VERIFICATION_OPERATIONS[3],
+                (
+                    source["git_path"],
+                    "-c",
+                    f"safe.directory={source['repository_path']}",
+                    "-C",
+                    source["repository_path"],
+                    "rev-parse",
+                    f"HEAD:{source['submodule_path']}",
+                ),
             ),
         ):
-            process = self.source_launcher.begin(arguments)
-            result = process.wait(self._remaining(plan["deadlines"]["helper_s"]), None)
+
+            def inspect_revision(arguments: tuple[str, ...] = arguments) -> Any:
+                process = self.source_launcher.begin(arguments)
+                return process.wait(self._remaining(plan["deadlines"]["helper_s"]), None)
+
+            result = self._bounded_helper_operation(
+                operation_name, plan["deadlines"]["helper_s"], inspect_revision
+            )
             if result.return_code != 0 or not result.cleanup_verified:
-                raise RealSessionError("remote source revision inspection failed")
+                raise RealSessionError(f"helper verification {operation_name} failed")
             observed.append(result.stdout.strip())
         if observed != [source["parent_revision"], source["submodule_revision"]]:
             raise RealSessionError("remote source revisions differ from the resolved plan")
@@ -384,9 +419,23 @@ class ProductionRealSessionAdapters:
             }
             for side, field in (("transmitter", "remote_helper"), ("receiver", "receiver_helper"))
         }
+        details["verification_contract"] = helper_verification_contract(plan)
         return self._stage(
-            plan, "helper", "passed", details, plan["deadlines"]["helper_s"], started
+            plan, "helper", "passed", details, helper_verification_deadline(plan), started
         )
+
+    @staticmethod
+    def _bounded_helper_operation(name: str, deadline_s: float, operation: Callable[[], _T]) -> _T:
+        started = time.monotonic()
+        try:
+            result = operation()
+        except Exception as error:
+            raise RealSessionError(
+                f"helper verification {name} failed: {type(error).__name__}: {error}"
+            ) from error
+        if time.monotonic() - started > deadline_s:
+            raise RealSessionError(f"helper verification {name} exceeded its hard deadline")
+        return result
 
     def inspect_services_and_ownership(self, plan: dict[str, Any]) -> dict[str, object]:
         started = time.monotonic()

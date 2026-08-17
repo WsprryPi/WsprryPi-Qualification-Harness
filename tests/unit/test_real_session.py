@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from wsprrypi_qualification.cli import main
+from wsprrypi_qualification.live_adapters import ProductionRealSessionAdapters
 from wsprrypi_qualification.offline import OfflineAnalysisError
 from wsprrypi_qualification.real_session import (
     RealQualificationSession,
@@ -13,6 +14,8 @@ from wsprrypi_qualification.real_session import (
     ResolvedRealSessionPlan,
     _validate_stage,
     helper_configuration_plan_sha256,
+    helper_verification_contract,
+    helper_verification_deadline,
     resolved_real_plan_sha256,
     validate_real_session_document,
 )
@@ -275,6 +278,7 @@ class FakeAdapters:
         return self._call(
             "helper",
             evidence_type="helper",
+            deadline_s=helper_verification_deadline(plan),
             details={
                 side: {
                     key: plan[field][key]
@@ -291,7 +295,8 @@ class FakeAdapters:
                     ("transmitter", "remote_helper"),
                     ("receiver", "receiver_helper"),
                 )
-            },
+            }
+            | {"verification_contract": helper_verification_contract(plan)},
         )
 
     def inspect_services_and_ownership(self, plan):
@@ -476,6 +481,60 @@ def test_hardware_free_success_remains_inconclusive_and_is_packaged(tmp_path: Pa
     assert (bundle / "result.json").is_file()
     assert (bundle / "SHA256SUMS").is_file()
     assert adapters.calls.index("install_cleanup") < adapters.calls.index("rf_on")
+
+
+def test_helper_stage_accepts_sequential_aggregate_with_individual_bound(tmp_path: Path):
+    class SixSecondAggregate(FakeAdapters):
+        def verify_helper(self, plan):
+            document = super().verify_helper(plan)
+            document["elapsed_s"] = 6
+            return document
+
+    assert run(tmp_path, SixSecondAggregate())["final_status"] == "inconclusive"
+
+
+def test_legacy_helper_stage_retains_original_deadline_semantics(tmp_path: Path):
+    document = run(tmp_path, FakeAdapters())
+    helper = document["evidence"]["helper"]
+    del helper["details"]["verification_contract"]
+    helper["deadline_s"] = document["resolved_plan"]["deadlines"]["helper_s"]
+    validate_real_session_document(document)
+
+
+def test_helper_stage_rejects_aggregate_overrun(tmp_path: Path):
+    class AggregateOverrun(FakeAdapters):
+        def verify_helper(self, plan):
+            document = super().verify_helper(plan)
+            document["elapsed_s"] = helper_verification_deadline(plan) + 0.01
+            return document
+
+    document = run(tmp_path, AggregateOverrun())
+    assert document["final_status"] == "preflight_failed"
+    assert "recorded hard deadline" in document["failure_causes"][0]
+    assert document["cleanup"] is None
+
+
+def test_helper_preflight_failure_closes_partial_live_sessions(tmp_path: Path, monkeypatch):
+    observed = FakeAdapters(fail="helper")
+    adapters = object.__new__(ProductionRealSessionAdapters)
+    monkeypatch.setattr(adapters, "begin_session", lambda plan: None)
+    monkeypatch.setattr(adapters, "discover_capabilities", observed.discover_capabilities)
+    monkeypatch.setattr(adapters, "verify_helper", observed.verify_helper)
+    monkeypatch.setattr(adapters, "close", observed.close)
+    monkeypatch.setattr(adapters, "publish_artifacts", lambda root: [])
+    monkeypatch.setattr(adapters, "validate_published_artifacts", lambda root: None)
+    plan = ResolvedRealSessionPlan(plan_document(execution_mode="live"))
+    external, rf = authorizations(plan)
+    document = RealQualificationSession(plan, adapters, now=NOW).run(external, rf, tmp_path)
+    assert document["final_status"] == "preflight_failed"
+    assert observed.calls[-1] == "close"
+
+
+def test_overall_deadline_must_contain_aggregate_helper_verification() -> None:
+    document = plan_document()
+    document["deadlines"]["overall_s"] = helper_verification_deadline(document)
+    with pytest.raises(RealSessionError, match="overall deadline"):
+        ResolvedRealSessionPlan(document).validated()
 
 
 def test_failed_carrier_suppresses_frames(tmp_path: Path):

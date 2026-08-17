@@ -203,6 +203,29 @@ def test_stage_refuses_to_hide_deadline_overrun(tmp_path: Path, monkeypatch) -> 
         adapter._stage(plan_document(), "helper", "passed", {}, 5.0, 0.0)
 
 
+def test_helper_suboperation_refuses_individual_deadline_overrun() -> None:
+    with pytest.raises(
+        RealSessionError,
+        match="helper verification transmitter_service_inspect exceeded its hard deadline",
+    ):
+        ProductionRealSessionAdapters._bounded_helper_operation(
+            "transmitter_service_inspect", 0.001, lambda: time.sleep(0.01)
+        )
+
+
+def test_helper_suboperation_attributes_operation_failure() -> None:
+    def fail() -> object:
+        raise RuntimeError("injected")
+
+    with pytest.raises(
+        RealSessionError,
+        match="helper verification receiver_service_inspect failed: RuntimeError: injected",
+    ):
+        ProductionRealSessionAdapters._bounded_helper_operation(
+            "receiver_service_inspect", 5.0, fail
+        )
+
+
 def test_transmitter_execution_retains_complete_owned_process_result(tmp_path: Path) -> None:
     adapter = bare_adapter(tmp_path)
     plan = plan_document()
