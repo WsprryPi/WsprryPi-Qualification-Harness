@@ -9,11 +9,14 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.test_cw_contracts import _chain
 from tests.unit.test_real_session import plan_document, tone_plan_document
+from wsprrypi_qualification.cw_iq import analyze_synthetic_iq, generate_synthetic_iq
 from wsprrypi_qualification.live_adapters import (
     LiveAdapterPaths,
     ProductionRealSessionAdapters,
     _coherent_capture_launch_epoch,
+    _derive_rebound_expected_events,
     _intentional_carrier_stop_verified,
     _owned_process_released,
     _retained_capture_has_margin,
@@ -102,7 +105,9 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
     plan_source = external / "tone plan.json"
     expected_source = external / "tone events.json"
     plan_source.write_text('{"kind": "plan"}\n', encoding="utf-8")
-    expected_source.write_text('{"kind": "events"}\n', encoding="utf-8")
+    expected_source.write_text(
+        json.dumps({"kind": "events", "plan": artifact(plan_source)}), encoding="utf-8"
+    )
     off = work / "rf-off.cf32"
     on = work / "rf-on.cf32"
     off.write_bytes(b"off-data")
@@ -140,6 +145,8 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
                     "relative_acquisition_contrast_gate_db": 10.0,
                 },
             }
+        if schema == "cw-expected-events.schema.json":
+            return json.loads(path.read_text(encoding="utf-8"))
         assert path == on_metadata
         assert schema == "capture-metadata.schema.json"
         return {
@@ -157,6 +164,7 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
         observed["expected_path"] = expected_path
         observed["metadata"] = json.loads(metadata_path.read_text(encoding="utf-8"))
         observed["artifact_root"] = kwargs["_artifact_root"]
+        observed["artifacts_at_analysis"] = tuple(adapter._artifacts)
         return {}, {"mode_gate": "passed"}
 
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.load_json_document", load_document)
@@ -166,6 +174,7 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
     result = adapter.analyze_carrier(plan, {}, {})
 
     retained_plan = work / "tone-plan.json"
+    sealed_expected = work / "tone-expected-events.sealed.json"
     retained_expected = work / "tone-expected-events.json"
     assert observed["plan_path"] == retained_plan
     assert observed["expected_path"] == retained_expected
@@ -177,8 +186,73 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
     assert plan_source not in adapter._artifacts
     assert expected_source not in adapter._artifacts
     assert retained_plan in adapter._artifacts
+    assert sealed_expected in adapter._artifacts
     assert retained_expected in adapter._artifacts
+    assert observed["artifacts_at_analysis"] == (
+        work / "carrier-analysis.json",
+        retained_plan,
+        sealed_expected,
+        retained_expected,
+        work / "tone-acquired-capture.json",
+    )
+    assert sealed_expected.read_bytes() == expected_source.read_bytes()
+    assert json.loads(retained_expected.read_text(encoding="utf-8"))["plan"] == artifact(
+        retained_plan
+    )
     assert result["details"]["gate_outcome"] == "passed"
+
+
+def test_rebound_retained_contracts_complete_real_iq_analysis(tmp_path: Path) -> None:
+    external = tmp_path / "sealed contracts outside work"
+    external.mkdir()
+    plan_source, expected_source, *_ = _chain(external, "tone")
+    source_capture = external / "source.cf32"
+    source_metadata = external / "source-metadata.json"
+    generate_synthetic_iq(
+        plan_source,
+        expected_source,
+        source_capture,
+        source_metadata,
+        seed=17,
+    )
+
+    work = tmp_path / "fresh analysis work"
+    work.mkdir()
+    retained_plan = work / "tone-plan.json"
+    sealed_expected = work / "tone-expected-events.sealed.json"
+    retained_expected = work / "tone-expected-events.json"
+    retained_plan_ref = _stage_bound_artifact(artifact(plan_source), retained_plan)
+    sealed_ref = _stage_bound_artifact(artifact(expected_source), sealed_expected)
+    retained_expected_ref = _derive_rebound_expected_events(
+        sealed_expected,
+        retained_expected,
+        retained_plan_ref,
+    )
+    metadata = json.loads(source_metadata.read_text(encoding="utf-8"))
+    metadata["plan"] = retained_plan_ref
+    metadata["expected_events"] = retained_expected_ref
+    retained_capture = work / "retained.cf32"
+    shutil.copyfile(source_capture, retained_capture)
+    metadata["capture"] = artifact(retained_capture)
+    retained_metadata = work / "retained-metadata.json"
+    retained_metadata.write_text(json.dumps(metadata), encoding="utf-8")
+
+    observations, gate = analyze_synthetic_iq(
+        retained_plan,
+        retained_expected,
+        retained_metadata,
+        work / "observations.json",
+        work / "gate.json",
+        source_revision="d" * 40,
+        _artifact_root=work,
+    )
+
+    assert sealed_ref == artifact(sealed_expected)
+    assert sealed_expected.read_bytes() == expected_source.read_bytes()
+    assert retained_expected.read_bytes() != sealed_expected.read_bytes()
+    assert observations["analysis_outcome"] == "passed"
+    assert gate["carrier_gate"] == "passed"
+    assert gate["mode_gate"] == "not_applicable"
 
 
 def test_capture_task_is_cancelled_and_joined_before_cleanup_can_verify(tmp_path: Path) -> None:

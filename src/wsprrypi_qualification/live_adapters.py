@@ -83,6 +83,22 @@ def _stage_bound_artifact(binding: dict[str, object], destination: Path) -> dict
     return retained
 
 
+def _derive_rebound_expected_events(
+    sealed_destination: Path,
+    derived_destination: Path,
+    retained_plan: dict[str, Any],
+) -> dict[str, Any]:
+    """Derive an analysis-local expected-events copy from a retained sealed source."""
+    expected = load_json_document(sealed_destination, "cw-expected-events.schema.json")
+    expected["plan"] = retained_plan
+    write_json_new(
+        derived_destination,
+        expected,
+        schema_name="cw-expected-events.schema.json",
+    )
+    return artifact(derived_destination)
+
+
 def _coherent_capture_launch_epoch(first_slot: datetime, required_margin_s: float) -> float:
     """Start early enough for receiver setup while preserving the retained-data margin."""
     return first_slot.timestamp() - required_margin_s - _COHERENT_CAPTURE_STARTUP_GUARD_S
@@ -912,11 +928,18 @@ class ProductionRealSessionAdapters:
             native_metadata = load_json_document(on_metadata, "capture-metadata.schema.json")
             contract = plan["cw_contract"]
             retained_plan = self.paths.work_directory / "tone-plan.json"
+            sealed_expected = self.paths.work_directory / "tone-expected-events.sealed.json"
             retained_expected = self.paths.work_directory / "tone-expected-events.json"
             retained_plan_ref = _stage_bound_artifact(contract["plan"], retained_plan)
-            retained_expected_ref = _stage_bound_artifact(
-                contract["expected_events"], retained_expected
+            self._artifacts.append(retained_plan)
+            _stage_bound_artifact(contract["expected_events"], sealed_expected)
+            self._artifacts.append(sealed_expected)
+            retained_expected_ref = _derive_rebound_expected_events(
+                sealed_expected,
+                retained_expected,
+                retained_plan_ref,
             )
+            self._artifacts.append(retained_expected)
             acquired = self.paths.work_directory / "tone-acquired-capture.json"
             observations = self.paths.work_directory / "tone-observations.json"
             mode_gate_path = self.paths.work_directory / "tone-mode-gate.json"
@@ -950,6 +973,7 @@ class ProductionRealSessionAdapters:
                 },
                 schema_name="cw-acquired-capture.schema.json",
             )
+            self._artifacts.append(acquired)
             _, generated_gate = analyze_synthetic_iq(
                 retained_plan,
                 retained_expected,
@@ -962,15 +986,7 @@ class ProductionRealSessionAdapters:
                 _artifact_root=self.paths.work_directory,
             )
             mode_gate = generated_gate["mode_gate"]
-            self._artifacts.extend(
-                (
-                    retained_plan,
-                    retained_expected,
-                    acquired,
-                    observations,
-                    mode_gate_path,
-                )
-            )
+            self._artifacts.extend((observations, mode_gate_path))
             if gate_outcome == "passed" and mode_gate != "passed":
                 gate_outcome = mode_gate
         return self._stage(
