@@ -359,9 +359,7 @@ class FakeAdapters:
                 "carrier_gate_policy": "bounded_relative_carrier_acquisition",
                 "relative_acquisition_offset_gate_hz": 500.0,
                 "relative_acquisition_contrast_gate_db": 10.0,
-                "mode_gate": (
-                    self.carrier if plan.get("session_kind") == "cw_live_tone" else "not_applicable"
-                ),
+                "mode_gate": "not_applicable",
             },
             deadline_s=plan["deadlines"]["overall_s"],
         )
@@ -551,6 +549,23 @@ def test_carrier_only_phase7_never_advances_to_wspr_frames(tmp_path: Path):
     document = RealQualificationSession(plan, adapters, now=NOW).run(external, rf, tmp_path)
     assert document["final_status"] == "inconclusive"
     assert document["carrier_gate"] == "passed"
+    assert document["decode_gate"] == "not_run"
+    assert "frames" not in adapters.calls and "decode" not in adapters.calls
+
+
+def test_carrier_only_failed_carrier_accepts_not_applicable_mode_gate(tmp_path: Path):
+    class FailedToneCarrier(FakeAdapters):
+        def analyze_carrier(self, plan, rf_off, rf_on):
+            document = super().analyze_carrier(plan, rf_off, rf_on)
+            document["details"]["mode_gate"] = "not_applicable"
+            return document
+
+    plan = ResolvedRealSessionPlan(tone_plan_document())
+    adapters = FailedToneCarrier(carrier="failed")
+    external, rf = authorizations(plan)
+    document = RealQualificationSession(plan, adapters, now=NOW).run(external, rf, tmp_path)
+    assert document["final_status"] == "unqualified_carrier"
+    assert document["carrier_gate"] == "failed"
     assert document["decode_gate"] == "not_run"
     assert "frames" not in adapters.calls and "decode" not in adapters.calls
 

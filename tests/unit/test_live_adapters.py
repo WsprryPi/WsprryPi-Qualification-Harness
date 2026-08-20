@@ -22,6 +22,7 @@ from wsprrypi_qualification.live_adapters import (
     _retained_capture_has_margin,
     _stage_bound_artifact,
 )
+from wsprrypi_qualification.manifests import build_manifest, render_manifest, write_manifest
 from wsprrypi_qualification.offline import artifact
 from wsprrypi_qualification.real_capabilities import LaunchResult, ServiceState
 from wsprrypi_qualification.real_session import RealSessionError, resolved_real_plan_sha256
@@ -174,7 +175,7 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
     result = adapter.analyze_carrier(plan, {}, {})
 
     retained_plan = work / "tone-plan.json"
-    sealed_expected = work / "tone-expected-events.sealed.json"
+    sealed_expected = work / "tone-expected-events.sealed.source"
     retained_expected = work / "tone-expected-events.json"
     assert observed["plan_path"] == retained_plan
     assert observed["expected_path"] == retained_expected
@@ -219,7 +220,7 @@ def test_rebound_retained_contracts_complete_real_iq_analysis(tmp_path: Path) ->
     work = tmp_path / "fresh analysis work"
     work.mkdir()
     retained_plan = work / "tone-plan.json"
-    sealed_expected = work / "tone-expected-events.sealed.json"
+    sealed_expected = work / "tone-expected-events.sealed.source"
     retained_expected = work / "tone-expected-events.json"
     retained_plan_ref = _stage_bound_artifact(artifact(plan_source), retained_plan)
     sealed_ref = _stage_bound_artifact(artifact(expected_source), sealed_expected)
@@ -253,6 +254,26 @@ def test_rebound_retained_contracts_complete_real_iq_analysis(tmp_path: Path) ->
     assert observations["analysis_outcome"] == "passed"
     assert gate["carrier_gate"] == "passed"
     assert gate["mode_gate"] == "not_applicable"
+
+    adapter = bare_adapter(work)
+    adapter._artifacts = [
+        retained_plan,
+        sealed_expected,
+        retained_expected,
+        retained_capture,
+        retained_metadata,
+        work / "observations.json",
+        work / "gate.json",
+    ]
+    bundle = tmp_path / "relocatable bundle"
+    bundle.mkdir()
+    adapter.publish_artifacts(bundle)
+    shutil.rmtree(external)
+    adapter.validate_published_artifacts(bundle)
+    write_manifest(bundle)
+    assert (bundle / "SHA256SUMS").read_text(encoding="utf-8") == render_manifest(
+        build_manifest(bundle)
+    )
 
 
 def test_capture_task_is_cancelled_and_joined_before_cleanup_can_verify(tmp_path: Path) -> None:

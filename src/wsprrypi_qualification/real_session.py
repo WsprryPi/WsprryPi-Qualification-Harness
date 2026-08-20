@@ -1049,9 +1049,9 @@ def _validate_carrier(document: dict[str, object], plan: dict[str, Any], digest:
     )
     mode_gate = details.get("mode_gate", "not_applicable")
     if plan.get("session_kind") == "cw_live_tone":
-        if mode_gate not in {"passed", "failed", "blocked", "inconclusive"}:
-            raise RealSessionError("carrier-only evidence lacks its maintained mode gate")
-        derived = carrier_derived if carrier_derived != "passed" else mode_gate
+        if mode_gate != "not_applicable":
+            raise RealSessionError("tone carrier evidence contradicts its maintained mode gate")
+        derived = carrier_derived
     else:
         if mode_gate != "not_applicable":
             raise RealSessionError("WSPR carrier evidence cannot claim a CW mode gate")

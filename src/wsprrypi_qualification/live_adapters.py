@@ -928,7 +928,11 @@ class ProductionRealSessionAdapters:
             native_metadata = load_json_document(on_metadata, "capture-metadata.schema.json")
             contract = plan["cw_contract"]
             retained_plan = self.paths.work_directory / "tone-plan.json"
-            sealed_expected = self.paths.work_directory / "tone-expected-events.sealed.json"
+            # The byte-exact sealed input is retained as an authenticated provenance
+            # payload, not as the active JSON contract.  Its original dependency
+            # paths are intentionally preserved and the separately derived JSON
+            # document below is the relocatable analysis contract.
+            sealed_expected = self.paths.work_directory / "tone-expected-events.sealed.source"
             retained_expected = self.paths.work_directory / "tone-expected-events.json"
             retained_plan_ref = _stage_bound_artifact(contract["plan"], retained_plan)
             self._artifacts.append(retained_plan)
