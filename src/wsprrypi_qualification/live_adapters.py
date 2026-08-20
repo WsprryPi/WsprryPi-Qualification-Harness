@@ -991,8 +991,8 @@ class ProductionRealSessionAdapters:
             )
             mode_gate = generated_gate["mode_gate"]
             self._artifacts.extend((observations, mode_gate_path))
-            if gate_outcome == "passed" and mode_gate != "passed":
-                gate_outcome = mode_gate
+            if gate_outcome == "passed":
+                gate_outcome = generated_gate["carrier_gate"]
         return self._stage(
             plan,
             "carrier_analysis",

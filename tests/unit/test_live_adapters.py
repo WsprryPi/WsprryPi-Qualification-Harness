@@ -166,7 +166,7 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
         observed["metadata"] = json.loads(metadata_path.read_text(encoding="utf-8"))
         observed["artifact_root"] = kwargs["_artifact_root"]
         observed["artifacts_at_analysis"] = tuple(adapter._artifacts)
-        return {}, {"mode_gate": "passed"}
+        return {}, {"carrier_gate": "passed", "mode_gate": "not_applicable"}
 
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.load_json_document", load_document)
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.write_json_new", write_document)
@@ -201,6 +201,83 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
         retained_plan
     )
     assert result["details"]["gate_outcome"] == "passed"
+    assert result["details"]["mode_gate"] == "not_applicable"
+
+
+def test_live_tone_analysis_propagates_detailed_carrier_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    work = tmp_path / "analysis work"
+    work.mkdir()
+    external = tmp_path / "sealed inputs"
+    external.mkdir()
+    plan_source = external / "tone-plan.json"
+    expected_source = external / "tone-events.json"
+    plan_source.write_text('{"kind":"plan"}\n', encoding="utf-8")
+    expected_source.write_text(
+        json.dumps({"kind": "events", "plan": artifact(plan_source)}), encoding="utf-8"
+    )
+    adapter = bare_adapter(work)
+    off = work / "off.cf32"
+    on = work / "on.cf32"
+    off.write_bytes(b"off")
+    on.write_bytes(b"on")
+    off_metadata = work / "off.json"
+    on_metadata = work / "on.json"
+    off_metadata.write_text("{}", encoding="utf-8")
+    on_metadata.write_text("{}", encoding="utf-8")
+    adapter._capture_artifacts = {"rf_off": (off, off_metadata), "rf_on": (on, on_metadata)}
+    plan = tone_plan_document()
+    plan["cw_contract"]["plan"] = artifact(plan_source)
+    plan["cw_contract"]["expected_events"] = artifact(expected_source)
+
+    monkeypatch.setattr(adapter, "_run_offline", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "wsprrypi_qualification.live_adapters.load_json_document",
+        lambda path, schema: (
+            {
+                "gate_outcome": "passed",
+                "metrics": {
+                    "strongest_transmitter_added_frequency_hz": 14_097_286.0,
+                    "strongest_offset_hz": 186.0,
+                    "best_20hz_resolved_power_share": 0.99,
+                    "strongest_feature_contrast_db": 110.0,
+                },
+                "contract": {
+                    "gate_policy": "bounded_relative_carrier_acquisition",
+                    "relative_acquisition_offset_gate_hz": 500.0,
+                    "relative_acquisition_contrast_gate_db": 10.0,
+                },
+            }
+            if schema == "carrier-analysis.schema.json"
+            else {
+                "retained_sample_count": plan["carrier"]["rf_on_sample_count"],
+                "overflow_count": 0,
+                "first_read": {"discarded": True},
+                "timestamps": {"retained_capture_start_utc": "2026-08-20T11:11:02Z"},
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        "wsprrypi_qualification.live_adapters.write_json_new",
+        lambda path, document, **kwargs: path.write_text(json.dumps(document), encoding="utf-8"),
+    )
+    monkeypatch.setattr(
+        "wsprrypi_qualification.live_adapters.analyze_synthetic_iq",
+        lambda *args, **kwargs: (
+            {},
+            {
+                "carrier_gate": "failed",
+                "mode_gate": "not_applicable",
+                "failure_causes": ["timing_error"],
+            },
+        ),
+    )
+
+    result = adapter.analyze_carrier(plan, {}, {})
+    assert result["details"]["offset_hz"] == 186.0
+    assert result["details"]["gate_outcome"] == "failed"
+    assert result["details"]["mode_gate"] == "not_applicable"
 
 
 def test_rebound_retained_contracts_complete_real_iq_analysis(tmp_path: Path) -> None:
