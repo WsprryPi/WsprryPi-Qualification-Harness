@@ -101,6 +101,7 @@ wsprrypi-qualification capabilities
 wsprrypi-qualification validate-profile bench examples/bench-wspr5-rsp1b.json
 wsprrypi-qualification validate-profile test examples/test-si5351-160m.json
 wsprrypi-qualification validate-profile receiver-run RUNTIME_RECEIVER_RUN.json
+wsprrypi-qualification evaluate-sdr-calibration SDR-CALIBRATION-PROFILE.json SDR-CALIBRATION-APPLICATION.json
 wsprrypi-qualification validate-capture-metadata CAPTURE_METADATA.json
 wsprrypi-qualification validate-application-plan examples/application-plan-wsprrypi-wspr.json
 wsprrypi-qualification validate-cw-qualification CW_ANALYSIS.json
@@ -175,6 +176,12 @@ Hardware-free application-shim and WSPR/QRSS-family protocol planning is
 documented in [application shims](docs/development/application-shims.md). It
 constructs reviewable WsprryPi argument vectors but cannot execute them or
 authorize RF.
+
+The hardware-free [SDR calibration-profile consumer](docs/development/sdr-calibration-profile-consumer.md)
+pins the customer-facing native `sdr-calibration-profile` contract at exactly
+version `1.0.0`, validates canonical integrity and binding facts, and evaluates
+indicated frequency without touching a receiver. It is not yet attached to
+recorded or live qualification workflows.
 
 Hardware-free Slice 6 preparation composes WsprryPi plans, runtime
 confirmation, the mock lifecycle supervisor, WSPR gate sequencing, result

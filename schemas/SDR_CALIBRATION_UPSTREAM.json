@@ -1,0 +1,9 @@
+{
+  "project": "SDR-Calibration",
+  "repository": "https://github.com/lbussy/SDR-Calibration",
+  "revision": "faae3ea76ee9611e379fa2b3c99fb92bebd48041",
+  "schema_name": "sdr-calibration-profile",
+  "schema_version": "1.0.0",
+  "schema_sha256": "2a2ef74f783e6962159c41283a70fc5dced70e7cfc2f6ae2eb4bbc5ff52b9930",
+  "compatibility": "exact-version-only"
+}

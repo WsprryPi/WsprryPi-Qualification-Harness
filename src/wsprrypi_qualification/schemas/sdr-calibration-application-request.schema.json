@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WsprryPi/WsprryPi-Qualification-Harness/schemas/sdr-calibration-application-request.schema.json",
+  "title": "Harness SDR calibration application request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "indicated_frequency_hz",
+    "device",
+    "configuration",
+    "temperature_c",
+    "warmup_seconds",
+    "evaluated_at",
+    "required_reliability_quotient"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "indicated_frequency_hz": {"type": "number", "exclusiveMinimum": 0},
+    "target_frequency_hz": {"type": "number", "exclusiveMinimum": 0},
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["driver", "manufacturer", "model", "identifier", "identity_strength"],
+      "properties": {
+        "driver": {"type": "string", "minLength": 1},
+        "manufacturer": {"type": "string", "minLength": 1},
+        "model": {"type": "string", "minLength": 1},
+        "identifier": {"type": "string", "minLength": 1},
+        "identity_strength": {
+          "enum": ["hardware_serial", "driver_serial", "operator_assigned", "insufficient"]
+        }
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clock_source", "sample_rate_hz", "frequency_correction_ppm"],
+      "properties": {
+        "clock_source": {"type": "string", "minLength": 1},
+        "sample_rate_hz": {"type": "integer", "minimum": 1},
+        "bandwidth_hz": {"type": "integer", "minimum": 1},
+        "frequency_correction_ppm": {"type": "number"},
+        "driver_version": {"type": ["string", "null"]},
+        "firmware_version": {"type": ["string", "null"]},
+        "antenna_port": {"type": ["string", "null"]},
+        "tuner_path": {"type": ["string", "null"]},
+        "binding_extension": {"type": "object", "additionalProperties": true}
+      }
+    },
+    "temperature_c": {"type": "number"},
+    "warmup_seconds": {"type": "integer", "minimum": 0},
+    "evaluated_at": {"type": "string", "format": "date-time"},
+    "required_reliability_quotient": {"type": "integer", "minimum": 0, "maximum": 100},
+    "maximum_expanded_uncertainty_hz": {"type": "number", "minimum": 0}
+  }
+}

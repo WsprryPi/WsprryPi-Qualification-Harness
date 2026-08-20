@@ -1,0 +1,492 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/sdr-calibration-profile.schema.json",
+  "title": "SDR Calibration Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "profile_id",
+    "profile_status",
+    "created_at",
+    "device",
+    "configuration",
+    "frequency_model",
+    "assurance",
+    "validity",
+    "provenance",
+    "integrity"
+  ],
+  "properties": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "const": "sdr-calibration-profile" },
+        "version": { "const": "1.0.0" }
+      }
+    },
+    "profile_id": { "type": "string", "minLength": 1 },
+    "supersedes_profile_id": { "type": "string", "minLength": 1 },
+    "profile_status": {
+      "enum": ["qualification_capable", "calibrated", "informational_only", "revoked"]
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "device": { "$ref": "#/$defs/device" },
+    "configuration": { "$ref": "#/$defs/configuration" },
+    "frequency_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error_definition", "segments"],
+      "properties": {
+        "error_definition": { "const": "indicated_minus_true" },
+        "segments": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/frequency_segment" }
+        }
+      }
+    },
+    "assurance": { "$ref": "#/$defs/assurance" },
+    "validity": { "$ref": "#/$defs/validity" },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "integrity": { "$ref": "#/$defs/integrity" },
+    "interoperability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapters"],
+      "properties": {
+        "adapters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/adapter_record" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["driver", "manufacturer", "model", "identifier", "identity_strength"],
+      "properties": {
+        "driver": { "type": "string", "minLength": 1 },
+        "manufacturer": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "identifier": { "type": "string", "minLength": 1 },
+        "identity_strength": {
+          "enum": ["hardware_serial", "driver_serial", "operator_assigned", "insufficient"]
+        }
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clock_source", "sample_rate_hz", "frequency_correction_ppm"],
+      "properties": {
+        "clock_source": { "type": "string", "minLength": 1 },
+        "sample_rate_hz": { "type": "integer", "minimum": 1 },
+        "bandwidth_hz": { "type": "integer", "minimum": 1 },
+        "frequency_correction_ppm": { "type": "number" },
+        "driver_version": { "type": ["string", "null"] },
+        "firmware_version": { "type": ["string", "null"] },
+        "antenna_port": { "type": ["string", "null"] },
+        "tuner_path": { "type": ["string", "null"] },
+        "binding_extension": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "frequency_segment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "segment_id",
+        "minimum_frequency_hz",
+        "maximum_frequency_hz",
+        "model",
+        "uncertainty"
+      ],
+      "properties": {
+        "segment_id": { "type": "string", "minLength": 1 },
+        "minimum_frequency_hz": { "type": "number", "minimum": 0 },
+        "maximum_frequency_hz": { "type": "number", "exclusiveMinimum": 0 },
+        "model": {
+          "oneOf": [
+            { "$ref": "#/$defs/constant_ppm_model" },
+            { "$ref": "#/$defs/linear_model" }
+          ]
+        },
+        "uncertainty": { "$ref": "#/$defs/uncertainty" }
+      }
+    },
+    "constant_ppm_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "error_ppm"],
+      "properties": {
+        "type": { "const": "constant_ppm" },
+        "error_ppm": { "type": "number" }
+      }
+    },
+    "linear_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "reference_frequency_hz", "intercept_error_hz", "slope_ppm"],
+      "properties": {
+        "type": { "const": "linear" },
+        "reference_frequency_hz": { "type": "number", "minimum": 0 },
+        "intercept_error_hz": { "type": "number" },
+        "slope_ppm": { "type": "number" }
+      }
+    },
+    "uncertainty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "coverage_factor", "model", "included_components"],
+      "properties": {
+        "kind": { "enum": ["standard", "expanded"] },
+        "coverage_factor": { "type": "number", "exclusiveMinimum": 0 },
+        "confidence_level_approximate": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "base_hz", "ppm_component"],
+          "properties": {
+            "type": { "const": "linear" },
+            "base_hz": { "type": "number", "minimum": 0 },
+            "ppm_component": { "type": "number", "minimum": 0 }
+          }
+        },
+        "included_components": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "excluded_components": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "assurance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scoring_policy_version",
+        "reliability_quotient",
+        "reference_class",
+        "reference_score_ceiling",
+        "limiting_components",
+        "components"
+      ],
+      "properties": {
+        "scoring_policy_version": { "type": "string", "minLength": 1 },
+        "reliability_quotient": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "reference_class": {
+          "enum": [
+            "authority_confirmed",
+            "derived_traceable",
+            "locally_characterized",
+            "ad_hoc",
+            "unknown"
+          ]
+        },
+        "reference_score_ceiling": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "limiting_components": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/assurance_component" }
+        }
+      },
+      "allOf": [{ "$ref": "#/$defs/reference_ceiling_rules" }]
+    },
+    "assurance_component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "score", "basis"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "basis": { "type": "string", "minLength": 1 }
+      }
+    },
+    "validity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["calibrated_at", "not_valid_after", "minimum_warmup_seconds", "temperature"],
+      "properties": {
+        "calibrated_at": { "type": "string", "format": "date-time" },
+        "not_valid_after": { "type": "string", "format": "date-time" },
+        "minimum_warmup_seconds": { "type": "integer", "minimum": 0 },
+        "temperature": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reference_c", "minimum_c", "maximum_c", "measurement_location"],
+          "properties": {
+            "reference_c": { "type": "number" },
+            "minimum_c": { "type": "number" },
+            "maximum_c": { "type": "number" },
+            "measurement_location": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["calibration_run_id", "software", "reference_set", "observation_ids"],
+      "properties": {
+        "calibration_run_id": { "type": "string", "minLength": 1 },
+        "software": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 }
+          }
+        },
+        "reference_registry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema_version", "registry_version", "sha256"],
+          "properties": {
+            "schema_version": { "type": "integer", "minimum": 1 },
+            "registry_version": { "type": "string", "minLength": 1 },
+            "sha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "reference_set": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/reference_record" }
+        },
+        "evidence_bundle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["media_type", "sha256"],
+          "properties": {
+            "media_type": { "type": "string", "minLength": 1 },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "location": { "type": "string", "minLength": 1 }
+          }
+        },
+        "observation_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "reference_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reference_id",
+        "kind",
+        "nominal_frequency_hz",
+        "assurance_score_ceiling",
+        "evidence_sha256"
+      ],
+      "properties": {
+        "reference_id": { "type": "string", "minLength": 1 },
+        "kind": {
+          "enum": [
+            "authority_confirmed",
+            "derived_traceable",
+            "locally_characterized",
+            "ad_hoc",
+            "unknown"
+          ]
+        },
+        "nominal_frequency_hz": { "type": "number", "minimum": 0 },
+        "assurance_score_ceiling": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "frequency_uncertainty_hz": { "type": "number", "minimum": 0 },
+        "description": { "type": "string", "minLength": 1 },
+        "evidence_sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "allOf": [{ "$ref": "#/$defs/reference_ceiling_rules" }]
+    },
+    "reference_ceiling_rules": {
+      "allOf": [
+        {
+          "if": {
+            "properties": { "reference_class": { "const": "authority_confirmed" } },
+            "required": ["reference_class"]
+          },
+          "then": { "properties": { "reference_score_ceiling": { "const": 100 } } }
+        },
+        {
+          "if": {
+            "properties": { "reference_class": { "const": "derived_traceable" } },
+            "required": ["reference_class"]
+          },
+          "then": { "properties": { "reference_score_ceiling": { "const": 90 } } }
+        },
+        {
+          "if": {
+            "properties": { "reference_class": { "const": "locally_characterized" } },
+            "required": ["reference_class"]
+          },
+          "then": { "properties": { "reference_score_ceiling": { "const": 75 } } }
+        },
+        {
+          "if": {
+            "properties": { "reference_class": { "const": "ad_hoc" } },
+            "required": ["reference_class"]
+          },
+          "then": { "properties": { "reference_score_ceiling": { "const": 50 } } }
+        },
+        {
+          "if": {
+            "properties": { "reference_class": { "const": "unknown" } },
+            "required": ["reference_class"]
+          },
+          "then": { "properties": { "reference_score_ceiling": { "const": 0 } } }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "authority_confirmed" } },
+            "required": ["kind"]
+          },
+          "then": { "properties": { "assurance_score_ceiling": { "const": 100 } } }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "derived_traceable" } },
+            "required": ["kind"]
+          },
+          "then": { "properties": { "assurance_score_ceiling": { "const": 90 } } }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "locally_characterized" } },
+            "required": ["kind"]
+          },
+          "then": { "properties": { "assurance_score_ceiling": { "const": 75 } } }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "ad_hoc" } },
+            "required": ["kind"]
+          },
+          "then": { "properties": { "assurance_score_ceiling": { "const": 50 } } }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "unknown" } },
+            "required": ["kind"]
+          },
+          "then": { "properties": { "assurance_score_ceiling": { "const": 0 } } }
+        }
+      ]
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonicalization", "sha256"],
+      "properties": {
+        "canonicalization": { "const": "RFC8785" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "signature": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["algorithm", "key_id", "value"],
+          "properties": {
+            "algorithm": { "const": "ed25519" },
+            "key_id": { "type": "string", "minLength": 1 },
+            "value": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "adapter_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adapter_id",
+        "direction",
+        "application",
+        "application_version",
+        "created_at",
+        "artifact_sha256",
+        "lossy",
+        "metadata"
+      ],
+      "properties": {
+        "adapter_id": {
+          "enum": ["wsjt-x-settings", "wsjt-x-fmt-all"]
+        },
+        "direction": { "enum": ["import", "export"] },
+        "application": { "const": "WSJT-X" },
+        "application_version": { "type": "string", "minLength": 1 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "artifact_sha256": { "$ref": "#/$defs/sha256" },
+        "lossy": { "type": "boolean" },
+        "omitted_capabilities": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "compatibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version_range", "mapping_test_id", "mapping_verified"],
+          "properties": {
+            "version_range": { "type": "string", "minLength": 1 },
+            "mapping_test_id": { "type": "string", "minLength": 1 },
+            "mapping_verified": { "type": "boolean" }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "adapter_id": { "const": "wsjt-x-settings" },
+              "direction": { "const": "export" }
+            },
+            "required": ["adapter_id", "direction"]
+          },
+          "then": {
+            "properties": {
+              "lossy": { "const": true }
+            },
+            "required": ["omitted_capabilities", "compatibility"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "adapter_id": { "const": "wsjt-x-fmt-all" }
+            },
+            "required": ["adapter_id"]
+          },
+          "then": {
+            "properties": {
+              "direction": { "const": "import" }
+            }
+          }
+        }
+      ]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

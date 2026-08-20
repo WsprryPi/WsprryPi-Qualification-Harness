@@ -11,7 +11,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-from wsprrypi_qualification import __version__
+from wsprrypi_qualification import __version__, sdr_calibration
 from wsprrypi_qualification.application_shims import (
     ApplicationPlanError,
     validate_application_plan,
@@ -70,6 +70,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     validate.add_argument("kind", choices=("bench", "test", "receiver-run"))
     validate.add_argument("path", type=Path)
+    sdr_calibration = subparsers.add_parser(
+        "evaluate-sdr-calibration",
+        help="validate and apply a frozen SDR Calibration Profile 1.0.0 offline",
+    )
+    sdr_calibration.add_argument("profile", type=Path)
+    sdr_calibration.add_argument("request", type=Path)
     capture_metadata = subparsers.add_parser(
         "validate-capture-metadata", help="validate exact-count capture metadata"
     )
@@ -325,6 +331,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         return 0
+    if args.command == "evaluate-sdr-calibration":
+        try:
+            sdr_profile = sdr_calibration.load_profile(args.profile)
+            request = sdr_calibration.load_application_request(args.request)
+            result = sdr_calibration.evaluate_profile(sdr_profile, request)
+        except sdr_calibration.SdrCalibrationError as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["qualification_usable"] else 1
     if args.command == "validate-capture-metadata":
         try:
             metadata = load_capture_metadata(args.path)

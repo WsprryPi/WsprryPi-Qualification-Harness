@@ -116,6 +116,12 @@ The maintained offline sequence is:
 6. summarize the three consecutive decoder documents;
 7. validate and manifest the final bundle.
 
+The separate hardware-free SDR calibration consumer accepts only the frozen
+native `sdr-calibration-profile` version `1.0.0` contract. Use
+`evaluate-sdr-calibration PROFILE.json APPLICATION.json` to validate and apply
+it without device access. This command is not yet connected to recorded or live
+qualification; see [`sdr-calibration-profile-consumer.md`](development/sdr-calibration-profile-consumer.md).
+
 The command synopsis in [`README.md`](../README.md) provides examples. The
 details and acquired-evidence checks are in
 [`slice-3.md`](development/slice-3.md). On macOS, tool discovery includes the
