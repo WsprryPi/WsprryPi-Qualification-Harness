@@ -194,6 +194,14 @@ and an RF-on capture count equal to the complete schedule at the resolved sample
 rate. One dedicated WsprryPi process spans the cadence; each cycle is a bounded
 authenticated-helper transaction rather than a new transmitter process.
 
+The legacy `source.submodule_revision` field binds the exact Git object at
+`HEAD:<source.submodule_path>`. Resolve it with
+`git -C <source.repository_path> rev-parse HEAD:<source.submodule_path>`.
+When the component has been absorbed into the parent repository, this is the
+component tree object ID; it is not the commit returned by `git log -1 --
+<source.submodule_path>`. Record the parent `HEAD` separately as
+`source.parent_revision`.
+
 ```text
 python -m wsprrypi_qualification run-cw-live-tone RESOLVED_PLAN.json \
   OUTPUT_PARENT --work-directory NEW_WORK_DIRECTORY --ssh /absolute/ssh \

@@ -403,6 +403,49 @@ def test_helper_suboperation_attributes_operation_failure() -> None:
         )
 
 
+def test_helper_revision_mismatch_reports_expected_and_observed(tmp_path: Path) -> None:
+    adapter = bare_adapter(tmp_path)
+    plan = plan_document()
+    plan["source"]["parent_revision"] = "1" * 40
+    plan["source"]["submodule_revision"] = "2" * 40
+
+    class ServiceProvider:
+        def inspect(self, service: str) -> object:
+            return object()
+
+    class Process:
+        def __init__(self, revision: str) -> None:
+            self.revision = revision
+
+        def wait(self, deadline_s: float, cancellation: object) -> LaunchResult:
+            return LaunchResult(0, self.revision + "\n", "", cleanup_verified=True)
+
+    revisions = iter(("3" * 40, "4" * 40))
+
+    class Launcher:
+        def begin(self, arguments: tuple[str, ...]) -> Process:
+            return Process(next(revisions))
+
+    adapter.tx_services = ServiceProvider()
+    adapter.rx_services = ServiceProvider()
+    adapter.source_launcher = Launcher()
+
+    with pytest.raises(
+        RealSessionError,
+        match=(
+            "expected parent "
+            + "1" * 40
+            + " and component tree "
+            + "2" * 40
+            + "; observed parent "
+            + "3" * 40
+            + " and component tree "
+            + "4" * 40
+        ),
+    ):
+        adapter.verify_helper(plan)
+
+
 def test_transmitter_execution_retains_complete_owned_process_result(tmp_path: Path) -> None:
     adapter = bare_adapter(tmp_path)
     plan = plan_document()

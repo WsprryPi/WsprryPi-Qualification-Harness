@@ -408,8 +408,13 @@ class ProductionRealSessionAdapters:
             if result.return_code != 0 or not result.cleanup_verified:
                 raise RealSessionError(f"helper verification {operation_name} failed")
             observed.append(result.stdout.strip())
-        if observed != [source["parent_revision"], source["submodule_revision"]]:
-            raise RealSessionError("remote source revisions differ from the resolved plan")
+        expected = [source["parent_revision"], source["submodule_revision"]]
+        if observed != expected:
+            raise RealSessionError(
+                "remote source revisions differ from the resolved plan: "
+                f"expected parent {expected[0]} and component tree {expected[1]}; "
+                f"observed parent {observed[0]} and component tree {observed[1]}"
+            )
         source_evidence = self.paths.work_directory / "source-revisions.json"
         source_evidence.write_text(
             json.dumps(
