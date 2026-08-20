@@ -18,6 +18,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
 
+from wsprrypi_qualification.bounded_tone_control import (
+    BoundedToneEndpoint,
+    run_bounded_tone_transaction,
+)
 from wsprrypi_qualification.offline import validate_document
 
 PROTOCOL_VERSION = 1
@@ -30,6 +34,7 @@ OPERATIONS = frozenset(
         "service-set",
         "gpio-inspect",
         "si5351-inspect",
+        "bounded-tone",
     }
 )
 
@@ -49,6 +54,30 @@ class GpioBackend(Protocol):
 
 class Si5351Backend(Protocol):
     def inspect(self, bus: int, address: str) -> dict[str, object]: ...
+
+
+class BoundedToneBackend(Protocol):
+    def run(
+        self, request_id: str, frequency_hz: int, duration_ms: int, outer_timeout_s: float
+    ) -> dict[str, object]: ...
+
+
+class LoopbackBoundedToneBackend:
+    def __init__(self, endpoint: BoundedToneEndpoint, wsprrypi_revision: str) -> None:
+        self.endpoint, self.wsprrypi_revision = endpoint, wsprrypi_revision
+
+    def run(
+        self, request_id: str, frequency_hz: int, duration_ms: int, outer_timeout_s: float
+    ) -> dict[str, object]:
+        result = run_bounded_tone_transaction(
+            self.endpoint,
+            request_id=request_id,
+            frequency_hz=frequency_hz,
+            duration_ms=duration_ms,
+            outer_timeout_s=outer_timeout_s,
+        )
+        result["wsprrypi_revision"] = self.wsprrypi_revision
+        return result
 
 
 class UnsupportedBackend:
@@ -302,6 +331,7 @@ class CapabilityHelperServer:
         services: ServiceBackend | None = None,
         gpio: GpioBackend | None = None,
         si5351: Si5351Backend | None = None,
+        bounded_tone: BoundedToneBackend | None = None,
     ) -> None:
         self.identity, self.plan_sha256 = helper_identity, plan_sha256
         self.allowed_services = allowed_services
@@ -309,6 +339,7 @@ class CapabilityHelperServer:
         self.services = services or cast(ServiceBackend, UnsupportedBackend())
         self.gpio = gpio or cast(GpioBackend, UnsupportedBackend())
         self.si5351 = si5351 or cast(Si5351Backend, UnsupportedBackend())
+        self.bounded_tone = bounded_tone or cast(BoundedToneBackend, UnsupportedBackend())
 
     def dispatch(self, request: dict[str, object]) -> dict[str, object]:
         try:
@@ -337,8 +368,15 @@ class CapabilityHelperServer:
             result = {"name": name, "manager": manager, "running": running}
         elif operation == "gpio-inspect":
             result = self.gpio.inspect(_integer(payload, "pin"))
-        else:
+        elif operation == "si5351-inspect":
             result = self.si5351.inspect(_integer(payload, "bus"), _string(payload, "address"))
+        else:
+            result = self.bounded_tone.run(
+                cast(str, request["request_id"]),
+                _integer(payload, "frequency_hz"),
+                _integer(payload, "duration_ms"),
+                _positive_number(payload, "outer_timeout_s"),
+            )
         result_schemas = {
             "process-start": "process-start-result.schema.json",
             "process-wait": "process-wait-result.schema.json",
@@ -347,6 +385,7 @@ class CapabilityHelperServer:
             "service-set": "service-helper-result.schema.json",
             "gpio-inspect": "gpio-helper-result.schema.json",
             "si5351-inspect": "si5351-helper-result.schema.json",
+            "bounded-tone": "bounded-tone-helper-result.schema.json",
         }
         validate_document(result, result_schemas[operation])
         response = {
@@ -385,6 +424,7 @@ def _validate_envelope(request: dict[str, object]) -> None:
         "service-set": {"name", "manager", "running"},
         "gpio-inspect": {"pin"},
         "si5351-inspect": {"bus", "address"},
+        "bounded-tone": {"frequency_hz", "duration_ms", "outer_timeout_s"},
     }
     operation = request["operation"]
     assert isinstance(operation, str)
@@ -423,6 +463,8 @@ def load_server_config(path: Path) -> CapabilityHelperServer:
         "si5351_helper_path",
         "si5351_helper_sha256",
         "inspection_timeout_s",
+        "bounded_tone_endpoint",
+        "wsprrypi_revision",
     }
     if not isinstance(document, dict) or not required <= set(document) <= required | optional:
         raise HelperProtocolError("helper configuration fields are invalid")
@@ -476,6 +518,20 @@ def load_server_config(path: Path) -> CapabilityHelperServer:
                 inspection_timeout,
             )
         )
+    bounded_tone_backend: BoundedToneBackend | None = None
+    if "bounded_tone_endpoint" in document or "wsprrypi_revision" in document:
+        if "bounded_tone_endpoint" not in document or "wsprrypi_revision" not in document:
+            raise HelperProtocolError("bounded Tone endpoint and WsprryPi revision are inseparable")
+        endpoint = cast(dict[str, object], document["bounded_tone_endpoint"])
+        bounded_tone_backend = LoopbackBoundedToneBackend(
+            BoundedToneEndpoint(
+                cast(str, endpoint["host"]),
+                cast(int, endpoint["port"]),
+                cast(str, endpoint["path"]),
+                cast(int, endpoint["maximum_frame_bytes"]),
+            ),
+            cast(str, document["wsprrypi_revision"]),
+        )
     return CapabilityHelperServer(
         identity,
         digest,
@@ -483,6 +539,7 @@ def load_server_config(path: Path) -> CapabilityHelperServer:
         services=service_backend,
         gpio=gpio_backend,
         si5351=si5351_backend,
+        bounded_tone=bounded_tone_backend,
     )
 
 

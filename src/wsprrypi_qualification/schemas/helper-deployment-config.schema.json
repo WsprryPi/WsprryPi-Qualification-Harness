@@ -1,13 +1,16 @@
 {
   "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,
   "required":["schema_version","protocol_version","helper_identity","plan_sha256","target_host","venv_path","config_path","state_directory","allowed_services","executables","gpio_contract","si5351_contract"],
+  "dependentRequired":{"bounded_tone_endpoint":["wsprrypi_revision"],"wsprrypi_revision":["bounded_tone_endpoint"]},
   "properties":{
     "schema_version":{"const":1},"protocol_version":{"const":1},"helper_identity":{"type":"string","minLength":1},"plan_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"target_host":{"type":"string","minLength":1},
     "venv_path":{"type":"string","minLength":1},"config_path":{"type":"string","minLength":1},"state_directory":{"type":"string","minLength":1},
     "allowed_services":{"type":"array","minItems":1,"maxItems":16,"uniqueItems":true,"items":{"type":"string","pattern":"^[A-Za-z0-9_.@-]+$"}},
     "executables":{"type":"object","additionalProperties":false,"required":["python","helper","systemctl","gpio","si5351"],"properties":{"python":{"$ref":"#/$defs/executable"},"helper":{"$ref":"#/$defs/executable"},"systemctl":{"$ref":"#/$defs/executable"},"gpio":{"$ref":"#/$defs/executable"},"si5351":{"$ref":"#/$defs/executable"}}},
     "gpio_contract":{"type":"object","additionalProperties":false,"required":["chip","line","direction","function"],"properties":{"chip":{"type":"string","minLength":1},"line":{"type":"integer","minimum":0},"direction":{"const":"input"},"function":{"type":"string","minLength":1}}},
-    "si5351_contract":{"type":"object","additionalProperties":false,"required":["bus","address","device","required_outputs"],"properties":{"bus":{"type":"integer","minimum":0},"address":{"type":"string","pattern":"^0x[0-9a-fA-F]{2}$"},"device":{"const":"Si5351"},"required_outputs":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"string","pattern":"^CLK[0-2]$"}}}}
+    "si5351_contract":{"type":"object","additionalProperties":false,"required":["bus","address","device","required_outputs"],"properties":{"bus":{"type":"integer","minimum":0},"address":{"type":"string","pattern":"^0x[0-9a-fA-F]{2}$"},"device":{"const":"Si5351"},"required_outputs":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"string","pattern":"^CLK[0-2]$"}}}},
+    "wsprrypi_revision":{"type":"string","pattern":"^[0-9a-f]{40}$"},
+    "bounded_tone_endpoint":{"type":"object","additionalProperties":false,"required":["host","port","path","maximum_frame_bytes"],"properties":{"host":{"enum":["127.0.0.1","::1"]},"port":{"type":"integer","minimum":1024,"maximum":49151},"path":{"type":"string","pattern":"^/[^\\r\\n]*$"},"maximum_frame_bytes":{"type":"integer","minimum":128,"maximum":1048576}}}
   },
   "$defs":{"executable":{"type":"object","additionalProperties":false,"required":["path","sha256"],"properties":{"path":{"type":"string","minLength":1},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}}
 }

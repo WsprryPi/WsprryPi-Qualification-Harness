@@ -627,6 +627,25 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         for executable in (document["remote_helper"], document["wsprrypi"])
     ):
         raise RealSessionError("helper or WsprryPi host differs from the resolved host")
+    if document.get("session_kind") == "cw_live_tone":
+        helper = document["remote_helper"]
+        if not {"bounded_tone_endpoint", "wsprrypi_revision"} <= set(helper):
+            raise RealSessionError("CW live Tone requires bounded Tone helper bindings")
+        if helper["wsprrypi_revision"] != document["source"]["parent_revision"]:
+            raise RealSessionError("bounded Tone WsprryPi revision differs from source provenance")
+        on_ms = document["tone_schedule"]["on_seconds"] * 1000
+        if (
+            isinstance(document["frequency_hz"], bool)
+            or int(document["frequency_hz"]) != document["frequency_hz"]
+            or not 1 <= on_ms <= 60_000
+            or int(on_ms) != on_ms
+        ):
+            raise RealSessionError("bounded Tone requires exact integer-Hz and millisecond bounds")
+        transaction_s = document["tone_schedule"]["on_seconds"] + min(
+            1.0, document["tone_schedule"]["off_seconds"] / 2
+        )
+        if document["deadlines"]["helper_s"] <= transaction_s:
+            raise RealSessionError("helper deadline must exceed the bounded Tone transaction")
     if any(
         executable["host"] != document["receiver"]["host"]
         for executable in (

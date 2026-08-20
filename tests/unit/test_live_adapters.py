@@ -379,7 +379,7 @@ def test_helper_suboperation_refuses_individual_deadline_overrun(monkeypatch) ->
     observations = iter((10.0, 10.002))
     monkeypatch.setattr(
         "wsprrypi_qualification.live_adapters.time.monotonic",
-        lambda: next(observations),
+        lambda: next(observations, 10.002),
     )
     with pytest.raises(
         RealSessionError,
@@ -631,41 +631,57 @@ def test_overall_deadline_is_cumulative_and_reserves_cleanup(tmp_path: Path, mon
         adapter._remaining(5.0, reserve_cleanup=True)
 
 
+def _bounded_tone_envelope(plan: dict, cycle: int) -> dict:
+    return {
+        "protocol_version": 1,
+        "request_id": f"cycle-{cycle}",
+        "operation": "bounded-tone",
+        "plan_sha256": plan["remote_helper"]["plan_sha256"],
+        "helper_identity": plan["remote_helper"]["identity"],
+        "outcome": "completed",
+        "result": {
+            "schema_version": 1,
+            "evidence_type": "bounded_tone_control",
+            "request_id": f"cycle-{cycle}",
+            "frequency_hz": int(plan["frequency_hz"]),
+            "duration_ms": 2000,
+            "outer_timeout_s": 3.0,
+            "loopback_host": "127.0.0.1",
+            "port": 31416,
+            "path": "/",
+            "maximum_frame_bytes": 16384,
+            "start_response": {},
+            "terminal_response": {},
+            "cleanup_attempted": False,
+            "completed": True,
+            "qualification_claim": False,
+            "wsprrypi_revision": plan["remote_helper"]["wsprrypi_revision"],
+        },
+    }
+
+
 def test_tone_pattern_uses_absolute_deadlines_and_stops_every_cycle(
     tmp_path: Path, monkeypatch
 ) -> None:
     adapter = bare_adapter(tmp_path)
-    adapter._owned = []
     clock = {"now": 100.0}
     sleeps = []
-    stopped = []
-
-    class Process:
-        def stop(self):
-            stopped.append(clock["now"])
-            return LaunchResult(
-                1,
-                cancelled=True,
-                cleanup_verified=True,
-                handle_id=f"cycle-{len(stopped)}",
-                stop_requested=True,
-                running_before_stop=True,
-            )
+    requests = []
 
     def sleep(seconds):
         sleeps.append(seconds)
         clock["now"] += seconds
 
-    def begin(plan, tone, *, cycle=None):
-        assert tone and cycle in {1, 2, 3}
-        process = Process()
-        adapter._owned.append(process)
-        return process
+    class Client:
+        def request_evidence(self, operation, payload):
+            assert operation == "bounded-tone"
+            requests.append(payload)
+            clock["now"] += payload["duration_ms"] / 1000
+            return _bounded_tone_envelope(plan, len(requests))
 
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: clock["now"])
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.sleep", sleep)
-    monkeypatch.setattr(adapter, "_begin_transmitter", begin)
-    monkeypatch.setattr(adapter, "_retain_transmitter_result", lambda *args, **kwargs: None)
+    adapter.tx_client = Client()
 
     class Worker:
         running = True
@@ -679,48 +695,35 @@ def test_tone_pattern_uses_absolute_deadlines_and_stops_every_cycle(
     worker = Worker()
     captured = [{"capture": "complete"}]
     adapter._capture_tasks = [(worker, threading.Event())]
-    result = adapter._run_tone_pattern(
-        tone_plan_document(), worker, adapter._capture_tasks[0][1], captured, []
-    )
+    plan = tone_plan_document()
+    result = adapter._run_tone_pattern(plan, worker, adapter._capture_tasks[0][1], captured, [])
     assert result == captured[0]
-    assert stopped == [104.0, 108.0, 112.0]
-    assert sum(sleeps) == 14.0
-    assert adapter._owned == []
+    assert len(requests) == 3
+    assert sum(sleeps) == 8.0
+    assert len([path for path in adapter._artifacts if "bounded-tone" in path.name]) == 3
 
 
 def test_tone_pattern_scheduler_overshoot_does_not_consume_extra_rf_budget(
     tmp_path: Path, monkeypatch
 ) -> None:
     adapter = bare_adapter(tmp_path)
-    adapter._owned = []
     clock = {"now": 100.0}
-    launches = []
-
-    class Process:
-        def stop(self):
-            return LaunchResult(
-                1,
-                cancelled=True,
-                cleanup_verified=True,
-                handle_id=f"cycle-{len(launches)}",
-                stop_requested=True,
-                running_before_stop=True,
-            )
+    requests = []
 
     def sleep(seconds):
         clock["now"] += seconds + 0.01
 
-    def begin(plan, tone, *, cycle=None):
-        assert tone and cycle in {1, 2, 3}
-        launches.append(cycle)
-        process = Process()
-        adapter._owned.append(process)
-        return process
+    plan = tone_plan_document()
+
+    class Client:
+        def request_evidence(self, operation, payload):
+            requests.append(payload)
+            clock["now"] += payload["duration_ms"] / 1000
+            return _bounded_tone_envelope(plan, len(requests))
 
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: clock["now"])
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.sleep", sleep)
-    monkeypatch.setattr(adapter, "_begin_transmitter", begin)
-    monkeypatch.setattr(adapter, "_retain_transmitter_result", lambda *args, **kwargs: None)
+    adapter.tx_client = Client()
 
     class Worker:
         running = True
@@ -736,49 +739,34 @@ def test_tone_pattern_scheduler_overshoot_does_not_consume_extra_rf_budget(
     cancellation = threading.Event()
     adapter._capture_tasks = [(worker, cancellation)]
 
-    assert (
-        adapter._run_tone_pattern(tone_plan_document(), worker, cancellation, captured, [])
-        == captured[0]
-    )
-    assert launches == [1, 2, 3]
+    assert adapter._run_tone_pattern(plan, worker, cancellation, captured, []) == captured[0]
+    assert len(requests) == 3
 
 
 def test_tone_pattern_rejects_over_budget_cycle_before_launch(tmp_path: Path, monkeypatch) -> None:
     adapter = bare_adapter(tmp_path)
-    adapter._owned = []
     clock = {"now": 100.0}
-    launches = []
-
-    class Process:
-        def stop(self):
-            return LaunchResult(
-                1,
-                cancelled=True,
-                cleanup_verified=True,
-                handle_id=f"cycle-{len(launches)}",
-                stop_requested=True,
-                running_before_stop=True,
-            )
+    requests = []
 
     def sleep(seconds):
         clock["now"] += seconds
 
-    def begin(plan, tone, *, cycle=None):
-        launches.append(cycle)
-        process = Process()
-        adapter._owned.append(process)
-        return process
-
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: clock["now"])
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.sleep", sleep)
-    monkeypatch.setattr(adapter, "_begin_transmitter", begin)
-    monkeypatch.setattr(adapter, "_retain_transmitter_result", lambda *args, **kwargs: None)
 
     class Worker:
         def is_alive(self):
             return True
 
     plan = tone_plan_document()
+
+    class Client:
+        def request_evidence(self, operation, payload):
+            requests.append(payload)
+            clock["now"] += payload["duration_ms"] / 1000
+            return _bounded_tone_envelope(plan, len(requests))
+
+    adapter.tx_client = Client()
     plan["tone_schedule"]["maximum_rf_on_seconds"] = 3
     worker = Worker()
     cancellation = threading.Event()
@@ -786,7 +774,7 @@ def test_tone_pattern_rejects_over_budget_cycle_before_launch(tmp_path: Path, mo
 
     with pytest.raises(RealSessionError, match="exceeds its cumulative RF-on bound"):
         adapter._run_tone_pattern(plan, worker, cancellation, [], [])
-    assert launches == [1]
+    assert len(requests) == 1
 
 
 def test_transmitter_service_preparation_precedes_tone_epoch(tmp_path: Path, monkeypatch) -> None:

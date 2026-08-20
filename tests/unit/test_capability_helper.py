@@ -70,6 +70,28 @@ class Si5351:
         return {"bus": bus, "address": address, "enabled_outputs": [], "owner": None}
 
 
+class BoundedTone:
+    def run(self, request_id, frequency_hz, duration_ms, outer_timeout_s):
+        return {
+            "schema_version": 1,
+            "evidence_type": "bounded_tone_control",
+            "request_id": request_id,
+            "frequency_hz": frequency_hz,
+            "duration_ms": duration_ms,
+            "outer_timeout_s": outer_timeout_s,
+            "loopback_host": "127.0.0.1",
+            "port": 31416,
+            "path": "/",
+            "maximum_frame_bytes": 16384,
+            "start_response": {"started": True},
+            "terminal_response": {"stopped": True, "scheduler_restored": True},
+            "cleanup_attempted": False,
+            "completed": True,
+            "qualification_claim": False,
+            "wsprrypi_revision": "1" * 40,
+        }
+
+
 def request(operation, payload, **changes):
     value = {
         "protocol_version": 1,
@@ -90,6 +112,7 @@ def server():
         services=Services(),
         gpio=Gpio(),
         si5351=Si5351(),
+        bounded_tone=BoundedTone(),
     )
 
 
@@ -120,6 +143,18 @@ def test_inspection_and_service_round_trips(operation, payload, field):
     assert response["request_id"] == "request-1"
     assert response["operation"] == operation
     assert field in response["result"]
+
+
+def test_bounded_tone_round_trip_preserves_helper_envelope_and_nonclaim() -> None:
+    response = server().dispatch(
+        request(
+            "bounded-tone",
+            {"frequency_hz": 14_097_100, "duration_ms": 2000, "outer_timeout_s": 3.0},
+        )
+    )
+    assert response["request_id"] == response["result"]["request_id"]
+    assert response["result"]["qualification_claim"] is False
+    assert response["result"]["wsprrypi_revision"] == "1" * 40
 
 
 def test_request_encoding_round_trip_and_strict_envelope():

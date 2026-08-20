@@ -442,6 +442,13 @@ def test_deployment_config_validates_absolute_pinned_files(tmp_path: Path):
         "config_path": str(tmp_path / "config.json"),
         "state_directory": str(tmp_path / "state"),
         "allowed_services": ["wsprrypi.service"],
+        "bounded_tone_endpoint": {
+            "host": "127.0.0.1",
+            "port": 31416,
+            "path": "/",
+            "maximum_frame_bytes": 16384,
+        },
+        "wsprrypi_revision": "1" * 40,
         "executables": {
             name: entry for name in ("python", "helper", "systemctl", "gpio", "si5351")
         },
@@ -467,7 +474,9 @@ def test_deployment_config_validates_absolute_pinned_files(tmp_path: Path):
     )
     from wsprrypi_qualification.capability_helper import load_server_config
 
-    assert load_server_config(runtime_path).identity == "fixture-helper"
+    loaded_server = load_server_config(runtime_path)
+    assert loaded_server.identity == "fixture-helper"
+    assert loaded_server.bounded_tone.wsprrypi_revision == "1" * 40
     original_digest = entry["sha256"]
     entry["sha256"] = "0" * 64
     path.write_text(json.dumps(config), encoding="utf-8")

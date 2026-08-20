@@ -18,6 +18,7 @@ from wsprrypi_qualification.real_session import (
     helper_verification_deadline,
     resolved_real_plan_sha256,
     validate_real_session_document,
+    validate_real_session_plan,
 )
 
 NOW = datetime(2026, 8, 12, 20, 0, tzinfo=UTC)
@@ -216,6 +217,17 @@ def tone_plan_document(*, execution_mode: str = "hardware_free_validation") -> d
         }
     )
     document["carrier"]["rf_on_sample_count"] = 3_500_000
+    document["remote_helper"].update(
+        {
+            "bounded_tone_endpoint": {
+                "host": "127.0.0.1",
+                "port": 31416,
+                "path": "/",
+                "maximum_frame_bytes": 16384,
+            },
+            "wsprrypi_revision": document["source"]["parent_revision"],
+        }
+    )
     document["deadlines"] = {
         "helper_s": 5,
         "transmitter_s": 20,
@@ -227,6 +239,23 @@ def tone_plan_document(*, execution_mode: str = "hardware_free_validation") -> d
     for field in ("remote_helper", "receiver_helper", "capture_helper", "wsprd", "wsprrypi"):
         document[field]["plan_sha256"] = digest
     return document
+
+
+def test_tone_plan_binds_loopback_endpoint_and_wsprrypi_revision() -> None:
+    document = tone_plan_document()
+    validate_real_session_plan(document)
+    document["remote_helper"]["wsprrypi_revision"] = "f" * 40
+    with pytest.raises(RealSessionError, match="revision differs"):
+        validate_real_session_plan(document)
+
+
+def test_tone_helper_bindings_change_every_plan_digest() -> None:
+    before = tone_plan_document()
+    helper_digest = helper_configuration_plan_sha256(before)
+    operator_digest = resolved_real_plan_sha256(before)
+    before["remote_helper"]["bounded_tone_endpoint"]["port"] += 1
+    assert helper_configuration_plan_sha256(before) != helper_digest
+    assert resolved_real_plan_sha256(before) != operator_digest
 
 
 def test_helper_digest_breaks_cycle_but_operator_digest_binds_config_hashes() -> None:

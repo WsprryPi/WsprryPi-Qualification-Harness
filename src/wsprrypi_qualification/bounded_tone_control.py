@@ -236,6 +236,8 @@ def run_bounded_tone_transaction(
         "outer_timeout_s": outer_timeout_s,
         "loopback_host": endpoint.host,
         "port": endpoint.port,
+        "path": endpoint.path,
+        "maximum_frame_bytes": endpoint.maximum_frame_bytes,
         "start_response": start_response,
         "terminal_response": terminal_response,
         "cleanup_attempted": cleanup_attempted,

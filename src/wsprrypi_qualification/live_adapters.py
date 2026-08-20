@@ -805,11 +805,10 @@ class ProductionRealSessionAdapters:
         schedule = plan["tone_schedule"]
         epoch = time.monotonic()
         interval = schedule["off_seconds"] + schedule["on_seconds"]
-        reserved_rf_on = 0
+        reserved_rf_on = 0.0
         try:
             for cycle in range(1, schedule["cycles"] + 1):
                 enable_at = epoch + schedule["off_seconds"] + ((cycle - 1) * interval)
-                disable_at = enable_at + schedule["on_seconds"]
                 self._sleep_until(enable_at)
                 if errors or not worker.is_alive():
                     raise RealSessionError("tone-pattern capture ended before RF enable")
@@ -817,18 +816,38 @@ class ProductionRealSessionAdapters:
                 if next_reserved_rf_on > schedule["maximum_rf_on_seconds"]:
                     raise RealSessionError("tone pattern exceeds its cumulative RF-on bound")
                 reserved_rf_on = next_reserved_rf_on
-                process = self._begin_transmitter(plan, True, cycle=cycle)
+                outer_timeout_s = min(
+                    plan["deadlines"]["transmitter_s"],
+                    schedule["on_seconds"] + min(1.0, schedule["off_seconds"] / 2),
+                )
                 try:
-                    self._sleep_until(disable_at)
-                finally:
-                    result = process.stop()
-                    self._retain_transmitter_result(plan, tone=True, result=result, cycle=cycle)
-                    if _owned_process_released(result):
-                        self._owned.remove(process)
-                    if not _intentional_carrier_stop_verified(result):
-                        raise RealSessionError(
-                            "tone cycle did not satisfy the intentional owned-stop contract"
-                        )
+                    evidence = self.tx_client.request_evidence(
+                        "bounded-tone",
+                        {
+                            "frequency_hz": int(plan["frequency_hz"]),
+                            "duration_ms": int(schedule["on_seconds"] * 1000),
+                            "outer_timeout_s": outer_timeout_s,
+                        },
+                    )
+                except Exception as exc:
+                    raise RealSessionError(f"bounded Tone cycle {cycle} failed") from exc
+                result = cast(dict[str, Any], evidence["result"])
+                endpoint = plan["remote_helper"]["bounded_tone_endpoint"]
+                if (
+                    result["wsprrypi_revision"] != plan["remote_helper"]["wsprrypi_revision"]
+                    or result["loopback_host"] != endpoint["host"]
+                    or result["port"] != endpoint["port"]
+                    or result["path"] != endpoint["path"]
+                    or result["maximum_frame_bytes"] != endpoint["maximum_frame_bytes"]
+                    or evidence["plan_sha256"] != plan["remote_helper"]["plan_sha256"]
+                    or evidence["helper_identity"] != plan["remote_helper"]["identity"]
+                ):
+                    raise RealSessionError("bounded Tone helper evidence contradicts the plan")
+                evidence_path = (
+                    self.paths.work_directory / f"carrier-cycle-{cycle}-bounded-tone.json"
+                )
+                write_json_new(evidence_path, evidence, schema_name="helper-response.schema.json")
+                self._artifacts.append(evidence_path)
             closing_at = epoch + (schedule["cycles"] * interval) + schedule["off_seconds"]
             self._sleep_until(closing_at, allow_capture_completion=True, worker=worker)
             worker.join(self._remaining(plan["deadlines"]["receiver_s"], reserve_cleanup=True))

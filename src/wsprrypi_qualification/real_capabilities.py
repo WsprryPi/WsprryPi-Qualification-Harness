@@ -788,6 +788,9 @@ class JsonHelperClient:
         self.executable_sha256 = executable_sha256 or artifact(executable)["sha256"]
 
     def request(self, operation: str, payload: dict[str, object]) -> dict[str, object]:
+        return cast(dict[str, object], self.request_evidence(operation, payload)["result"])
+
+    def request_evidence(self, operation: str, payload: dict[str, object]) -> dict[str, object]:
         if artifact(self.executable)["sha256"] != self.executable_sha256:
             raise CapabilityError("capability helper executable identity changed")
         request_id = str(uuid.uuid4())
@@ -836,9 +839,10 @@ class JsonHelperClient:
             "service-set": "service-helper-result.schema.json",
             "gpio-inspect": "gpio-helper-result.schema.json",
             "si5351-inspect": "si5351-helper-result.schema.json",
+            "bounded-tone": "bounded-tone-helper-result.schema.json",
         }[operation]
         validate_document(result, result_schema)
-        return result
+        return cast(dict[str, object], document)
 
 
 class HelperExchange(Protocol):
