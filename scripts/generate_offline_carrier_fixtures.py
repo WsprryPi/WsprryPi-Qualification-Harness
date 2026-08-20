@@ -1,4 +1,4 @@
-"""Generate small deterministic offline-only Slice 3 CF32 fixtures."""
+"""Generate small deterministic offline-only CF32 carrier fixtures."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def main() -> int:
         )
     metadata = {
         "schema_version": 1,
-        "generator": "scripts/generate_slice3_fixtures.py",
+        "generator": "scripts/generate_offline_carrier_fixtures.py",
         "purpose": "hardware-free carrier-analysis positive fixture",
         "sample_format": "CF32 little-endian real/imaginary",
         "sample_rate_hz": rate,

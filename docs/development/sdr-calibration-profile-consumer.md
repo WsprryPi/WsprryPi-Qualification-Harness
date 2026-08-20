@@ -27,7 +27,7 @@ another device, clock, sample rate, bandwidth, driver-applied frequency
 correction, firmware, antenna port, tuner path, or binding extension from being
 silently reused.
 
-This slice deliberately does not:
+This consumer deliberately does not:
 
 - alter receiver tuning or set a SoapySDR frequency correction;
 - substitute receiver calibration for WsprryPi transmitter PPM;
@@ -50,7 +50,7 @@ Status `1` is a structurally valid but non-qualification-usable application,
 and status `2` is invalid input, unsupported schema/version, failed integrity,
 or another contract error.
 
-The next reviewed slice must bind this result and the exact source profile into
+Any future integration must bind this result and the exact source profile into
 recorded and live plans and immutable evidence. Both paths must require exactly
 profile version `1.0.0`; neither may silently fall back to uncalibrated carrier
 offset interpretation when calibration is required.

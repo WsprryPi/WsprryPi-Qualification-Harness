@@ -23,6 +23,10 @@ When sources disagree, use this order:
 
 Historical files are evidence, not executable operating instructions.
 
+For task-oriented navigation, begin with
+[`CURRENT_WORKFLOWS.md`](CURRENT_WORKFLOWS.md). Use the checked-out CLI and
+named workflow guides as the current operating model.
+
 ## Establish current truth first
 
 From the repository root, perform these read-only checks before planning:
@@ -122,13 +126,14 @@ native `sdr-calibration-profile` version `1.0.0` contract. Use
 it without device access. This command is not yet connected to recorded or live
 qualification; see [`sdr-calibration-profile-consumer.md`](development/sdr-calibration-profile-consumer.md).
 
-The command synopsis in [`README.md`](../README.md) provides examples. The
-details and acquired-evidence checks are in
-[`slice-3.md`](development/slice-3.md). On macOS, tool discovery includes the
+The command synopsis in [`CURRENT_WORKFLOWS.md`](CURRENT_WORKFLOWS.md) provides
+the supported sequence. Detailed acquired-evidence checks are in
+[`bounded-carrier-evidence.md`](development/bounded-carrier-evidence.md) and the
+relevant command's current `--help` output. On macOS, tool discovery includes the
 WSJT-X application bundle; do not claim `wsprd` is absent until discovery has
 checked `/Applications/wsjtx.app/Contents/MacOS/wsprd` as well as `PATH`.
 
-For tone and CW-family retained captures, use the Phase 4 acquired replay
+For tone and CW-family retained captures, use the acquired-replay
 composer and validator described in
 [`cw-acquired-iq-replay.md`](development/cw-acquired-iq-replay.md). A passing
 replay measurement remains `inconclusive`: it cannot substitute for runtime
@@ -140,18 +145,18 @@ in [`archive-normalization.md`](development/archive-normalization.md). These
 commands authenticate intake relationships only; they cannot establish a
 coherent capture, lifecycle evidence, or hardware qualification.
 
-For the hardware-free Phase 5 lifecycle rehearsal, use
+For the hardware-free mock lifecycle rehearsal, use
 `run-cw-mock-lifecycle` and `validate-cw-mock-lifecycle` as described in
 [`cw-mock-bounded-lifecycle.md`](development/cw-mock-bounded-lifecycle.md).
 Only the closed mock injection vocabulary is accepted. This does not authorize
 or validate any live adapter, host, service, receiver, transmitter, or RF path.
 
-For Phase 6, use `run-cw-actual-host-preflight` only under current explicit
+Use `run-cw-actual-host-preflight` only under current explicit
 read-only host authorization. The command requires an exact plan digest and
 enable flag, executes only the schema-bounded probe set through structured SSH
 arguments, and produces a non-qualifying immutable bundle. Validate it with
-`validate-cw-actual-host-preflight`. A blocked bundle is a truthful Phase 6
-result, not permission to correct the host or advance to Phase 7. See
+`validate-cw-actual-host-preflight`. A blocked bundle is a truthful read-only
+preflight result, not permission to correct the host or begin live RF. See
 [`cw-actual-host-preflight.md`](development/cw-actual-host-preflight.md).
 
 ### Live split-host WSPR lifecycle
@@ -183,7 +188,7 @@ must retain one coherent 370-second capture containing exactly 92,500,000 CF32
 samples with zero overflow and three consecutive even-UTC slots. Qualification
 requires three independent complete decodes of the configured identity.
 
-### Live carrier-only Phase 7 lifecycle
+### Live carrier-only lifecycle
 
 `run-cw-live-tone` is a separate digest-bound production path for an exact
 leading-off, repeated on/off, and closing-off carrier schedule. It never calls
@@ -210,7 +215,7 @@ python -m wsprrypi_qualification run-cw-live-tone RESOLVED_PLAN.json \
 
 This command has the same external-access, exact digest confirmation, cleanup,
 service restoration, and backend-quiescence authorization boundary as the
-WSPR command. A passing carrier result remains Phase 7 evidence with final
+WSPR command. A passing carrier result remains carrier-only evidence with final
 status `inconclusive`; it is not WSPR qualification, calibrated power, or
 spectral-compliance evidence.
 
@@ -257,29 +262,27 @@ cmake --build build-native --config Release
 ctest --test-dir build-native -C Release --output-on-failure
 ```
 
-Also verify `provenance/SHA256SUMS`, schema source/package synchronization, and
-`git diff --check`. CI runs the Python 3.11/3.13 matrix on macOS, Ubuntu, and
-native Windows runners. Actual-host records are summarized in
-[`cross-platform-actual-host-validation.md`](development/cross-platform-actual-host-validation.md).
+Also verify schema source/package synchronization and `git diff --check`. CI
+runs the Python 3.11/3.13 matrix on macOS, Ubuntu, and native Windows runners.
 
 Warnings, skipped checks, unavailable hardware, and hosts not actually tested
 must be reported separately from passes. Never convert a simulator, replay, or
 hosted-CI result into a hardware qualification claim.
 
-## Where to look next
+## Maintained workflow guides
 
 - Safety and result meaning: [`CONTRACT.md`](../CONTRACT.md)
+- Task and command routing: [`CURRENT_WORKFLOWS.md`](CURRENT_WORKFLOWS.md)
 - Contributor workflow: [`CONTRIBUTING.md`](../CONTRIBUTING.md)
-- Capture helper: [`slice-2.md`](development/slice-2.md)
-- Carrier/audio/decoder pipeline: [`slice-3.md`](development/slice-3.md)
+- Carrier evidence: [`bounded-carrier-evidence.md`](development/bounded-carrier-evidence.md)
 - Capability adapters: [`real-capability-adapters.md`](development/real-capability-adapters.md)
 - Raspberry Pi helper deployment: [`helper-deployment.md`](development/helper-deployment.md)
 - Receiver lifecycle: [`receiver-integration.md`](development/receiver-integration.md)
 - Transmitter lifecycle: [`transmitter-lifecycle.md`](development/transmitter-lifecycle.md)
 - Bounded carrier evidence: [`bounded-carrier-evidence.md`](development/bounded-carrier-evidence.md)
 - Split-host live sequence: [`live-three-frame.md`](development/live-three-frame.md)
-- Current actual-host record: [`cross-platform-actual-host-validation.md`](development/cross-platform-actual-host-validation.md)
 - Preserved archive intake: [`archive-normalization.md`](development/archive-normalization.md)
 
 For the newest state, prefer the current Git revision, CLI help, schemas, CI,
-and newest immutable evidence bundle over prose that describes an older slice.
+and newest immutable evidence bundle over numbered implementation records or
+prose tied to an older revision.

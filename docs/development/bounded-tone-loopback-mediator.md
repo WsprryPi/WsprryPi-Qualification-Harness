@@ -1,8 +1,8 @@
 # Bounded Tone loopback mediator
 
-This slice adds the portable, hardware-free RFC 6455 client needed to mediate
+This component provides the portable, hardware-free RFC 6455 client needed to mediate
 WsprryPi's product-owned `bounded_tone` transaction. The authenticated
-capability helper now exposes it as `bounded-tone`, and the production Phase 7
+capability helper exposes it as `bounded-tone`, and the production carrier-only
 cadence retains each complete helper response instead of launching a WsprryPi
 process per cycle.
 
