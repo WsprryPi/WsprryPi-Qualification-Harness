@@ -375,13 +375,18 @@ def test_stage_refuses_to_hide_deadline_overrun(tmp_path: Path, monkeypatch) -> 
         adapter._stage(plan_document(), "helper", "passed", {}, 5.0, 0.0)
 
 
-def test_helper_suboperation_refuses_individual_deadline_overrun() -> None:
+def test_helper_suboperation_refuses_individual_deadline_overrun(monkeypatch) -> None:
+    observations = iter((10.0, 10.002))
+    monkeypatch.setattr(
+        "wsprrypi_qualification.live_adapters.time.monotonic",
+        lambda: next(observations),
+    )
     with pytest.raises(
         RealSessionError,
         match="helper verification transmitter_service_inspect exceeded its hard deadline",
     ):
         ProductionRealSessionAdapters._bounded_helper_operation(
-            "transmitter_service_inspect", 0.001, lambda: time.sleep(0.01)
+            "transmitter_service_inspect", 0.001, lambda: None
         )
 
 
