@@ -395,12 +395,17 @@ class SshOwnedProcessLauncher:
     """Remote start/wait/stop protocol; the remote helper owns the child deadline."""
 
     def __init__(
-        self, client: JsonHelperClient, hard_timeout_s: float, executable_sha256: str
+        self,
+        client: JsonHelperClient,
+        hard_timeout_s: float,
+        executable_sha256: str,
+        pinned_arguments: dict[str, str] | None = None,
     ) -> None:
         if hard_timeout_s <= 0:
             raise CapabilityError("remote process hard deadline must be positive")
         self.client, self.hard_timeout_s = client, hard_timeout_s
         self.executable_sha256 = executable_sha256
+        self.pinned_arguments = dict(pinned_arguments or {})
 
     def begin(self, arguments: tuple[str, ...]) -> OwnedProcess:
         response = self.client.request(
@@ -408,6 +413,7 @@ class SshOwnedProcessLauncher:
             {
                 "arguments": list(arguments),
                 "executable_sha256": self.executable_sha256,
+                "pinned_arguments": self.pinned_arguments,
                 "hard_timeout_s": self.hard_timeout_s,
                 "environment": {},
             },

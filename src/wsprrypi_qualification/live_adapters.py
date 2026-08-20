@@ -802,8 +802,45 @@ class ProductionRealSessionAdapters:
         captured: list[dict[str, object]],
         errors: list[BaseException],
     ) -> dict[str, object]:
-        schedule = plan["tone_schedule"]
+        if not self._cleanup_installed:
+            raise RealSessionError("bounded Tone server refused before cleanup registration")
+        server_plan = plan["tone_server"]
         epoch = time.monotonic()
+        launcher = SshOwnedProcessLauncher(
+            self.tx_client,
+            plan["deadlines"]["transmitter_s"],
+            plan["wsprrypi"]["sha256"],
+            pinned_arguments={
+                server_plan["configuration"]["path"]: server_plan["configuration"]["sha256"]
+            },
+        )
+        server = launcher.begin(tuple(server_plan["arguments"]))
+        self._owned.append(server)
+        try:
+            return self._run_tone_pattern_cycles(
+                plan, worker, cancellation, captured, errors, epoch=epoch
+            )
+        finally:
+            result = server.stop()
+            self._retain_transmitter_result(plan, tone=True, result=result)
+            if _owned_process_released(result):
+                self._owned.remove(server)
+            if not _intentional_carrier_stop_verified(result):
+                raise RealSessionError("bounded Tone server did not satisfy owned-stop cleanup")
+
+    def _run_tone_pattern_cycles(
+        self,
+        plan: dict[str, Any],
+        worker: threading.Thread,
+        cancellation: threading.Event,
+        captured: list[dict[str, object]],
+        errors: list[BaseException],
+        *,
+        epoch: float | None = None,
+    ) -> dict[str, object]:
+        schedule = plan["tone_schedule"]
+        epoch = time.monotonic() if epoch is None else epoch
+        self._sleep_until(epoch + plan["tone_server"]["startup_seconds"])
         interval = schedule["off_seconds"] + schedule["on_seconds"]
         reserved_rf_on = 0.0
         try:

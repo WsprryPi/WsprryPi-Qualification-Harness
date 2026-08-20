@@ -184,6 +184,7 @@ def test_owned_process_preserves_literal_argv_and_output(tmp_path: Path):
             {
                 "arguments": [str(executable), "-c", "import sys; print(sys.argv[1])", marker],
                 "executable_sha256": digest,
+                "pinned_arguments": {},
                 "hard_timeout_s": 2,
                 "environment": {},
             },
@@ -204,6 +205,7 @@ def test_process_hash_mismatch_and_unknown_handle_fail_closed():
                 {
                     "arguments": [str(executable), "-c", "pass"],
                     "executable_sha256": "0" * 64,
+                    "pinned_arguments": {},
                     "hard_timeout_s": 1,
                     "environment": {},
                 },
@@ -211,6 +213,26 @@ def test_process_hash_mismatch_and_unknown_handle_fail_closed():
         )
     with pytest.raises(HelperProtocolError, match="unknown"):
         server().dispatch(request("process-stop", {"handle_id": "missing"}))
+
+
+def test_process_start_rechecks_pinned_argument_identity(tmp_path: Path):
+    executable = Path(sys.executable).resolve()
+    digest = hashlib.sha256(executable.read_bytes()).hexdigest()
+    config = tmp_path / "tone.ini"
+    config.write_text("Transmit = False\n", encoding="utf-8")
+    with pytest.raises(HelperProtocolError, match="identity changed"):
+        server().dispatch(
+            request(
+                "process-start",
+                {
+                    "arguments": [str(executable), str(config)],
+                    "executable_sha256": digest,
+                    "pinned_arguments": {str(config.resolve()): "0" * 64},
+                    "hard_timeout_s": 1,
+                    "environment": {},
+                },
+            )
+        )
 
 
 def test_nonfinite_and_forbidden_environment_are_rejected():
@@ -225,6 +247,7 @@ def test_nonfinite_and_forbidden_environment_are_rejected():
                 {
                     "arguments": [str(executable), "-c", "pass"],
                     "executable_sha256": digest,
+                    "pinned_arguments": {},
                     "hard_timeout_s": 1,
                     "environment": {"SECRET": "no"},
                 },

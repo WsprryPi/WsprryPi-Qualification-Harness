@@ -31,3 +31,14 @@ configuration must bind the same literal loopback endpoint and exact WsprryPi
 source revision. Those fields participate in the helper and operator digests;
 changing either requires newly generated configuration, plan, authorization,
 and evidence. Deployment and live RF remain later authorization gates.
+
+The live adapter owns one dedicated WsprryPi process for the complete carrier
+cadence. Its exact argument vector must select the plan-bound INI file, socket
+port, and `--socket-loopback-only`; the helper re-hashes both the executable and
+the INI argument immediately before spawning it. The service instance is
+stopped first when required, the dedicated server is started only after cleanup
+ownership is installed, and every tone cycle uses the same server transaction
+endpoint. The server is then stopped and its complete owned-process result is
+retained before service restoration and GPIO quiescence verification. A
+missing server, changed INI file, premature exit, or unverified owned stop makes
+the run unsuccessful.

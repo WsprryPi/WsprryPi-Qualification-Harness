@@ -646,6 +646,24 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         )
         if document["deadlines"]["helper_s"] <= transaction_s:
             raise RealSessionError("helper deadline must exceed the bounded Tone transaction")
+        tone_server = document.get("tone_server")
+        if not isinstance(tone_server, dict):
+            raise RealSessionError("CW live Tone requires a pinned loopback server process")
+        endpoint = helper["bounded_tone_endpoint"]
+        expected_arguments = [
+            document["wsprrypi"]["path"],
+            "-i",
+            tone_server["configuration"]["path"],
+            "--socket-port",
+            str(endpoint["port"]),
+            "--socket-loopback-only",
+        ]
+        if endpoint["host"] != "::1" or tone_server["arguments"] != expected_arguments:
+            raise RealSessionError("bounded Tone server arguments differ from its endpoint")
+        if tone_server["startup_seconds"] >= document["tone_schedule"]["off_seconds"]:
+            raise RealSessionError(
+                "bounded Tone server startup must fit inside leading RF-off time"
+            )
     if any(
         executable["host"] != document["receiver"]["host"]
         for executable in (

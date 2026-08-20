@@ -189,8 +189,10 @@ requires three independent complete decodes of the configured identity.
 leading-off, repeated on/off, and closing-off carrier schedule. It never calls
 the WSPR frame or decoder phases. Its resolved plan must use
 `session_kind: cw_live_tone`, `mode: TONE`, zero frames, an exact
-`tone_schedule`, and an RF-on capture count equal to the complete schedule at
-the resolved sample rate.
+`tone_schedule`, a pinned loopback-only `tone_server` process and configuration,
+and an RF-on capture count equal to the complete schedule at the resolved sample
+rate. One dedicated WsprryPi process spans the cadence; each cycle is a bounded
+authenticated-helper transaction rather than a new transmitter process.
 
 ```text
 python -m wsprrypi_qualification run-cw-live-tone RESOLVED_PLAN.json \

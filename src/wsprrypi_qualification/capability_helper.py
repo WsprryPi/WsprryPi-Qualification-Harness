@@ -220,6 +220,19 @@ class OwnedProcessRegistry:
             raise HelperProtocolError("executable must be an existing absolute file")
         if _sha256(executable) != expected_hash:
             raise HelperProtocolError("executable SHA-256 does not match resolved plan")
+        pinned_arguments = payload.get("pinned_arguments")
+        if not isinstance(pinned_arguments, dict):
+            raise HelperProtocolError("pinned process arguments must be an object")
+        for raw_path, raw_digest in pinned_arguments.items():
+            if (
+                not isinstance(raw_path, str)
+                or not isinstance(raw_digest, str)
+                or raw_path not in arguments
+            ):
+                raise HelperProtocolError("pinned process argument is not in the argument vector")
+            path = Path(raw_path)
+            if not path.is_absolute() or not path.is_file() or _sha256(path) != raw_digest:
+                raise HelperProtocolError("pinned process argument identity changed")
         environment = _environment(payload.get("environment", {}))
         out = tempfile.TemporaryFile(mode="w+b")  # noqa: SIM115
         err = tempfile.TemporaryFile(mode="w+b")  # noqa: SIM115
@@ -417,7 +430,13 @@ def _validate_envelope(request: dict[str, object]) -> None:
         raise HelperProtocolError("helper payload is invalid")
     payload = cast(dict[str, object], request["payload"])
     fields = {
-        "process-start": {"arguments", "executable_sha256", "hard_timeout_s", "environment"},
+        "process-start": {
+            "arguments",
+            "executable_sha256",
+            "pinned_arguments",
+            "hard_timeout_s",
+            "environment",
+        },
         "process-wait": {"handle_id", "timeout_s"},
         "process-stop": {"handle_id"},
         "service-inspect": {"name", "manager"},

@@ -214,13 +214,29 @@ def tone_plan_document(*, execution_mode: str = "hardware_free_validation") -> d
                 },
                 "analyzer_source_revision": "3" * 40,
             },
+            "tone_server": {
+                "configuration": {
+                    "path": "/phase7/wsprrypi-tone.ini",
+                    "size_bytes": 1,
+                    "sha256": "c" * 64,
+                },
+                "arguments": [
+                    document["wsprrypi"]["path"],
+                    "-i",
+                    "/phase7/wsprrypi-tone.ini",
+                    "--socket-port",
+                    "31416",
+                    "--socket-loopback-only",
+                ],
+                "startup_seconds": 0.25,
+            },
         }
     )
     document["carrier"]["rf_on_sample_count"] = 3_500_000
     document["remote_helper"].update(
         {
             "bounded_tone_endpoint": {
-                "host": "127.0.0.1",
+                "host": "::1",
                 "port": 31416,
                 "path": "/",
                 "maximum_frame_bytes": 16384,

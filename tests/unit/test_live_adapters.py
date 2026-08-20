@@ -646,7 +646,7 @@ def _bounded_tone_envelope(plan: dict, cycle: int) -> dict:
             "frequency_hz": int(plan["frequency_hz"]),
             "duration_ms": 2000,
             "outer_timeout_s": 3.0,
-            "loopback_host": "127.0.0.1",
+            "loopback_host": "::1",
             "port": 31416,
             "path": "/",
             "maximum_frame_bytes": 16384,
@@ -696,11 +696,67 @@ def test_tone_pattern_uses_absolute_deadlines_and_stops_every_cycle(
     captured = [{"capture": "complete"}]
     adapter._capture_tasks = [(worker, threading.Event())]
     plan = tone_plan_document()
-    result = adapter._run_tone_pattern(plan, worker, adapter._capture_tasks[0][1], captured, [])
+    result = adapter._run_tone_pattern_cycles(
+        plan, worker, adapter._capture_tasks[0][1], captured, []
+    )
     assert result == captured[0]
     assert len(requests) == 3
     assert sum(sleeps) == 8.0
     assert len([path for path in adapter._artifacts if "bounded-tone" in path.name]) == 3
+
+
+def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, monkeypatch) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._cleanup_installed = True
+    adapter._owned = []
+    adapter.tx_client = object()
+    plan = tone_plan_document()
+    observed = {}
+
+    class Process:
+        def stop(self):
+            return LaunchResult(
+                return_code=-15,
+                stdout="",
+                stderr="",
+                timed_out=False,
+                cancelled=True,
+                disconnected=False,
+                cleanup_verified=True,
+                handle_id="tone-server",
+                stop_requested=True,
+                running_before_stop=True,
+            )
+
+    class Launcher:
+        def __init__(self, client, hard_timeout_s, executable_sha256, pinned_arguments=None):
+            observed.update(
+                client=client,
+                hard_timeout_s=hard_timeout_s,
+                executable_sha256=executable_sha256,
+                pinned_arguments=pinned_arguments,
+            )
+
+        def begin(self, arguments):
+            observed["arguments"] = arguments
+            return Process()
+
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.SshOwnedProcessLauncher", Launcher)
+    monkeypatch.setattr(
+        adapter,
+        "_run_tone_pattern_cycles",
+        lambda plan, worker, cancellation, captured, errors, **kwargs: captured[0],
+    )
+    monkeypatch.setattr(adapter, "_retain_transmitter_result", lambda *args, **kwargs: None)
+    result = adapter._run_tone_pattern(
+        plan, object(), threading.Event(), [{"capture": "complete"}], []
+    )
+    assert result == {"capture": "complete"}
+    assert observed["arguments"] == tuple(plan["tone_server"]["arguments"])
+    assert observed["pinned_arguments"] == {
+        plan["tone_server"]["configuration"]["path"]: plan["tone_server"]["configuration"]["sha256"]
+    }
+    assert adapter._owned == []
 
 
 def test_tone_pattern_scheduler_overshoot_does_not_consume_extra_rf_budget(
@@ -739,7 +795,7 @@ def test_tone_pattern_scheduler_overshoot_does_not_consume_extra_rf_budget(
     cancellation = threading.Event()
     adapter._capture_tasks = [(worker, cancellation)]
 
-    assert adapter._run_tone_pattern(plan, worker, cancellation, captured, []) == captured[0]
+    assert adapter._run_tone_pattern_cycles(plan, worker, cancellation, captured, []) == captured[0]
     assert len(requests) == 3
 
 
@@ -773,7 +829,7 @@ def test_tone_pattern_rejects_over_budget_cycle_before_launch(tmp_path: Path, mo
     adapter._capture_tasks = [(worker, cancellation)]
 
     with pytest.raises(RealSessionError, match="exceeds its cumulative RF-on bound"):
-        adapter._run_tone_pattern(plan, worker, cancellation, [], [])
+        adapter._run_tone_pattern_cycles(plan, worker, cancellation, [], [])
     assert len(requests) == 1
 
 
@@ -838,11 +894,12 @@ def test_each_live_tone_cycle_uses_its_resolved_remote_watchdog(
     observed = {}
 
     class Launcher:
-        def __init__(self, client, hard_timeout_s, executable_sha256):
+        def __init__(self, client, hard_timeout_s, executable_sha256, pinned_arguments=None):
             observed.update(
                 client=client,
                 hard_timeout_s=hard_timeout_s,
                 executable_sha256=executable_sha256,
+                pinned_arguments=pinned_arguments,
             )
 
         def begin(self, arguments):
