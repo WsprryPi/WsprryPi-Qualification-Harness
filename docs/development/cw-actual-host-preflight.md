@@ -1,6 +1,6 @@
-# Phase 6 read-only actual-host preflight
+# Read-only actual-host preflight
 
-Phase 6 identifies whether one exact tone/CW-family candidate combination is
+This workflow identifies whether one exact tone/CW-family candidate combination is
 ready for later live validation, or retains a specific fail-closed reason. It
 never transmits, opens an SDR, changes GPIO or clocks, changes a service,
 installs software, or makes a qualification claim.
@@ -39,34 +39,6 @@ rejects symlinks, missing or extra files, manifest drift, command substitution
 or reordering, invalid timing/outcomes, unsafe probes, false readiness, and any
 result or blocker that does not match recomputation from retained records.
 
-## Actual-host result on 2026-08-15
-
-The accepted run contacted `wspr4` and `wspr5` using strict known-host checking
-and LAN addresses after an earlier immutable mDNS attempt failed closed. It
-confirmed the exact host/model/revision, repository, tool, group, kernel, OS,
-module, process, and service observations. The outcome remained `blocked`:
-
-- RP1-GPCLK-DKMS Gate D reported `executionReady: false`;
-- pushed cross-platform CI for the preceding phases was not confirmed;
-- current RF-path facts were not declared;
-- `SoapySDRServer` was active on `wspr5`.
-
-No state was corrected during preflight. Phase 7 remains unauthorized.
-
-## Actual-host prerequisite refresh on 2026-08-16
-
-A new digest-bound read-only bundle at harness revision `9961be0` validated the
-current host identities, synchronized clocks, required groups and tools, clean
-repositories, and exact WsprryPi revisions `0bb9600` on `wspr4` and `c83c19b`
-on `wspr5`. The immutable bundle and machine-local plan remain in
-`/private/tmp`; they are not portable fixtures and are not committed.
-
-The result remains `blocked`. Current Gate D `executionReady: true` evidence is
-not available, current physical RF-path facts are not declared, `wsprrypi` is
-active on `wspr4`, and `SoapySDRServer` is active on `wspr5`. The bundle's
-manifest and semantic validator pass, `next_phase_authorized` is false, and no
-host state was changed. Phase 7 remains unauthorized.
-
 ## Invocation
 
 ```text
@@ -78,5 +50,5 @@ wsprrypi-qualification run-cw-actual-host-preflight PLAN.json OUTPUT_PARENT \
 wsprrypi-qualification validate-cw-actual-host-preflight BUNDLE
 ```
 
-The exact next roadmap phase is Phase 7, bounded live tone validation. It needs
-separate explicit RF authorization and a passing unchanged preflight.
+A live workflow needs separate explicit RF authorization and a passing,
+unchanged preflight. Preflight never grants that authorization by itself.

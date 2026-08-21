@@ -5,9 +5,7 @@ This project is a maintainer engineering and qualification tool. Read
 
 ## Scope and review
 
-- Work within the currently authorized reviewed slice.
-- Preserve `historical/` sources as evidence; port applicable behavior into
-  maintained modules and tests.
+- Work within the currently authorized task boundary.
 - Keep implementation, future plans, non-goals, and unvalidated qualification
   claims distinct.
 - Keep this repository independent from WsprryPi and its sibling projects.

@@ -1,7 +1,7 @@
-# Phase 5 mock bounded lifecycle
+# Mock bounded lifecycle
 
-Phase 5 binds an authenticated tone/CW-family measurement chain to the reviewed
-Slice 4 supervisor. It rehearses receiver acquisition/start, transmitter mode
+This workflow binds an authenticated tone/CW-family measurement chain to the
+reviewed supervisor. It rehearses receiver acquisition/start, transmitter mode
 start, the bounded capture interval, cancellation, stopping, release, narrow
 service restoration, owned-process leak verification, and mock backend
 quiescence. It uses no hardware, remote host, physical service, or RF path.
@@ -26,7 +26,6 @@ release, restoration, leak, or quiescence failure is `cleanup_failed`. Cleanup
 failure retains precedence even when the carrier and mode measurements passed.
 Every document has `mock_only: true` and `qualification_claim: false`.
 
-Phase 6 is the next gap-closure step: separately authorized, read-only
-actual-host preflight. It performs no transmission and makes no qualification
-claim. Phase 7 live tone and Phase 8 live keyed-mode work remain separately
-authorized RF phases.
+Read-only actual-host preflight and every live workflow require separate,
+current authorization. Preflight performs no transmission and makes no
+qualification claim.

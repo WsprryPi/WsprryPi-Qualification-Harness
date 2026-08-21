@@ -1,6 +1,6 @@
-# Phase 2: independent CW-family reference encoders
+# Independent CW-family reference encoders
 
-Phase 2 converts one normalized, schema-valid CW-family plan into the expected
+The encoder converts one normalized, schema-valid CW-family plan into the expected
 answer used by later analyzers. The encoder is deliberately independent of
 transmitter logs, captured IQ, clocks, devices, and operating-system behavior.
 Its output remains non-qualifying.
@@ -8,7 +8,7 @@ Its output remains non-qualifying.
 ## Supported definitions
 
 - `wspq-tone@v1`, `wspq-cw@v1`, `wspq-qrss@v1`, and `wspq-fskcw@v1` are the
-  harness definitions documented in the Phase 2 execution prompt.
+  maintained harness definitions.
 - `wsprrypi-dfcw@v1` binds the reviewed semantics in WsprryPi revision
   `854b39d37433c5b98d4ed43784f0b9819cf6143e`: equal-duration dot and dash
   elements on distinct frequencies, RF-off gaps, and gap multipliers
@@ -31,13 +31,12 @@ expected-event document bound to the plan's canonical path, size, and SHA-256.
 The source revision is explicit because an installed wheel need not have access
 to a Git checkout.
 
-Phase 1 chain validation now regenerates this timeline and demands exact event
+Contract-chain validation regenerates this timeline and demands exact event
 equality. A plausible caller-authored or mutated timeline therefore cannot pass
 on schema shape alone.
 
-## Boundary and next step
+## Boundary
 
-This phase generates no IQ, performs no signal analysis, invokes no external
-program, and touches no hardware. Phase 3 is the next unfinished phase: create
-deterministic synthetic raw-IQ fixtures and derive observations directly from
-IQ while keeping every synthetic result non-qualifying.
+This command generates no IQ, performs no signal analysis, invokes no external
+program, and touches no hardware. Synthetic-IQ generation and analysis are
+separate non-qualifying operations.

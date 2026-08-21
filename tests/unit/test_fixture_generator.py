@@ -5,7 +5,9 @@ from pathlib import Path
 
 
 def test_fixture_generator_is_deterministic_and_refuses_reuse(tmp_path: Path) -> None:
-    script = Path(__file__).resolve().parents[2] / "scripts" / "generate_slice3_fixtures.py"
+    script = (
+        Path(__file__).resolve().parents[2] / "scripts" / "generate_offline_carrier_fixtures.py"
+    )
     first, second = tmp_path / "first", tmp_path / "second"
     subprocess.run([sys.executable, str(script), str(first)], check=True)
     subprocess.run([sys.executable, str(script), str(second)], check=True)

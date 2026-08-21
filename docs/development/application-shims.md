@@ -1,7 +1,7 @@
 # Application shims and protocol plans
 
-Status: hardware-free architecture delivered after Slice 5. This is preparation
-for, not execution of, bounded transmitter validation.
+Status: maintained hardware-free architecture. This is preparation for, not
+execution of, bounded transmitter validation.
 
 The harness owns safety preflight, receiver coordination, deadlines, cleanup,
 classification, and immutable evidence. An application shim has the smaller job
@@ -12,7 +12,7 @@ does not orchestrate or judge its own qualification.
 `WsprryPiShim` is the sole maintained implementation. It records the executable,
 parent and transmitter-submodule revisions, selected backend, protocol, resolved
 arguments, stopping contract, and cleanup contract. Its output always records
-`execution_authorized: false` and `supervisor_required: true`; this layer has no
+`execution_authorized: false` and `supervisor_required: true`; the shim has no
 method that starts a process. A self-terminating request is not described as a
 hard-bounded process.
 
@@ -38,7 +38,7 @@ filtering, or spectral qualification.
 
 ## Future live integration gate
 
-A later, separately authorized transmitter slice may pass a validated plan to
+A separately authorized transmitter workflow may pass a validated plan to
 the existing transport and supervisor. Before that can happen it must also bind
 the per-run RF path and operator confirmation, install cleanup, verify idle
 hardware, enforce receiver/transmitter deadlines, and retain application stdout,

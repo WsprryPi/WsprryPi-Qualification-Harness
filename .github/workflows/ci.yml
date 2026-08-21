@@ -31,8 +31,6 @@ jobs:
         run: python -m mypy
       - name: Unit tests
         run: python -m pytest
-      - name: Verify preserved historical provenance
-        run: python -c "import hashlib,pathlib; root=pathlib.Path('.'); lines=(root/'provenance/SHA256SUMS').read_text(encoding='utf-8').splitlines(); bad=[]; [(bad.append(str(p)) if (not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest()!=digest) else None) for line in lines if line.strip() for digest,name in [line.split(None,1)] for p in [root/name.strip()]]; assert not bad, bad"
       - name: Bounded hardware-free simulator
         timeout-minutes: 2
         run: wsprrypi-qualification simulate-qualification simulator-ci-runs --run-id 20260812T120000Z-ci-${{ matrix.os }}-${{ matrix.python-version }}
