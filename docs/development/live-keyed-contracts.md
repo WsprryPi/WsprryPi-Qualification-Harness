@@ -84,3 +84,10 @@ has been installed, required receiver services are made active and other listed
 services are made inactive for that transaction. Cleanup restores every listed
 service to the state observed by that transaction. Failure to establish or
 restore any requested state makes the transaction unsuccessful.
+
+Within the process-start boundary, the production adapter starts the exact-count
+capture worker first, waits for its retained `.incomplete` output to prove that
+capture is established, and then observes the mode plan's complete RF-off
+preamble before launching WsprryPi. If capture setup fails or the worker exits
+before launch, RF remains disabled. Capture cancellation and bounded join are
+part of unconditional transaction cleanup.

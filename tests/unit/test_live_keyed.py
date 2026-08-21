@@ -1,5 +1,8 @@
 import json
+import threading
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -350,6 +353,7 @@ def _service_provider_fixture(
     providers.initial_services = {
         1: [(tx, "wsprrypi.service", True), (rx, "sdrplay.service", receiver_running)]
     }
+    providers.capture_tasks = {}
     providers.owned = {}
     providers.process_outcomes = {}
     return providers, tx, rx
@@ -404,3 +408,138 @@ def test_required_receiver_service_restoration_failure_fails_cleanup() -> None:
     rx.refuse_change = True
     assert not providers.cleanup(resolved, 1)
     assert rx.running is True
+
+
+def test_keyed_capture_is_ready_and_prequiet_completes_before_process_launch(
+    tmp_path: Path,
+) -> None:
+    from tests.unit.test_cw_contracts import _chain
+
+    reference = tmp_path / "reference"
+    reference.mkdir()
+    mode_plan_path = _chain(reference, "qrss")[0]
+    mode_document = json.loads(mode_plan_path.read_text(encoding="utf-8"))
+    mode_document["protocol"]["repetitions"] = 1
+    mode_document["protocol"]["pre_quiet_seconds"] = 0.02
+    mode_document["capture_contract"]["sample_count"] = 10
+    mode_plan_path.write_text(json.dumps(mode_document), encoding="utf-8")
+    helper = tmp_path / "capture-helper"
+    helper.write_text("helper", encoding="utf-8")
+    resolved = plan()
+    resolved["reference"]["plan"] = artifact(mode_plan_path)  # type: ignore[index]
+    resolved["capability_bindings"]["capture_helper"] = artifact(helper)  # type: ignore[index]
+    release = threading.Event()
+    calls: list[str] = []
+
+    class FakeCapture:
+        def execute(self, capture_plan, authorization, cancellation):
+            del authorization
+            incomplete = Path(str(capture_plan.output_path) + ".incomplete")
+            incomplete.write_bytes(b"")
+            calls.append("capture_ready")
+            while not release.wait(0.001):
+                if cancellation.is_set():
+                    raise RuntimeError("cancelled")
+            capture_plan.output_path.write_bytes(b"capture")
+            capture_plan.metadata_path.write_text("{}", encoding="utf-8")
+            incomplete.unlink()
+            return {
+                "output": artifact(capture_plan.output_path),
+                "capture_metadata": artifact(capture_plan.metadata_path),
+            }
+
+    class FakeProcess:
+        handle_id = "process-1"
+
+        def wait(self, deadline, cancellation):
+            del deadline, cancellation
+            return SimpleNamespace(
+                handle_id=self.handle_id,
+                return_code=0,
+                stdout="",
+                stderr="",
+                timed_out=False,
+                cancelled=False,
+                disconnected=False,
+                cleanup_verified=True,
+                stop_requested=False,
+                running_before_stop=False,
+            )
+
+        def stop(self):
+            return self.wait(0, None)
+
+    class FakeLauncher:
+        def begin(self, arguments):
+            assert arguments
+            assert calls == ["capture_ready"]
+            calls.append("process_started")
+            return FakeProcess()
+
+    providers = object.__new__(live_adapters_module.KeyedCapabilityProviders)
+    providers.plan = resolved
+    providers.launcher = FakeLauncher()
+    providers.capture_capability = FakeCapture()
+    providers.work_directory = tmp_path / "work"
+    providers.work_directory.mkdir()
+    providers.owned = {}
+    providers.capture_metadata = {}
+    providers.capture_outputs = {}
+    providers.process_evidence = {}
+    providers.process_outcomes = {}
+    providers.capture_tasks = {}
+    started = time.monotonic()
+    assert providers.start_process(("wsprrypi",), 1) == "process-1"
+    assert time.monotonic() - started >= 0.015
+    assert calls == ["capture_ready", "process_started"]
+    release.set()
+    assert providers.capture(resolved, 1) is not None
+
+
+@pytest.mark.parametrize("fail_after_ready", [False, True])
+def test_keyed_capture_failure_prevents_process_launch(
+    tmp_path: Path, fail_after_ready: bool
+) -> None:
+    from tests.unit.test_cw_contracts import _chain
+
+    reference = tmp_path / "reference"
+    reference.mkdir()
+    mode_plan_path = _chain(reference, "qrss")[0]
+    mode_document = json.loads(mode_plan_path.read_text(encoding="utf-8"))
+    mode_document["protocol"]["repetitions"] = 1
+    mode_document["protocol"]["pre_quiet_seconds"] = 0.05
+    mode_document["capture_contract"]["sample_count"] = 10
+    mode_plan_path.write_text(json.dumps(mode_document), encoding="utf-8")
+    helper = tmp_path / "capture-helper"
+    helper.write_text("helper", encoding="utf-8")
+    resolved = plan()
+    resolved["reference"]["plan"] = artifact(mode_plan_path)  # type: ignore[index]
+    resolved["capability_bindings"]["capture_helper"] = artifact(helper)  # type: ignore[index]
+
+    class FailingCapture:
+        def execute(self, capture_plan, authorization, cancellation):
+            del authorization, cancellation
+            if fail_after_ready:
+                Path(str(capture_plan.output_path) + ".incomplete").write_bytes(b"")
+                time.sleep(0.01)
+            raise RuntimeError("injected capture failure")
+
+    class ForbiddenLauncher:
+        def begin(self, arguments):
+            pytest.fail(f"transmitter launch was not blocked: {arguments!r}")
+
+    providers = object.__new__(live_adapters_module.KeyedCapabilityProviders)
+    providers.plan = resolved
+    providers.launcher = ForbiddenLauncher()
+    providers.capture_capability = FailingCapture()
+    providers.work_directory = tmp_path / "work"
+    providers.work_directory.mkdir()
+    providers.owned = {}
+    providers.capture_metadata = {}
+    providers.capture_outputs = {}
+    providers.process_evidence = {}
+    providers.process_outcomes = {}
+    providers.capture_tasks = {}
+    providers.initial_services = {}
+    assert providers.start_process(("wsprrypi",), 1) is None
+    assert not providers.cleanup(resolved, 1)

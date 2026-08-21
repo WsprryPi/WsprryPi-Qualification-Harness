@@ -91,6 +91,9 @@ Each of the three transactions sends one keyed message. Plans bind receiver
 services that must run for capture separately from the complete service
 allowlist; they start only after cleanup installation, and all listed services
 return to their observed initial state during transaction cleanup.
+The production adapter establishes the exact-count capture and completes the
+resolved RF-off preamble before it launches WsprryPi; capture setup failure
+therefore blocks RF rather than producing a knowingly truncated observation.
 
 ## External archive intake
 

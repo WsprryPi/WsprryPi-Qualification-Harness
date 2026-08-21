@@ -178,6 +178,11 @@ must run for capture. The latter must be a receiver-side subset of the allowlist
 the coordinator starts it only after cleanup installation and restores its
 observed state during every transaction cleanup.
 
+Do not bypass the keyed adapter's capture-before-RF barrier. Its retained-output
+readiness check and complete `pre_quiet_seconds` delay are what prevent the first
+keyed symbol from preceding the authenticated capture. Treat a missing readiness
+file or an early capture exit as a transmitter-launch blocker.
+
 For live keyed plans, treat helper deployment configuration and runtime plan
 authorization as separate identities. First seal each helper executable and
 static configuration into `capability_bindings`; then compute the canonical

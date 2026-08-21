@@ -1715,6 +1715,15 @@ class KeyedCapabilityProviders:
         self.process_evidence: dict[int, Path] = {}
         self.process_outcomes: dict[int, Path] = {}
         self.analysis_evidence: dict[int, Path] = {}
+        self.capture_tasks: dict[
+            int,
+            tuple[
+                threading.Thread,
+                threading.Event,
+                list[dict[str, object]],
+                list[BaseException],
+            ],
+        ] = {}
 
     def preflight(self, plan: dict[str, Any], number: int) -> bool:
         for binding in plan["reference"].values():
@@ -1778,6 +1787,8 @@ class KeyedCapabilityProviders:
         return number in self.initial_services
 
     def start_process(self, arguments: tuple[str, ...], number: int) -> str | None:
+        if not self._start_capture(number):
+            return None
         process = self.launcher.begin(arguments)
         if process.handle_id in {owned.handle_id for owned in self.owned.values()}:
             process.stop()
@@ -1793,29 +1804,8 @@ class KeyedCapabilityProviders:
         self.process_evidence[number] = process_path
         return process.handle_id
 
-    def _retain_process_outcome(self, number: int, result: object) -> None:
-        execution = cast(Any, result)
-        path = self.work_directory / f"transaction-{number}" / "process-outcome.json"
-        if path.exists():
-            return
-        write_json_new(
-            path,
-            {
-                "handle_id": execution.handle_id,
-                "return_code": execution.return_code,
-                "stdout": execution.stdout,
-                "stderr": execution.stderr,
-                "timed_out": execution.timed_out,
-                "cancelled": execution.cancelled,
-                "disconnected": execution.disconnected,
-                "cleanup_verified": execution.cleanup_verified,
-                "stop_requested": execution.stop_requested,
-                "running_before_stop": execution.running_before_stop,
-            },
-        )
-        self.process_outcomes[number] = path
-
-    def capture(self, plan: dict[str, Any], number: int) -> tuple[str, str] | None:
+    def _start_capture(self, number: int) -> bool:
+        plan = self.plan
         mode_plan = load_json_document(
             Path(plan["reference"]["plan"]["path"]), "cw-mode-plan.schema.json"
         )
@@ -1845,9 +1835,76 @@ class KeyedCapabilityProviders:
             datetime.now(UTC),
             True,
         )
-        evidence = self.capture_capability.execute(capture_plan, authorization)
+        captured: list[dict[str, object]] = []
+        errors: list[BaseException] = []
+        cancellation = threading.Event()
+
+        def worker_body() -> None:
+            try:
+                captured.append(
+                    self.capture_capability.execute(capture_plan, authorization, cancellation)
+                )
+            except BaseException as error:
+                errors.append(error)
+
+        worker = threading.Thread(target=worker_body, name=f"wspq-keyed-capture-{number}")
         self.capture_metadata[number] = capture_plan.metadata_path
         self.capture_outputs[number] = capture_plan.output_path
+        self.capture_tasks[number] = (worker, cancellation, captured, errors)
+        worker.start()
+        ready = Path(str(capture_plan.output_path) + ".incomplete")
+        ready_deadline = time.monotonic() + min(5.0, plan["deadlines"]["transaction_s"])
+        while time.monotonic() < ready_deadline:
+            if ready.exists():
+                break
+            if errors or not worker.is_alive():
+                return False
+            time.sleep(0.01)
+        else:
+            return False
+        pre_quiet = float(mode_plan["protocol"]["pre_quiet_seconds"])
+        quiet_deadline = time.monotonic() + pre_quiet
+        while time.monotonic() < quiet_deadline:
+            if errors or not worker.is_alive():
+                return False
+            time.sleep(min(0.01, quiet_deadline - time.monotonic()))
+        return not errors and worker.is_alive()
+
+    def _retain_process_outcome(self, number: int, result: object) -> None:
+        execution = cast(Any, result)
+        path = self.work_directory / f"transaction-{number}" / "process-outcome.json"
+        if path.exists():
+            return
+        write_json_new(
+            path,
+            {
+                "handle_id": execution.handle_id,
+                "return_code": execution.return_code,
+                "stdout": execution.stdout,
+                "stderr": execution.stderr,
+                "timed_out": execution.timed_out,
+                "cancelled": execution.cancelled,
+                "disconnected": execution.disconnected,
+                "cleanup_verified": execution.cleanup_verified,
+                "stop_requested": execution.stop_requested,
+                "running_before_stop": execution.running_before_stop,
+            },
+        )
+        self.process_outcomes[number] = path
+
+    def capture(self, plan: dict[str, Any], number: int) -> tuple[str, str] | None:
+        task = self.capture_tasks.get(number)
+        if task is None:
+            return None
+        worker, cancellation, captured, errors = task
+        worker.join(plan["deadlines"]["transaction_s"])
+        if worker.is_alive():
+            cancellation.set()
+            return None
+        self.capture_tasks.pop(number, None)
+        if errors or len(captured) != 1:
+            return None
+        evidence = captured[0]
         process = self.owned[number]
         result = process.wait(plan["deadlines"]["transaction_s"], None)
         self._retain_process_outcome(number, result)
@@ -1873,8 +1930,13 @@ class KeyedCapabilityProviders:
         return outcome, str(artifact(result_path)["sha256"])
 
     def cleanup(self, plan: dict[str, Any], number: int) -> bool:
-        del plan
         okay = True
+        task = self.capture_tasks.pop(number, None)
+        if task is not None:
+            worker, cancellation, _, errors = task
+            cancellation.set()
+            worker.join(plan["deadlines"]["cleanup_s"])
+            okay = not worker.is_alive() and not errors and okay
         process = self.owned.pop(number, None)
         if process is not None:
             stopped = process.stop()
