@@ -191,6 +191,14 @@ def validate_keyed_transaction(
         "verified" if stages[6]["outcome"] == "passed" else "failed"
     ):
         _fail("quiescence outcome contradicts the quiescence lifecycle stage")
+    if stages[3]["outcome"] == "failed" and transaction["measurement_outcome"] != "blocked":
+        _fail("capture failure must be classified as receiver or fixture blockage")
+    if (
+        stages[3]["outcome"] == "passed"
+        and stages[4]["outcome"] == "failed"
+        and transaction["measurement_outcome"] != "failed"
+    ):
+        _fail("completed capture with failed analysis must be a keyed measurement failure")
     expected = derive_keyed_transaction_outcome(transaction)
     if transaction["final_outcome"] != expected:
         _fail("keyed transaction final outcome violates result precedence")

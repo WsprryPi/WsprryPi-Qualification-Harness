@@ -102,6 +102,12 @@ or wrapper/executable/argument substitution fails before RF.
 The receiver capture must establish its retained output and complete the
 resolved RF-off preamble before WsprryPi is launched. Capture setup failure or
 premature capture termination must therefore prevent transmitter launch.
+After transmitter launch, a capture-helper or receiver-evidence failure is a
+receiver/fixture blockage, not transmitter unqualification. The live keyed
+bundle must retain the bounded helper execution diagnostic and any native
+failure metadata, including stdout, stderr, return code, timeout/cancellation,
+and cleanup state. Partial or rejected IQ is removed and must never be indexed
+as a valid capture artifact.
 
 Capability reporting describes only operations supplied by this harness. A
 target backend name in a plan identifies what is being tested; it does not imply

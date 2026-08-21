@@ -153,6 +153,8 @@ def test_failure_at_every_boundary_stops_and_always_checks_cleanup_and_quiescenc
             Boundary.CLEANUP_INSTALLED,
             Boundary.PROCESS_STARTED,
         }
+        else "fixture_blocked"
+        if boundary is Boundary.CAPTURE_COMPLETED
         else "unqualified_keyed"
     )
     assert outcome["result"]["final_status"] == expected

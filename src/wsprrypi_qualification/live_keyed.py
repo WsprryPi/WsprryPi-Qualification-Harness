@@ -6,11 +6,7 @@ import threading
 from pathlib import Path
 from typing import Any, Protocol
 
-from wsprrypi_qualification.keyed_coordinator import (
-    _artifact,
-    artifact_path_identity,
-    publish_keyed_session,
-)
+from wsprrypi_qualification.keyed_coordinator import artifact_path_identity, publish_keyed_session
 from wsprrypi_qualification.keyed_session_contracts import (
     LIFECYCLE_STAGES,
     authorization_sha256,
@@ -108,7 +104,7 @@ class ProductionKeyedAdapter:
                     capture_id, acquisition_id = captured
                 else:
                     outcomes["capture_completed"] = "failed"
-                    measurement = "failed"
+                    measurement = "blocked"
                     primary_failed = True
             if not primary_failed:
                 if _cancelled(cancellation):
@@ -121,10 +117,10 @@ class ProductionKeyedAdapter:
         except Exception:
             first = next((stage for stage, value in outcomes.items() if value == "not_run"), None)
             if first is not None and first not in {"cleanup_completed", "quiescence_verified"}:
-                if first == "preflight":
+                if first in {"preflight", "capture_completed"}:
                     outcomes[first] = "failed"
                     measurement = "blocked"
-                elif first in {"capture_completed", "analysis_completed"}:
+                elif first == "analysis_completed":
                     outcomes[first] = "failed"
                     measurement = "failed"
                 else:
@@ -150,9 +146,6 @@ class ProductionKeyedAdapter:
         for role in ordered_roles:
             source = evidence_paths.get(role)
             if source is None or not source.is_file() or source.is_symlink():
-                if role not in core_roles:
-                    continue
-                retained_artifacts.append(_artifact(number, role))
                 continue
             identity = artifact_path_identity(source)
             suffix = source.suffix if source.suffix else ".bin"

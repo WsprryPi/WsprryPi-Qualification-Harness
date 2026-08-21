@@ -134,9 +134,15 @@ def publish_keyed_session(
             for artifact in transaction["artifacts"]:
                 target = temporary / str(artifact["path"])
                 target.parent.mkdir(parents=True, exist_ok=True)
-                source = (artifact_sources or {}).get(str(artifact["path"]))
-                if source is None:
+                source = (
+                    None
+                    if artifact_sources is None
+                    else artifact_sources.get(str(artifact["path"]))
+                )
+                if source is None and artifact_sources is None:
                     target.write_bytes(_artifact_payload(int(number), str(artifact["role"])))
+                elif source is None:
+                    raise KeyedCoordinatorError("production keyed artifact source is missing")
                 else:
                     if source.is_symlink() or not source.is_file():
                         raise KeyedCoordinatorError("production keyed artifact is unavailable")
@@ -216,9 +222,9 @@ def _run_transaction(
         "passed"
         if outcomes[Boundary.ANALYSIS_COMPLETED.value] == "passed"
         else "blocked"
-        if failed is Boundary.PREFLIGHT
+        if failed in {Boundary.PREFLIGHT, Boundary.CAPTURE_COMPLETED}
         else "failed"
-        if failed in {Boundary.CAPTURE_COMPLETED, Boundary.ANALYSIS_COMPLETED}
+        if failed is Boundary.ANALYSIS_COMPLETED
         else "inconclusive"
     )
     transaction = {

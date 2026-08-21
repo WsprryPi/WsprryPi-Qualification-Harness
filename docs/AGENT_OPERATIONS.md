@@ -182,6 +182,10 @@ Do not bypass the keyed adapter's capture-before-RF barrier. Its retained-output
 readiness check and complete `pre_quiet_seconds` delay are what prevent the first
 keyed symbol from preceding the authenticated capture. Treat a missing readiness
 file or an early capture exit as a transmitter-launch blocker.
+For a capture failure after launch, review the retained `capture_diagnostic`
+and `capture_native_failure` artifacts. They bind the helper execution and
+native failure metadata; rejected or partial IQ is deliberately absent. Report
+that condition as receiver/fixture blockage, not transmitter unqualification.
 
 Run split-host keyed coordination from the receiver/capture host. Before plan
 resolution, prove that this host can reach the transmitter using the exact

@@ -10,6 +10,7 @@ import wsprrypi_qualification.live_adapters as live_adapters_module
 import wsprrypi_qualification.live_keyed as live_keyed_module
 from tests.unit.test_keyed_session_contracts import plan
 from wsprrypi_qualification.cli import main
+from wsprrypi_qualification.keyed_coordinator import KeyedCoordinatorError, publish_keyed_session
 from wsprrypi_qualification.keyed_session_contracts import (
     compose_keyed_runtime_authorization,
     resolved_keyed_plan_sha256,
@@ -123,7 +124,7 @@ def test_production_adapter_success_uses_three_independent_transactions(
         ("preflight", "preflight_failed"),
         ("cleanup_installed", "aborted"),
         ("process_started", "aborted"),
-        ("capture_completed", "unqualified_keyed"),
+        ("capture_completed", "fixture_blocked"),
         ("analysis_completed", "unqualified_keyed"),
         ("cleanup_completed", "cleanup_failed"),
         ("quiescence_verified", "cleanup_failed"),
@@ -158,6 +159,34 @@ def test_production_evidence_bytes_are_retained_and_authenticated(tmp_path: Path
             assert retained.read_text(encoding="utf-8") == (
                 f"{record['role']}-{transaction['transaction_number']}\n"
             )
+
+
+@pytest.mark.parametrize("mutation", ("alter", "remove"))
+def test_production_diagnostic_substitution_or_omission_is_rejected(
+    tmp_path: Path, mutation: str
+) -> None:
+    resolved = plan()
+    authorization = compose_keyed_runtime_authorization(
+        resolved, operator="operator", authorized_utc="2026-08-21T12:00:00Z"
+    )
+    providers = SealedFakeLiveProviders(
+        failure="capture_completed", evidence_root=tmp_path / "sources"
+    )
+    adapter = ProductionKeyedAdapter(providers)
+    transaction = adapter.transaction(resolved, authorization, 1, None)
+    source = next(iter(adapter.artifact_sources.values()))
+    if mutation == "alter":
+        source.write_text("substituted\n", encoding="utf-8")
+    else:
+        source.unlink()
+    with pytest.raises(KeyedCoordinatorError, match=r"identity changed|unavailable"):
+        publish_keyed_session(
+            resolved,
+            authorization,
+            [transaction],
+            tmp_path / "output",
+            artifact_sources=adapter.artifact_sources,
+        )
 
 
 def test_cli_requires_every_gate_before_provider_construction(
@@ -496,6 +525,8 @@ def test_keyed_capture_is_ready_and_prequiet_completes_before_process_launch(
     providers.capture_outputs = {}
     providers.process_evidence = {}
     providers.process_outcomes = {}
+    providers.analysis_evidence = {}
+    providers.capture_diagnostics = {}
     providers.capture_tasks = {}
     started = time.monotonic()
     assert providers.start_process(("wsprrypi",), 1) == "process-1"
@@ -547,7 +578,14 @@ def test_keyed_capture_failure_prevents_process_launch(
     providers.capture_outputs = {}
     providers.process_evidence = {}
     providers.process_outcomes = {}
+    providers.analysis_evidence = {}
+    providers.capture_diagnostics = {}
     providers.capture_tasks = {}
     providers.initial_services = {}
     assert providers.start_process(("wsprrypi",), 1) is None
+    diagnostic = providers.evidence_paths(1)["capture_diagnostic"]
+    failure = json.loads(diagnostic.read_text(encoding="utf-8"))
+    assert failure["evidence_type"] == "capture_background_failure"
+    assert failure["exception_type"] == "RuntimeError"
+    assert failure["message"] == "injected capture failure"
     assert not providers.cleanup(resolved, 1)

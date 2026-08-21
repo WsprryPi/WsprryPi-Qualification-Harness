@@ -99,6 +99,10 @@ return to their observed initial state during transaction cleanup.
 The production adapter establishes the exact-count capture and completes the
 resolved RF-off preamble before it launches WsprryPi; capture setup failure
 therefore blocks RF rather than producing a knowingly truncated observation.
+If capture fails after launch, the transaction is classified as receiver or
+fixture blockage. Its partial bundle retains authenticated native failure
+metadata and the bounded helper execution diagnostic, while incomplete or
+semantically rejected IQ is removed and is not advertised as capture evidence.
 The receiver host must have strict, plan-bound SSH access to the transmitter.
 Service elevation, when required, uses a static-configuration-bound executable
 such as `/usr/bin/sudo` in non-interactive mode; both it and `systemctl` are
@@ -156,6 +160,11 @@ Validate output bundles with the command specific to their document type and
 apply the checklist in [AGENT_OPERATIONS.md](AGENT_OPERATIONS.md). Qualification
 claims must remain exact to the recorded backend, band, hardware, source,
 receiver path, settings, time, and cleanup outcome.
+
+For live keyed blockage, inspect the transaction's `capture_diagnostic` and
+`capture_native_failure` artifacts before deciding whether to change receiver
+settings, fixture routing, or capture bounds. A successful transmitter process
+does not turn missing receiver evidence into transmitter unqualification.
 
 The harness does not keep these bundles in Git. Use a temporary or external
 output directory, then move records selected for preservation to the target

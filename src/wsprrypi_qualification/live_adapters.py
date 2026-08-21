@@ -38,6 +38,7 @@ from wsprrypi_qualification.keyed_session_contracts import resolved_keyed_plan_s
 from wsprrypi_qualification.offline import artifact, load_json_document, write_json_new
 from wsprrypi_qualification.offline_context import load_profile_context
 from wsprrypi_qualification.real_capabilities import (
+    CaptureCapabilityError,
     CaptureCapabilityPlan,
     GpioQuiescenceCapability,
     HelperGpioProvider,
@@ -1721,6 +1722,7 @@ class KeyedCapabilityProviders:
         self.process_evidence: dict[int, Path] = {}
         self.process_outcomes: dict[int, Path] = {}
         self.analysis_evidence: dict[int, Path] = {}
+        self.capture_diagnostics: dict[int, Path] = {}
         self.capture_tasks: dict[
             int,
             tuple[
@@ -1851,6 +1853,28 @@ class KeyedCapabilityProviders:
                     self.capture_capability.execute(capture_plan, authorization, cancellation)
                 )
             except BaseException as error:
+                diagnostics = getattr(self, "capture_diagnostics", None)
+                if diagnostics is None:
+                    diagnostics = {}
+                    self.capture_diagnostics = diagnostics
+                diagnostic = getattr(error, "diagnostic_path", None)
+                if isinstance(error, CaptureCapabilityError) and diagnostic is not None:
+                    diagnostics[number] = diagnostic
+                elif diagnostic is None:
+                    failure_path = directory / "capture-background-failure.json"
+                    try:
+                        write_json_new(
+                            failure_path,
+                            {
+                                "schema_version": 1,
+                                "evidence_type": "capture_background_failure",
+                                "exception_type": type(error).__name__,
+                                "message": str(error),
+                            },
+                        )
+                        diagnostics[number] = failure_path
+                    except Exception:
+                        pass
                 errors.append(error)
 
         worker = threading.Thread(target=worker_body, name=f"wspq-keyed-capture-{number}")
@@ -1974,7 +1998,11 @@ class KeyedCapabilityProviders:
             "capture": self.capture_outputs.get(number),
             "acquisition": self.capture_metadata.get(number),
             "analysis": self.analysis_evidence.get(number),
+            "capture_diagnostic": getattr(self, "capture_diagnostics", {}).get(number),
         }
+        native_failure = self.capture_metadata.get(number)
+        if native_failure is not None:
+            paths["capture_native_failure"] = Path(f"{native_failure}.failure.json")
         analysis = self.analysis_evidence.get(number)
         if analysis is not None:
             for candidate in sorted(analysis.parent.iterdir()):

@@ -12,6 +12,7 @@ from wsprrypi_qualification.application_shims import (
     WsprryPiBackendConfig,
     WsprryPiShim,
 )
+from wsprrypi_qualification.offline import artifact
 from wsprrypi_qualification.real_capabilities import (
     CapabilityError,
     CaptureCapabilityPlan,
@@ -336,7 +337,12 @@ def test_soapy_adapter_rejects_overflow_and_output_collision(tmp_path: Path) -> 
             plan, authorization(plan.document())
         )
     assert not plan.output_path.exists()
-    assert not plan.metadata_path.exists()
+    assert plan.metadata_path.exists()
+    diagnostic = Path(f"{plan.metadata_path}.execution.json")
+    retained = json.loads(diagnostic.read_text(encoding="utf-8"))
+    assert retained["reason"] == "exact_count_contract_violated"
+    assert retained["rejected_capture_metadata"] == artifact(plan.metadata_path)
+    assert retained["iq_retained"] is False
     collision = capture_plan(tmp_path / "other")
     collision.output_path.write_bytes(b"preserve")
     with pytest.raises(CapabilityError, match="new"):
@@ -345,7 +351,7 @@ def test_soapy_adapter_rejects_overflow_and_output_collision(tmp_path: Path) -> 
         )
 
 
-def test_soapy_adapter_removes_all_partial_outputs_after_cancelled_capture(
+def test_soapy_adapter_removes_partial_iq_and_preserves_failure_diagnostics(
     tmp_path: Path,
 ) -> None:
     plan = capture_plan(tmp_path)
@@ -366,7 +372,17 @@ def test_soapy_adapter_removes_all_partial_outputs_after_cancelled_capture(
             plan, authorization(plan.document())
         )
 
-    assert not list(tmp_path.glob("capture*"))
+    assert not plan.output_path.exists()
+    assert not Path(f"{plan.output_path}.incomplete").exists()
+    assert not Path(f"{plan.metadata_path}.incomplete").exists()
+    assert not Path(f"{plan.metadata_path}.failure.json.incomplete").exists()
+    native = Path(f"{plan.metadata_path}.failure.json")
+    diagnostic = Path(f"{plan.metadata_path}.execution.json")
+    assert native.read_text() == "failure metadata"
+    retained = json.loads(diagnostic.read_text(encoding="utf-8"))
+    assert retained["native_failure_metadata"] == artifact(native)
+    assert retained["execution"]["cancelled"] is True
+    assert retained["iq_retained"] is False
 
 
 def test_semantic_validation_rejects_tampered_ssh_encoding(tmp_path: Path) -> None:

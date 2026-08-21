@@ -119,3 +119,13 @@ capture is established, and then observes the mode plan's complete RF-off
 preamble before launching WsprryPi. If capture setup fails or the worker exits
 before launch, RF remains disabled. Capture cancellation and bounded join are
 part of unconditional transaction cleanup.
+
+If the worker fails after process launch, the transaction records fixture
+blockage rather than keyed transmitter failure. The provider preserves a
+hash-bound `capture_diagnostic` containing the exact helper argv identity,
+return code, stdout/stderr, timeout/cancellation flags, and transport cleanup
+state. It also retains valid native `capture_failure` metadata as
+`capture_native_failure`. Incomplete IQ and IQ rejected by exact-count or
+identity semantics are removed and never appear as a capture artifact. These
+diagnostics are copied into the partial immutable bundle and covered by its
+transaction record and manifest.
