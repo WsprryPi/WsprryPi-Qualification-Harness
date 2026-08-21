@@ -1752,6 +1752,7 @@ class KeyedCapabilityProviders:
             or protocol["dot_seconds"] != application["dot_seconds"]
             or protocol["primary_frequency_hz"] != application["primary_frequency_hz"]
             or protocol["secondary_frequency_hz"] != application["secondary_frequency_hz"]
+            or protocol["repetitions"] != plan["message_repetitions_per_transaction"]
         ):
             return False
         states: list[tuple[HelperServiceProvider, str, bool]] = []
@@ -1766,10 +1767,14 @@ class KeyedCapabilityProviders:
         return True
 
     def install_cleanup(self, plan: dict[str, Any], number: int) -> bool:
-        del plan
+        required = set(plan["capability_bindings"]["required_receiver_services"])
         for provider, name, running in self.initial_services.get(number, []):
-            if running:
-                provider.set_running(name, False)
+            specification = f"{'rx' if provider is self.rx_services else 'tx'}:{name}"
+            requested_running = specification in required
+            if running is not requested_running:
+                provider.set_running(name, requested_running)
+                if provider.inspect(name).running is not requested_running:
+                    return False
         return number in self.initial_services
 
     def start_process(self, arguments: tuple[str, ...], number: int) -> str | None:

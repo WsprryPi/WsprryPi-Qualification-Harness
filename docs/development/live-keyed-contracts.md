@@ -12,6 +12,10 @@ canonical digest is SHA-256 over finite JSON encoded with sorted keys, compact
 separators, and ASCII escaping. Runtime authorization binds that exact digest,
 session, mode, operator, UTC time, and exactly three transactions.
 
+The plan fixes `message_repetitions_per_transaction` to one. Each transaction
+therefore launches one keyed message and acquires one independent capture; the
+required three observations are never modeled as repetitions within one process.
+
 Each transaction records the ordered lifecycle:
 
 1. preflight;
@@ -73,3 +77,10 @@ transactions. Each transaction uses a new owned process, capture, acquisition,
 analysis, and artifact identity. The command stops after the first unsuccessful
 transaction, but cleanup, service restoration, quiescence verification, helper
 shutdown, and partial immutable output remain mandatory.
+
+`capability_bindings.services` is the complete host-qualified service allowlist.
+`required_receiver_services` is an explicit receiver-only subset. After cleanup
+has been installed, required receiver services are made active and other listed
+services are made inactive for that transaction. Cleanup restores every listed
+service to the state observed by that transaction. Failure to establish or
+restore any requested state makes the transaction unsuccessful.

@@ -171,6 +171,13 @@ digest confirmation. Its production composition uses the existing authenticated
 helper, owned-process, exact-count capture, service, and backend-quiescence
 adapters. Never substitute the hardware-free fake at this boundary.
 
+Resolve one message repetition per transaction. Put every service the session
+may inspect or change in the host-qualified service allowlist, and list an
+initially inactive receiver service under `required_receiver_services` when it
+must run for capture. The latter must be a receiver-side subset of the allowlist;
+the coordinator starts it only after cleanup installation and restores its
+observed state during every transaction cleanup.
+
 For live keyed plans, treat helper deployment configuration and runtime plan
 authorization as separate identities. First seal each helper executable and
 static configuration into `capability_bindings`; then compute the canonical

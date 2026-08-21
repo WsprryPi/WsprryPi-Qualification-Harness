@@ -87,6 +87,11 @@ receipts: their artifact hashes are placed in the resolved plan before its
 digest is computed. The exact digest is passed separately at helper startup and
 is correlated on every request and response.
 
+Each of the three transactions sends one keyed message. Plans bind receiver
+services that must run for capture separately from the complete service
+allowlist; they start only after cleanup installation, and all listed services
+return to their observed initial state during transaction cleanup.
+
 ## External archive intake
 
 Use `inventory-archive` and `validate-cw-multi-capture` to authenticate

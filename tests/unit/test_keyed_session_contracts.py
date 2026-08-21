@@ -137,6 +137,7 @@ def plan(mode: str = "QRSS") -> dict[str, object]:
         "target_revision": "1" * 40,
         "target_submodule_revision": "2" * 40,
         "analyzer_revision": "3" * 40,
+        "message_repetitions_per_transaction": 1,
         "capability_bindings": {
             "ssh": artifact("ssh"),
             "known_hosts": artifact("known-hosts"),
@@ -148,6 +149,7 @@ def plan(mode: str = "QRSS") -> dict[str, object]:
             "receiver_helper_identity": "rx-helper-v1",
             "capture_helper": artifact("capture-helper"),
             "services": ["tx:wsprrypi", "rx:SoapySDRServer"],
+            "required_receiver_services": ["rx:SoapySDRServer"],
             "quiescence": "gpio",
         },
         "deadlines": {"transaction_s": 10, "cleanup_s": 5, "overall_s": 35},
@@ -450,6 +452,31 @@ def test_schema_rejects_extra_fields_and_nonfinite_digest_input() -> None:
     with pytest.raises(KeyedSessionContractError, match="finite JSON"):
         canonical_sha256({"value": float("nan")})
     validate_document(authorization(resolved), "keyed-runtime-authorization.schema.json")
+
+
+def test_keyed_plan_requires_one_message_per_independent_transaction() -> None:
+    resolved = plan()
+    resolved["message_repetitions_per_transaction"] = 3
+    with pytest.raises(OfflineAnalysisError, match="violates schema"):
+        validate_resolved_keyed_plan(resolved)
+
+
+def test_required_receiver_service_must_be_allowlisted() -> None:
+    resolved = plan()
+    resolved["capability_bindings"]["required_receiver_services"] = [  # type: ignore[index]
+        "rx:sdrplay.service"
+    ]
+    with pytest.raises(KeyedSessionContractError, match="service allowlist"):
+        validate_resolved_keyed_plan(resolved)
+
+
+def test_required_service_cannot_target_transmitter() -> None:
+    resolved = plan()
+    resolved["capability_bindings"]["required_receiver_services"] = [  # type: ignore[index]
+        "tx:wsprrypi"
+    ]
+    with pytest.raises(OfflineAnalysisError, match="violates schema"):
+        validate_resolved_keyed_plan(resolved)
 
 
 def test_contract_module_has_no_hardware_capable_import_or_entrypoint() -> None:

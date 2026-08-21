@@ -16,6 +16,7 @@
     "target_revision",
     "target_submodule_revision",
     "analyzer_revision",
+    "message_repetitions_per_transaction",
     "capability_bindings",
     "deadlines",
     "stopping_procedure",
@@ -209,6 +210,9 @@
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
     },
+    "message_repetitions_per_transaction": {
+      "const": 1
+    },
     "capability_bindings": {
       "type": "object",
       "additionalProperties": false,
@@ -223,6 +227,7 @@
         "receiver_helper_identity",
         "capture_helper",
         "services",
+        "required_receiver_services",
         "quiescence"
       ],
       "properties": {
@@ -262,6 +267,14 @@
           "items": {
             "type": "string",
             "minLength": 1
+          }
+        },
+        "required_receiver_services": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^rx:[^:]+$"
           }
         },
         "quiescence": {

@@ -74,6 +74,7 @@ def _plan(mode: str = "QRSS", session_id: str = "fake-keyed-session") -> dict[st
         "target_revision": "1" * 40,
         "target_submodule_revision": "2" * 40,
         "analyzer_revision": "3" * 40,
+        "message_repetitions_per_transaction": 1,
         "capability_bindings": {
             "ssh": _artifact("ssh"),
             "known_hosts": _artifact("known-hosts"),
@@ -85,6 +86,7 @@ def _plan(mode: str = "QRSS", session_id: str = "fake-keyed-session") -> dict[st
             "receiver_helper_identity": "rx-helper-v1",
             "capture_helper": _artifact("capture-helper"),
             "services": ["tx:wsprrypi", "rx:SoapySDRServer"],
+            "required_receiver_services": [],
             "quiescence": "gpio",
         },
         "deadlines": {"transaction_s": 10, "cleanup_s": 5, "overall_s": 35},

@@ -80,6 +80,14 @@ started. The helper rechecks both artifact hashes and rejects any plan digest
 embedded in a runtime-bound configuration. A helper configuration used this
 way must therefore not embed the digest of the plan that binds it.
 
+Each live-keyed transaction represents exactly one keyed-message transmission;
+the three required observations come from three independently owned process and
+capture transactions, not repeated messages inside one transaction. Required
+receiver services must be an explicit subset of the receiver-side service
+allowlist. They may be started only after cleanup is installed and must be
+restored to their observed initial state during transaction cleanup. Other
+allowlisted services are stopped for the transaction and likewise restored.
+
 Capability reporting describes only operations supplied by this harness. A
 target backend name in a plan identifies what is being tested; it does not imply
 that the harness implements the target's synthesizer, GPIO controller, kernel

@@ -84,6 +84,9 @@ def validate_resolved_keyed_plan(document: dict[str, Any]) -> dict[str, Any]:
         for service in bindings["services"]
     ):
         _fail("keyed service bindings must identify the tx or rx host")
+    required_receiver_services = set(bindings["required_receiver_services"])
+    if not required_receiver_services.issubset(bindings["services"]):
+        _fail("required keyed receiver services must be included in the service allowlist")
     receiver = document["receiver"]
     if (
         hashlib.sha256(receiver["device"].encode("utf-8")).hexdigest()

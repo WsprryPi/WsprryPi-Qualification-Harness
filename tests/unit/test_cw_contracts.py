@@ -29,7 +29,7 @@ from wsprrypi_qualification.cw_replay import (
     validate_replay_bundle,
 )
 from wsprrypi_qualification.manifests import write_manifest
-from wsprrypi_qualification.offline import OfflineAnalysisError
+from wsprrypi_qualification.offline import OfflineAnalysisError, validate_document
 
 
 def _write(path: Path, document: dict) -> None:
@@ -242,6 +242,15 @@ def _chain(tmp_path: Path, mode: str) -> tuple[Path, Path, Path, Path, Path]:
     }
     _write(session_path, session)
     return plan_path, expected_path, observations_path, gate_path, session_path
+
+
+def test_single_repetition_mode_plan_is_valid_for_independent_live_transaction(
+    tmp_path: Path,
+) -> None:
+    plan_path = _chain(tmp_path, "qrss")[0]
+    document = json.loads(plan_path.read_text(encoding="utf-8"))
+    document["protocol"]["repetitions"] = 1
+    validate_document(document, "cw-mode-plan.schema.json")
 
 
 def _acquired_inputs(tmp_path: Path, mode: str) -> tuple[Path, Path, Path]:

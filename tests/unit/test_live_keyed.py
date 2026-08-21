@@ -312,3 +312,95 @@ def test_production_provider_builder_uses_exact_pinned_ssh_and_helper_argv(
         bindings["receiver_helper_config"]["sha256"],
     )
     assert providers.close()
+
+
+class _ServiceState:
+    def __init__(self, running: bool) -> None:
+        self.running = running
+
+
+class _FakeServiceProvider:
+    def __init__(self, running: bool, *, refuse_change: bool = False) -> None:
+        self.running = running
+        self.refuse_change = refuse_change
+        self.requests: list[bool] = []
+
+    def inspect(self, name: str) -> _ServiceState:
+        assert name
+        return _ServiceState(self.running)
+
+    def set_running(self, name: str, running: bool) -> _ServiceState:
+        assert name
+        self.requests.append(running)
+        if not self.refuse_change:
+            self.running = running
+        return _ServiceState(self.running)
+
+
+def _service_provider_fixture(
+    *, receiver_running: bool, receiver_refuses_change: bool = False
+) -> tuple[
+    live_adapters_module.KeyedCapabilityProviders, _FakeServiceProvider, _FakeServiceProvider
+]:
+    providers = object.__new__(live_adapters_module.KeyedCapabilityProviders)
+    tx = _FakeServiceProvider(True)
+    rx = _FakeServiceProvider(receiver_running, refuse_change=receiver_refuses_change)
+    providers.tx_services = tx
+    providers.rx_services = rx
+    providers.initial_services = {
+        1: [(tx, "wsprrypi.service", True), (rx, "sdrplay.service", receiver_running)]
+    }
+    providers.owned = {}
+    providers.process_outcomes = {}
+    return providers, tx, rx
+
+
+def _service_plan() -> dict:
+    resolved = plan()
+    resolved["capability_bindings"]["services"] = [  # type: ignore[index]
+        "tx:wsprrypi.service",
+        "rx:sdrplay.service",
+    ]
+    resolved["capability_bindings"]["required_receiver_services"] = [  # type: ignore[index]
+        "rx:sdrplay.service"
+    ]
+    return resolved
+
+
+def test_required_inactive_receiver_service_starts_after_cleanup_installation_and_restores() -> (
+    None
+):
+    providers, tx, rx = _service_provider_fixture(receiver_running=False)
+    resolved = _service_plan()
+    assert providers.install_cleanup(resolved, 1)
+    assert tx.running is False
+    assert rx.running is True
+    assert providers.cleanup(resolved, 1)
+    assert tx.running is True
+    assert rx.running is False
+
+
+def test_required_initially_active_receiver_service_is_preserved_and_restored() -> None:
+    providers, _, rx = _service_provider_fixture(receiver_running=True)
+    resolved = _service_plan()
+    assert providers.install_cleanup(resolved, 1)
+    assert rx.requests == []
+    assert providers.cleanup(resolved, 1)
+    assert rx.running is True
+
+
+def test_required_receiver_service_start_failure_fails_closed() -> None:
+    providers, _, rx = _service_provider_fixture(
+        receiver_running=False, receiver_refuses_change=True
+    )
+    assert not providers.install_cleanup(_service_plan(), 1)
+    assert rx.running is False
+
+
+def test_required_receiver_service_restoration_failure_fails_cleanup() -> None:
+    providers, _, rx = _service_provider_fixture(receiver_running=False)
+    resolved = _service_plan()
+    assert providers.install_cleanup(resolved, 1)
+    rx.refuse_change = True
+    assert not providers.cleanup(resolved, 1)
+    assert rx.running is True

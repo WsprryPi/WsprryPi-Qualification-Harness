@@ -148,7 +148,7 @@
             "integer",
             "null"
           ],
-          "minimum": 3
+          "minimum": 1
         },
         "primary_frequency_hz": {
           "type": "number",
