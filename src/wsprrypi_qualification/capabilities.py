@@ -51,6 +51,10 @@ def capability_report() -> dict[str, Any]:
             "offline-only QRSS, FSKCW, and DFCW three-transaction plan, authorization, "
             "aggregate, result, and artifact-index validation"
         ),
+        "hardware_free_keyed_coordination": (
+            "sealed deterministic QRSS, FSKCW, and DFCW three-transaction lifecycle "
+            "rehearsal with failure and cancellation injection"
+        ),
         "live_wspr_coordination": (
             "digest-authorized split-host carrier gate and three-frame WSPR lifecycle"
         ),

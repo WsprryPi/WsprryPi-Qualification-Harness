@@ -52,14 +52,18 @@ The harness provides:
     timing, transition, replay, and mock lifecycle analysis;
 11. offline resolved-plan, authorization, three-transaction, aggregate, result,
     and artifact-index contracts for future live QRSS, FSKCW, and DFCW coordination;
-12. cleanup supervisor and backend-specific quiescence verification;
-13. immutable-per-run result bundle and summary generation.
+12. sealed hardware-free QRSS, FSKCW, and DFCW coordinator rehearsal through a
+    deterministic fake adapter with lifecycle failure and cancellation injection;
+13. cleanup supervisor and backend-specific quiescence verification;
+14. immutable-per-run result bundle and summary generation.
 
 The live keyed contract layer is validation-only: it exposes no process,
 transport, receiver, transmitter, service, or RF operation. Its three
 transactions must have independent process, capture, acquisition, analysis, and
-artifact identities. Qualification requires three passing transactions;
-cleanup or quiescence failure has precedence over measurement success.
+artifact identities. An early-stop failure aggregate contains only the
+contiguous transactions actually attempted. Qualification requires exactly
+three passing transactions; cleanup or quiescence failure has precedence over
+measurement success.
 
 Capability reporting describes only operations supplied by this harness. A
 target backend name in a plan identifies what is being tested; it does not imply

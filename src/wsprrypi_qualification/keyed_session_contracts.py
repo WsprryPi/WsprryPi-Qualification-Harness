@@ -214,11 +214,12 @@ def validate_keyed_aggregate_session(
         validate_keyed_transaction(validated_plan, validated_authorization, transaction)
         for transaction in aggregate["transactions"]
     ]
-    if [item["transaction_number"] for item in transactions] != [1, 2, 3]:
-        _fail("aggregate session requires transactions numbered exactly 1, 2, and 3")
+    expected_numbers = list(range(1, len(transactions) + 1))
+    if [item["transaction_number"] for item in transactions] != expected_numbers:
+        _fail("aggregate session requires contiguous transactions beginning with 1")
     for field in ("transaction_id", "process_id", "capture_id", "acquisition_id", "analysis_id"):
         values = [item[field] for item in transactions]
-        if len(set(values)) != 3:
+        if len(set(values)) != len(transactions):
             _fail(f"aggregate session reuses {field}")
     artifacts = [item for transaction in transactions for item in transaction["artifacts"]]
     for field in ("path", "sha256"):

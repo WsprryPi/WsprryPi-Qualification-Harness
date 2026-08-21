@@ -22,10 +22,12 @@ Each transaction records the ordered lifecycle:
 6. cleanup completion; and
 7. quiescence verification.
 
-The aggregate requires transactions numbered 1, 2, and 3. Transaction, process,
-capture, acquisition, analysis, artifact-path, and artifact-hash identities must
-be independent across all three. A transaction cannot make a qualification
-claim by itself.
+The aggregate records the contiguous transactions actually attempted, beginning
+with transaction 1 and stopping after the first unsuccessful transaction. A
+qualifying aggregate requires transactions numbered 1, 2, and 3. Transaction,
+process, capture, acquisition, analysis, artifact-path, and artifact-hash
+identities must be independent across all three. A transaction cannot make a
+qualification claim by itself.
 
 Final status is derived, not trusted. Precedence is cleanup or quiescence
 failure, abort, preflight failure, fixture blockage, keyed measurement failure,
@@ -34,6 +36,14 @@ transactions to pass with verified cleanup and quiescence. The result binds the
 canonical aggregate digest, and the artifact index requires each core contract
 document exactly once with safe relative paths and unique identities.
 
-These contracts are preparation for a later coordinator implementation. A
-schema-valid or semantically valid document is not runtime authorization to use
-hardware and is not live qualification evidence.
+`keyed_coordinator.run_hardware_free_keyed_session` rehearses this lifecycle
+against `SealedFakeKeyedAdapter`. The adapter is deterministic and sealed against
+subclassing; it cannot launch a process, contact a host, operate a service, open
+a receiver, or touch a transmitter. Failure and cancellation can be injected at
+every lifecycle boundary. Caller cancellation stops primary work but cannot
+suppress cleanup or quiescence verification. Each output path is single-use and
+is published only after its result documents and canonical manifest are complete.
+
+This coordinator is preparation for later live adapter wiring. Its `qualified`
+result means only that all three fake transactions passed their modeled contract.
+It is not runtime authorization, hardware evidence, or live qualification.

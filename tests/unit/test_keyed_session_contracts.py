@@ -160,18 +160,19 @@ def test_plan_deadline_and_reference_independence_are_semantic() -> None:
         validate_resolved_keyed_plan(reused)
 
 
-def test_exactly_three_ordered_transactions_are_required() -> None:
+def test_partial_failure_aggregate_is_allowed_but_three_are_required_to_qualify() -> None:
     resolved = plan()
     auth = authorization(resolved)
     transactions = [transaction(resolved, auth, number) for number in (1, 2, 3)]
-    with pytest.raises(OfflineAnalysisError, match="violates schema"):
-        compose_keyed_aggregate_session(resolved, auth, transactions[:2])
+    partial = compose_keyed_aggregate_session(resolved, auth, transactions[:2])
+    assert partial["final_status"] == "inconclusive"
+    assert partial["qualification_claim"] is False
     swapped = compose_keyed_aggregate_session(resolved, auth, transactions)
     swapped["transactions"][0], swapped["transactions"][1] = (  # type: ignore[index]
         swapped["transactions"][1],  # type: ignore[index]
         swapped["transactions"][0],  # type: ignore[index]
     )
-    with pytest.raises(KeyedSessionContractError, match="numbered exactly"):
+    with pytest.raises(KeyedSessionContractError, match="contiguous"):
         validate_keyed_aggregate_session(resolved, auth, swapped)
 
 

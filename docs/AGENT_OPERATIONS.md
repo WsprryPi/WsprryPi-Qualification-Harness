@@ -162,7 +162,8 @@ Use `keyed_session_contracts` for offline construction and semantic validation
 of future live QRSS, FSKCW, or DFCW session documents. Read
 [`live-keyed-contracts.md`](development/live-keyed-contracts.md) first. The
 module requires exactly three independent transactions and derives status with
-cleanup/quiescence precedence, but it deliberately has no execution entrypoint.
+cleanup/quiescence precedence. Use `keyed_coordinator` only for the sealed
+hardware-free three-transaction rehearsal; its injected fake is not a live adapter.
 
 Use `run-cw-actual-host-preflight` only under current explicit
 read-only host authorization. The command requires an exact plan digest and
