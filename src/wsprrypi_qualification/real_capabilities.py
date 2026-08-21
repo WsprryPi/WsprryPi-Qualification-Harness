@@ -815,6 +815,8 @@ class JsonHelperClient:
             raise CapabilityError("capability helper returned invalid JSON") from exc
         if not isinstance(document, dict):
             raise CapabilityError("capability helper response must be an object")
+        if document.get("outcome") == "rejected" and isinstance(document.get("error"), str):
+            raise CapabilityError(f"capability helper rejected {operation}: {document['error']}")
         validate_document(document, "helper-response.schema.json")
         expected = {
             "protocol_version",

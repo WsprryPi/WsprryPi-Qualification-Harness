@@ -49,6 +49,8 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         "real-capability-session.schema.json",
         "helper-request.schema.json",
         "helper-response.schema.json",
+        "bounded-tone-helper-result.schema.json",
+        "bounded-tone-failure-evidence.schema.json",
         "process-start-result.schema.json",
         "process-wait-result.schema.json",
         "process-stop-result.schema.json",

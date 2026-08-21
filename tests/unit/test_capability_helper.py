@@ -85,6 +85,10 @@ class BoundedTone:
             "maximum_frame_bytes": 16384,
             "start_response": {"started": True},
             "terminal_response": {"stopped": True, "scheduler_restored": True},
+            "observed_responses": [
+                {"started": True},
+                {"stopped": True, "scheduler_restored": True},
+            ],
             "cleanup_attempted": False,
             "completed": True,
             "qualification_claim": False,

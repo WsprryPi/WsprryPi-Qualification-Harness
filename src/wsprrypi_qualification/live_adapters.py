@@ -872,6 +872,26 @@ class ProductionRealSessionAdapters:
                         },
                     )
                 except Exception as exc:
+                    failure_path = (
+                        self.paths.work_directory
+                        / f"carrier-cycle-{cycle}-bounded-tone-failure.json"
+                    )
+                    write_json_new(
+                        failure_path,
+                        {
+                            "schema_version": 1,
+                            "evidence_type": "bounded_tone_failure",
+                            "run_id": plan["run_id"],
+                            "cycle": cycle,
+                            "plan_sha256": resolved_real_plan_sha256(plan),
+                            "error_type": type(exc).__name__,
+                            "error": str(exc),
+                            "cleanup_expected": True,
+                            "qualification_claim": False,
+                        },
+                        schema_name="bounded-tone-failure-evidence.schema.json",
+                    )
+                    self._artifacts.append(failure_path)
                     raise RealSessionError(f"bounded Tone cycle {cycle} failed") from exc
                 result = cast(dict[str, Any], evidence["result"])
                 endpoint = plan["remote_helper"]["bounded_tone_endpoint"]

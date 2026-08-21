@@ -695,6 +695,7 @@ def _bounded_tone_envelope(plan: dict, cycle: int) -> dict:
             "maximum_frame_bytes": 16384,
             "start_response": {},
             "terminal_response": {},
+            "observed_responses": [{}, {}],
             "cleanup_attempted": False,
             "completed": True,
             "qualification_claim": False,
@@ -874,6 +875,40 @@ def test_tone_pattern_rejects_over_budget_cycle_before_launch(tmp_path: Path, mo
     with pytest.raises(RealSessionError, match="exceeds its cumulative RF-on bound"):
         adapter._run_tone_pattern_cycles(plan, worker, cancellation, [], [])
     assert len(requests) == 1
+
+
+def test_tone_pattern_retains_helper_rejection_before_failing(tmp_path: Path, monkeypatch) -> None:
+    adapter = bare_adapter(tmp_path)
+    clock = {"now": 100.0}
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: clock["now"])
+    monkeypatch.setattr(
+        "wsprrypi_qualification.live_adapters.time.sleep",
+        lambda seconds: clock.__setitem__("now", clock["now"] + seconds),
+    )
+
+    class Client:
+        def request_evidence(self, operation, payload):
+            raise RuntimeError('rejected frame: {"command":"log"}')
+
+    class Worker:
+        def is_alive(self):
+            return True
+
+    adapter.tx_client = Client()
+    plan = tone_plan_document()
+    cancellation = threading.Event()
+    worker = Worker()
+    adapter._capture_tasks = [(worker, cancellation)]
+
+    with pytest.raises(RealSessionError, match="bounded Tone cycle 1 failed"):
+        adapter._run_tone_pattern_cycles(plan, worker, cancellation, [], [])
+
+    failure = json.loads((tmp_path / "carrier-cycle-1-bounded-tone-failure.json").read_text())
+    assert failure["cycle"] == 1
+    assert failure["error_type"] == "RuntimeError"
+    assert '"command":"log"' in failure["error"]
+    assert failure["qualification_claim"] is False
+    assert tmp_path / "carrier-cycle-1-bounded-tone-failure.json" in adapter._artifacts
 
 
 def test_transmitter_service_preparation_precedes_tone_epoch(tmp_path: Path, monkeypatch) -> None:
