@@ -11,6 +11,11 @@ import numpy as np
 import numpy.typing as npt
 
 from wsprrypi_qualification.capture_metadata import CaptureMetadata, load_capture_metadata
+from wsprrypi_qualification.carrier_plot import (
+    canonical_analysis_sha256,
+    inspect_carrier_plot,
+    render_carrier_plot,
+)
 from wsprrypi_qualification.cf32 import inspect_cf32, open_cf32
 from wsprrypi_qualification.offline import (
     FailureCause,
@@ -72,6 +77,7 @@ def analyze_carrier(
     rf_off_metadata_path: Path | None = None,
     rf_on_metadata_path: Path | None = None,
     profile_evidence: dict[str, Any] | None = None,
+    plot_path: Path | None = None,
 ) -> dict[str, Any]:
     if parameters.sample_rate_hz <= 0 or parameters.fft_size < 16:
         raise OfflineAnalysisError("sample rate and FFT size must be positive")
@@ -238,7 +244,24 @@ def analyze_carrier(
     # pathlib values from asdict are made explicit for portable JSON.
     for value in document["inputs"].values():
         value["path"] = str(Path(value["path"]).resolve(strict=True))
-    write_json_new(evidence_path, document, schema_name="carrier-analysis.schema.json")
+    if plot_path is not None:
+        if plot_path.resolve() == evidence_path.resolve():
+            raise OfflineAnalysisError("carrier plot and analysis paths must differ")
+        plot = render_carrier_plot(
+            plot_path,
+            frequencies[usable],
+            residual[usable],
+            parameters.requested_frequency_hz,
+            strongest_hz,
+            canonical_analysis_sha256(document),
+        )
+        document["plot"] = plot
+    try:
+        write_json_new(evidence_path, document, schema_name="carrier-analysis.schema.json")
+    except Exception:
+        if plot_path is not None:
+            plot_path.unlink(missing_ok=True)
+        raise
     return document
 
 
@@ -254,6 +277,7 @@ def analyze_carrier_acquired(
     fft_size: int = 262_144,
     dc_exclusion_hz: float = 1_000.0,
     relocation_bundle: Path | None = None,
+    plot_path: Path | None = None,
 ) -> dict[str, Any]:
     context = load_profile_context(bench_profile_path, test_profile_path)
     off_metadata = validate_acquired_capture(
@@ -282,6 +306,7 @@ def analyze_carrier_acquired(
         rf_off_metadata_path=rf_off_metadata_path,
         rf_on_metadata_path=rf_on_metadata_path,
         profile_evidence=context.evidence(),
+        plot_path=plot_path,
     )
 
 
@@ -326,6 +351,7 @@ def load_acquired_carrier_evidence(path: Path) -> AcquiredCarrierEvidence:
     """Authenticate acquired carrier evidence and deterministically recompute its analysis."""
     try:
         document = load_json_document(path, "carrier-analysis.schema.json")
+        plot_path = inspect_carrier_plot(document) if "plot" in document else None
         contract = document["contract"]
         if contract["evidence_scope"] != "acquired":
             raise OfflineAnalysisError(
@@ -357,6 +383,11 @@ def load_acquired_carrier_evidence(path: Path) -> AcquiredCarrierEvidence:
                 "RF-on capture reference changed", cause=FailureCause.CONTRADICTORY_EVIDENCE
             )
         with TemporaryDirectory(prefix="wspq-carrier-verify-") as directory:
+            recomputed_plot = (
+                Path(directory) / f"carrier{plot_path.suffix.lower()}"
+                if plot_path is not None
+                else None
+            )
             recomputed = analyze_carrier_acquired(
                 off_path,
                 on_path,
@@ -367,8 +398,19 @@ def load_acquired_carrier_evidence(path: Path) -> AcquiredCarrierEvidence:
                 Path(directory) / "carrier.json",
                 fft_size=contract["fft_size"],
                 dc_exclusion_hz=contract["dc_exclusion_hz"],
+                plot_path=recomputed_plot,
             )
-        if document != recomputed:
+        observed_without_plot = dict(document)
+        recomputed_without_plot = dict(recomputed)
+        observed_plot = observed_without_plot.pop("plot", None)
+        recomputed_plot_metadata = recomputed_without_plot.pop("plot", None)
+        if observed_plot is not None and recomputed_plot_metadata is not None:
+            observed_plot = {**observed_plot, "artifact": {**observed_plot["artifact"]}}
+            observed_plot["artifact"]["path"] = recomputed_plot_metadata["artifact"]["path"]
+        if (
+            observed_without_plot != recomputed_without_plot
+            or observed_plot != recomputed_plot_metadata
+        ):
             raise OfflineAnalysisError(
                 "carrier metrics or contract contradict authenticated inputs",
                 cause=FailureCause.CONTRADICTORY_EVIDENCE,

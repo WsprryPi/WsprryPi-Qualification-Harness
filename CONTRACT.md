@@ -44,7 +44,8 @@ The harness provides:
    target implementation details;
 5. local SoapySDR capture adapter;
 6. exact-sample-count CF32 capture helper;
-7. RF-silence and continuous-carrier analysis;
+7. RF-silence and continuous-carrier analysis with optional authenticated
+   relative-spectrum PNG or SVG plots;
 8. WSPR-slot planning and bounded three-frame orchestration;
 9. CF32 translation, per-slot WAV generation, and `wsprd` execution;
 10. tone, QRSS, FSKCW, and DFCW reference generation, symbol-spacing, drift,
@@ -157,7 +158,7 @@ Each run creates a new, never-reused UTC-and-test-ID directory containing:
 - tool, OS, package, decoder, SoapySDR, source, and submodule identities;
 - preflight, session, transmitter, capture, decoder, analysis, and cleanup logs;
 - raw IQ or its durable location, byte size, format, sample count, and SHA-256;
-- RF-off/on carrier results;
+- RF-off/on carrier results and any requested authenticated plot;
 - per-slot WAV files and complete `wsprd` output;
 - frame/tone/transition results when run;
 - `result.json`; and

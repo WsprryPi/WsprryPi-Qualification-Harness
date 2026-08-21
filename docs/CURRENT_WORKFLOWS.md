@@ -30,13 +30,21 @@ The maintained sequence is:
 
 1. `validate-capture-metadata` authenticates exact-count capture metadata and
    its IQ artifact.
-2. `analyze-carrier` compares distinct RF-off and RF-on captures.
+2. `analyze-carrier` compares distinct RF-off and RF-on captures. Add
+   `--plot OUTPUT.png` or `--plot OUTPUT.svg` for an authenticated relative-spectrum
+   rendering using Matplotlib Agg.
 3. `make-slot-wav` creates a canonical WAV for each bounded UTC slot.
 4. `decode-wspr` runs the pinned decoder independently for each WAV.
 5. `summarize-decodes` verifies consecutive expected-identity results.
 
 Offline analysis does not prove transmitter lifecycle, cleanup, calibrated
 power, or spectral compliance.
+
+Carrier plots are normalized to the strongest positive RF-on-minus-RF-off
+residual and therefore show relative dB only. Their metadata binds the plot
+bytes, media type, pixel dimensions, renderer version, normalization contract,
+and canonical source analysis. A plot is neither calibrated power nor frequency
+evidence.
 
 Guide: [Split-host WSPR lifecycle](development/live-three-frame.md). Use each command's
 current `--help` output for its exact offline arguments.

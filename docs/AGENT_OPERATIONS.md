@@ -121,6 +121,13 @@ The maintained offline sequence is:
 6. summarize the three consecutive decoder documents;
 7. validate and manifest the final bundle.
 
+Pass `--plot OUTPUT.png` or `--plot OUTPUT.svg` to `analyze-carrier` when a
+frequency-domain rendering is requested. The command uses the non-interactive
+Matplotlib Agg renderer. Validate the carrier-analysis document before trusting
+the plot: its artifact identity, dimensions, renderer, relative normalization,
+and source-analysis digest are authenticated. Plots remain relative and
+non-calibrated operational output, never repository collateral.
+
 The separate hardware-free SDR calibration consumer accepts only the frozen
 native `sdr-calibration-profile` version `1.0.0` contract. Use
 `evaluate-sdr-calibration PROFILE.json APPLICATION.json` to validate and apply

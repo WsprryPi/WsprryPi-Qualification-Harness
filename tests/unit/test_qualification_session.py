@@ -21,6 +21,7 @@ from wsprrypi_qualification.application_shims import (
 from wsprrypi_qualification.audio import create_slot_wav_acquired
 from wsprrypi_qualification.carrier import analyze_carrier_acquired
 from wsprrypi_qualification.decoder import run_wsprd_acquired, summarize_decodes
+from wsprrypi_qualification.manifests import build_manifest, render_manifest
 from wsprrypi_qualification.models import (
     AuthorizationScope,
     Backend,
@@ -232,6 +233,7 @@ def retained_evidence(
     *,
     carrier_tone_hz: int = 100,
     correct_decode: bool = True,
+    carrier_plot: bool = False,
 ) -> OfflineEvidenceSet:
     root = tmp_path / "retained slice3 evidence"
     root.mkdir(parents=True)
@@ -257,6 +259,7 @@ def retained_evidence(
         carrier_path,
         fft_size=1_000,
         dc_exclusion_hz=25,
+        plot_path=root / "carrier.png" if carrier_plot else None,
     )
 
     iq = root / "coherent.cf32"
@@ -341,6 +344,44 @@ def test_successful_mock_remains_inconclusive_and_packages_manifest(tmp_path: Pa
     index = json.loads((bundle / "offline-evidence-index.json").read_text(encoding="utf-8"))
     assert len(index["artifacts"]) >= 8
     assert json.loads((bundle / "session.json").read_text(encoding="utf-8")) == session
+
+
+def test_requested_carrier_plot_is_indexed_manifested_and_fail_closed(tmp_path: Path) -> None:
+    base = session_plan()
+    plan = replace(base, offline_evidence=retained_evidence(tmp_path, base, carrier_plot=True))
+    output = QualificationSession(plan, now=NOW).run(confirmation(plan), tmp_path / "bundle")
+    bundle = Path(str(output["bundle"]))
+    index = json.loads((bundle / "offline-evidence-index.json").read_text(encoding="utf-8"))
+    plot_records = [
+        item
+        for item in index["artifacts"]
+        if item["disposition"] == "bundled" and item["retained_path"].endswith("carrier.png")
+    ]
+    assert len(plot_records) == 1
+    retained_plot = bundle / plot_records[0]["retained_path"]
+    assert plot_records[0]["retained_path"] in (bundle / "SHA256SUMS").read_text(encoding="utf-8")
+    validate_published_bundle(bundle)
+
+    original = retained_plot.read_bytes()
+    retained_plot.write_bytes(original + b"tampered")
+    with pytest.raises(SessionError, match="contradicts its index"):
+        validate_published_bundle(bundle)
+    retained_plot.write_bytes(original)
+    unexpected = bundle / "unexpected-plot.png"
+    unexpected.write_bytes(original)
+    with pytest.raises(SessionError, match="manifest is non-canonical"):
+        validate_published_bundle(bundle)
+    unexpected.unlink()
+    retained_unexpected = bundle / "retained-artifacts" / "unexpected-plot.png"
+    retained_unexpected.write_bytes(original)
+    (bundle / "SHA256SUMS").write_text(render_manifest(build_manifest(bundle)), encoding="utf-8")
+    with pytest.raises(SessionError, match="artifact set is incomplete or unexpected"):
+        validate_published_bundle(bundle)
+    retained_unexpected.unlink()
+    (bundle / "SHA256SUMS").write_text(render_manifest(build_manifest(bundle)), encoding="utf-8")
+    retained_plot.unlink()
+    with pytest.raises((SessionError, FileNotFoundError)):
+        validate_published_bundle(bundle)
 
 
 @pytest.mark.parametrize(

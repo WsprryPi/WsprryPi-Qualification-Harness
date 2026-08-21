@@ -17,6 +17,10 @@ def test_capability_report_is_read_only_and_truthful() -> None:
     )
     assert "exact-count" in local_soapy["reason"]
     assert states["carrier_analysis"] == "available"
+    carrier = next(
+        adapter for adapter in report["adapters"] if adapter["name"] == "carrier_analysis"
+    )
+    assert "Matplotlib Agg PNG/SVG" in carrier["reason"]
     assert states["live_wspr_coordination"] == "available"
     assert states["live_tone_coordination"] == "available"
     assert all(tool["state"] in {"available", "unavailable"} for tool in report["external_tools"])

@@ -41,7 +41,10 @@ def capability_report() -> dict[str, Any]:
         ),
         "gpio_quiescence": "backend-specific GPIO idle-state verification",
         "si5351_quiescence": "backend-specific Si5351 output-disable verification",
-        "carrier_analysis": "RF-off-subtracted continuous-carrier analysis",
+        "carrier_analysis": (
+            "RF-off-subtracted continuous-carrier analysis with authenticated "
+            "Matplotlib Agg PNG/SVG plotting"
+        ),
         "wspr_decode": "UTC-slot WAV generation, independent wsprd execution, and decode summary",
         "cw_analysis": "tone, QRSS, FSKCW, and DFCW reference, IQ, replay, and mode analysis",
         "live_wspr_coordination": (

@@ -12,7 +12,7 @@ evidence or a project roadmap. Confirm command syntax with the checked-out CLI
 | Local and SSH execution | `transports.py`, `remote_exec.py`, `real_capabilities.py` | SSH and process capability schemas | `test_real_capabilities.py`, `test_live_adapters.py` |
 | Helper boundary | `capability_helper.py`, `deployment.py` | helper request/response/configuration and deployment schemas | `test_capability_helper.py`, `test_deployment.py` |
 | Exact-count capture | `native/src/capture.cpp`, `capture_metadata.py`, `live_adapters.py` | capture metadata and receiver lifecycle schemas | native CTest, `test_capture_metadata.py`, `test_receiver_integration.py` |
-| Carrier analysis | `carrier.py`; `analyze-carrier` | carrier-analysis | `test_carrier.py`, `test_acquired_offline.py` |
+| Carrier analysis and plotting | `carrier.py`, `carrier_plot.py`; `analyze-carrier --plot` | carrier-analysis, including optional plot binding | `test_carrier.py`, `test_acquired_offline.py` |
 | WSPR timing and decode | `timing.py`, `audio.py`, `decoder.py` | audio, decoder, and decode-summary schemas | `test_timing.py`, `test_audio.py`, `test_decoder.py` |
 | Tone and keyed-mode analysis | `cw_reference.py`, `cw_iq.py`, `cw_replay.py`, `cw_qualification.py` | CW plan, expected-event, observation, gate, replay, and qualification schemas | `test_cw_reference.py`, `test_cw_contracts.py`, `test_cw_qualification.py` |
 | Supervision and cleanup | `supervisor.py`, `real_session.py`, `receiver_integration.py`, `transmitter_lifecycle.py` | session, result, cleanup, quiescence, and lifecycle schemas | supervisor, real-session, receiver, and transmitter lifecycle tests |

@@ -16,8 +16,8 @@ The maintained package provides:
   plans;
 - read-only dependency and capability discovery;
 - a portable C++ exact-count CF32 capture helper with mock-source tests;
-- offline carrier analysis, UTC-slot WAV generation, `wsprd` execution, and
-  consecutive-decode validation;
+- offline carrier analysis with optional authenticated PNG/SVG relative-spectrum
+  plots, UTC-slot WAV generation, `wsprd` execution, and consecutive-decode validation;
 - deterministic tone and CW-family reference generation, synthetic-IQ analysis,
   acquired-IQ replay, and mock lifecycle rehearsal;
 - authenticated archive and multi-capture evidence intake;
