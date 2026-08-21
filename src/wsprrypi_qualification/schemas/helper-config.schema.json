@@ -1,1 +1,27 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["protocol_version","helper_identity","plan_sha256","allowed_services"],"dependentRequired":{"bounded_tone_endpoint":["wsprrypi_revision"],"wsprrypi_revision":["bounded_tone_endpoint"]},"properties":{"protocol_version":{"const":1},"helper_identity":{"type":"string","minLength":1},"plan_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"allowed_services":{"type":"array","items":{"type":"string","minLength":1},"uniqueItems":true},"systemctl_path":{"type":"string","minLength":1},"service_timeout_s":{"type":"number","exclusiveMinimum":0},"gpio_helper_path":{"type":"string","minLength":1},"si5351_helper_path":{"type":"string","minLength":1},"inspection_timeout_s":{"type":"number","exclusiveMinimum":0},"systemctl_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"gpio_helper_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"si5351_helper_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"wsprrypi_revision":{"type":"string","pattern":"^[0-9a-f]{40}$"},"bounded_tone_endpoint":{"type":"object","additionalProperties":false,"required":["host","port","path","maximum_frame_bytes"],"properties":{"host":{"enum":["127.0.0.1","::1"]},"port":{"type":"integer","minimum":1024,"maximum":49151},"path":{"type":"string","pattern":"^/[^\\r\\n]*$"},"maximum_frame_bytes":{"type":"integer","minimum":128,"maximum":1048576}}}}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["protocol_version", "helper_identity", "allowed_services"],
+  "dependentRequired": {"bounded_tone_endpoint": ["wsprrypi_revision"], "wsprrypi_revision": ["bounded_tone_endpoint"]},
+  "properties": {
+    "protocol_version": {"const": 1}, "helper_identity": {"type": "string", "minLength": 1},
+    "plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "allowed_services": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "systemctl_path": {"type": "string", "minLength": 1}, "service_timeout_s": {"type": "number", "exclusiveMinimum": 0},
+    "gpio_helper_path": {"type": "string", "minLength": 1}, "si5351_helper_path": {"type": "string", "minLength": 1},
+    "inspection_timeout_s": {"type": "number", "exclusiveMinimum": 0},
+    "systemctl_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "gpio_helper_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "si5351_helper_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "wsprrypi_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "bounded_tone_endpoint": {
+      "type": "object", "additionalProperties": false, "required": ["host", "port", "path", "maximum_frame_bytes"],
+      "properties": {
+        "host": {"enum": ["127.0.0.1", "::1"]},
+        "port": {"type": "integer", "minimum": 1024, "maximum": 49151},
+        "path": {"type": "string", "pattern": "^/[^\\r\\n]*$"},
+        "maximum_frame_bytes": {"type": "integer", "minimum": 128, "maximum": 1048576}
+      }
+    }
+  }
+}

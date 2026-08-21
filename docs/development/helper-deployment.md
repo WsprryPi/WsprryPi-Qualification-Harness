@@ -31,9 +31,16 @@ Portable consumers invoke the packaged resource with the selected Python
 interpreter; they do not rely on a Unix executable mode surviving a Windows
 wheel installation.
 Validate it offline with the maintained Python loader before startup. The
-helper identity, protocol version, complete resolved-plan digest, exact service
-allowlist, provider selection, GPIO line contract, and Si5351 bus/address/output
-contract must be deployment-specific. A universal receiver authorization never
+helper identity, protocol version, exact service allowlist, provider selection,
+GPIO line contract, and Si5351 bus/address/output contract must be
+deployment-specific. For live keyed coordination, generate the immutable helper
+configuration with
+`runtime_helper_config(document, plan_digest_at_startup=True)`; this intentionally
+omits `plan_sha256` from the translated helper document while retaining it in
+the deployment record. The resolved plan binds the generated configuration
+artifact; the launcher then supplies the separately authorized plan digest and
+expected helper/configuration hashes at startup. A runtime-bound configuration
+containing a plan digest is rejected. A universal receiver authorization never
 imports these facts or authorizes transmission.
 
 The deployment document is not passed directly to the persistent helper. After

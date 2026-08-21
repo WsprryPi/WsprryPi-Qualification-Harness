@@ -477,6 +477,11 @@ def test_deployment_config_validates_absolute_pinned_files(tmp_path: Path):
     loaded_server = load_server_config(runtime_path)
     assert loaded_server.identity == "fixture-helper"
     assert loaded_server.bounded_tone.wsprrypi_revision == "1" * 40
+    keyed_runtime = runtime_helper_config(load_deployment_config(path), plan_digest_at_startup=True)
+    assert "plan_sha256" not in keyed_runtime
+    keyed_path = tmp_path / "static keyed helper.json"
+    keyed_path.write_text(json.dumps(keyed_runtime), encoding="utf-8")
+    assert load_server_config(keyed_path, PLAN).plan_sha256 == PLAN
     original_digest = entry["sha256"]
     entry["sha256"] = "0" * 64
     path.write_text(json.dumps(config), encoding="utf-8")

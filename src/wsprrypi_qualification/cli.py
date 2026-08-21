@@ -224,7 +224,14 @@ def _parser() -> argparse.ArgumentParser:
     live_keyed.add_argument("--work-directory", type=Path, required=True)
     live_keyed.add_argument("--ssh", type=Path, required=True)
     live_keyed.add_argument("--operator", required=True)
-    live_keyed.add_argument("--confirm-plan-sha256", required=True)
+    live_keyed.add_argument(
+        "--confirm-plan-sha256",
+        required=True,
+        help=(
+            "exact canonical digest of the resolved plan, supplied separately "
+            "from helper configuration"
+        ),
+    )
     live_keyed.add_argument("--enable-live-keyed", action="store_true", required=True)
     live_keyed.add_argument("--enable-rf", action="store_true", required=True)
     simulator = subparsers.add_parser(

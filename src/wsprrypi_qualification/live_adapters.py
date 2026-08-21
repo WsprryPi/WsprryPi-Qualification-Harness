@@ -1948,6 +1948,18 @@ def build_keyed_capability_providers(
     ):
         raise RealSessionError("remote keyed helper or configuration path is unsafe")
     work_directory.mkdir(parents=True, exist_ok=False)
+    digest = resolved_keyed_plan_sha256(plan)
+    helper_arguments = (
+        "--serve",
+        "--config",
+        "{config}",
+        "--plan-sha256",
+        digest,
+        "--helper-sha256",
+        "{helper_sha256}",
+        "--config-sha256",
+        "{config_sha256}",
+    )
     tx_transport: PersistentHelperTransport | None = None
     rx_transport: PersistentHelperTransport | None = None
     try:
@@ -1960,15 +1972,36 @@ def build_keyed_capability_providers(
                 f"UserKnownHostsFile={known_hosts}",
                 "--",
                 plan["transmitter"]["host"],
-                f"{remote_helper['path']} --serve --config {remote_config['path']}",
+                " ".join(
+                    (
+                        remote_helper["path"],
+                        *(
+                            value.format(
+                                config=remote_config["path"],
+                                helper_sha256=remote_helper["sha256"],
+                                config_sha256=remote_config["sha256"],
+                            )
+                            for value in helper_arguments
+                        ),
+                    )
+                ),
             ),
             cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
         )
         rx_transport = PersistentHelperTransport(
-            (str(receiver_helper), "--serve", "--config", str(receiver_config)),
+            (
+                str(receiver_helper),
+                *(
+                    value.format(
+                        config=receiver_config,
+                        helper_sha256=bindings["receiver_helper"]["sha256"],
+                        config_sha256=bindings["receiver_helper_config"]["sha256"],
+                    )
+                    for value in helper_arguments
+                ),
+            ),
             cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
         )
-        digest = resolved_keyed_plan_sha256(plan)
         tx_client = JsonHelperClient(
             ssh_executable,
             tx_transport,

@@ -73,6 +73,12 @@ revisions, receiver identity and settings,
 RF path, analyzer revision, external capability artifacts, and named services.
 The public command requires both live/RF enable flags, a non-empty operator, and
 an exact typed digest confirmation before production adapters are constructed.
+Helper deployment configuration is an immutable input to that plan: the plan
+binds the helper executable and configuration artifact identities, while the
+canonical plan digest is supplied only when the authenticated helper process is
+started. The helper rechecks both artifact hashes and rejects any plan digest
+embedded in a runtime-bound configuration. A helper configuration used this
+way must therefore not embed the digest of the plan that binds it.
 
 Capability reporting describes only operations supplied by this harness. A
 target backend name in a plan identifies what is being tested; it does not imply

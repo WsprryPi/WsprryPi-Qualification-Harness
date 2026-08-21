@@ -82,6 +82,10 @@ FSKCW, or DFCW plans with exactly three requested transactions and requires
 `--confirm-plan-sha256`. It stops after the first unsuccessful transaction and
 still performs cleanup, service restoration, quiescence verification, provider
 shutdown, and partial-bundle publication.
+Its helper configurations are immutable plan inputs, not authorization
+receipts: their artifact hashes are placed in the resolved plan before its
+digest is computed. The exact digest is passed separately at helper startup and
+is correlated on every request and response.
 
 ## External archive intake
 

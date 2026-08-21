@@ -171,6 +171,14 @@ digest confirmation. Its production composition uses the existing authenticated
 helper, owned-process, exact-count capture, service, and backend-quiescence
 adapters. Never substitute the hardware-free fake at this boundary.
 
+For live keyed plans, treat helper deployment configuration and runtime plan
+authorization as separate identities. First seal each helper executable and
+static configuration into `capability_bindings`; then compute the canonical
+resolved-plan digest. The production launcher passes that digest separately and
+the helper verifies the bound executable/configuration hashes before serving.
+Never write the resulting digest back into either bound configuration, because
+that would create a circular and unconstructible artifact identity.
+
 Use `run-cw-actual-host-preflight` only under current explicit
 read-only host authorization. The command requires an exact plan digest and
 enable flag, executes only the schema-bounded probe set through structured SSH

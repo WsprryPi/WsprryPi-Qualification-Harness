@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -467,13 +468,16 @@ def decode_request(value: str) -> dict[str, object]:
     return cast(dict[str, object], result)
 
 
-def load_server_config(path: Path) -> CapabilityHelperServer:
+def load_server_config(
+    path: Path, runtime_plan_sha256: str | None = None
+) -> CapabilityHelperServer:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise HelperProtocolError("helper configuration cannot be loaded") from exc
-    required = {"protocol_version", "helper_identity", "plan_sha256", "allowed_services"}
+    required = {"protocol_version", "helper_identity", "allowed_services"}
     optional = {
+        "plan_sha256",
         "systemctl_path",
         "systemctl_sha256",
         "service_timeout_s",
@@ -490,13 +494,19 @@ def load_server_config(path: Path) -> CapabilityHelperServer:
     validate_document(document, "helper-config.schema.json")
     if document["protocol_version"] != PROTOCOL_VERSION:
         raise HelperProtocolError("helper configuration protocol version is unsupported")
-    identity, digest = document["helper_identity"], document["plan_sha256"]
+    identity = document["helper_identity"]
+    configured_digest = document.get("plan_sha256")
+    if runtime_plan_sha256 is not None and configured_digest is not None:
+        raise HelperProtocolError(
+            "runtime-bound helper configuration must not contain a plan digest"
+        )
+    digest = runtime_plan_sha256 or configured_digest
     services = document["allowed_services"]
     if (
         not isinstance(identity, str)
         or not identity
         or not isinstance(digest, str)
-        or len(digest) != 64
+        or re.fullmatch(r"[0-9a-f]{64}", digest) is None
         or not isinstance(services, list)
         or not all(isinstance(item, str) and item for item in services)
     ):
@@ -589,8 +599,24 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--serve", action="store_true", required=True)
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument(
+        "--plan-sha256", help="runtime authorized plan digest; never write it into this config"
+    )
+    parser.add_argument("--helper-sha256", help="expected SHA-256 of this helper executable")
+    parser.add_argument("--config-sha256", help="expected SHA-256 of the immutable configuration")
     options = parser.parse_args(argv)
-    return serve(load_server_config(options.config))
+    runtime_identity = (options.helper_sha256, options.config_sha256)
+    if options.plan_sha256 is not None:
+        if any(value is None for value in runtime_identity):
+            parser.error("runtime plan binding requires helper and configuration SHA-256")
+        executable = Path(sys.argv[0]).resolve()
+        if not executable.is_file() or _sha256(executable) != options.helper_sha256:
+            raise HelperProtocolError("helper executable SHA-256 does not match runtime binding")
+        if not options.config.is_file() or _sha256(options.config) != options.config_sha256:
+            raise HelperProtocolError("helper configuration SHA-256 does not match runtime binding")
+    elif any(value is not None for value in runtime_identity):
+        parser.error("helper identity bindings require a runtime plan digest")
+    return serve(load_server_config(options.config, options.plan_sha256))
 
 
 def _sha256(path: Path) -> str:

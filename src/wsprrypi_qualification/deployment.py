@@ -63,13 +63,14 @@ def load_deployment_config(
     return cast(dict[str, Any], document)
 
 
-def runtime_helper_config(document: dict[str, Any]) -> dict[str, object]:
+def runtime_helper_config(
+    document: dict[str, Any], *, plan_digest_at_startup: bool = False
+) -> dict[str, object]:
     """Translate deployment facts to the capability helper's runtime schema."""
     executables = document["executables"]
     result: dict[str, object] = {
         "protocol_version": document["protocol_version"],
         "helper_identity": document["helper_identity"],
-        "plan_sha256": document["plan_sha256"],
         "allowed_services": document["allowed_services"],
         "systemctl_path": executables["systemctl"]["path"],
         "systemctl_sha256": executables["systemctl"]["sha256"],
@@ -80,6 +81,8 @@ def runtime_helper_config(document: dict[str, Any]) -> dict[str, object]:
         "si5351_helper_sha256": executables["si5351"]["sha256"],
         "inspection_timeout_s": 5.0,
     }
+    if not plan_digest_at_startup:
+        result["plan_sha256"] = document["plan_sha256"]
     for field in ("bounded_tone_endpoint", "wsprrypi_revision"):
         if field in document:
             result[field] = deepcopy(document[field])

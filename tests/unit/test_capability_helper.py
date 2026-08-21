@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import wsprrypi_qualification.capability_helper as helper_module
 from wsprrypi_qualification.capability_helper import (
     CapabilityHelperServer,
     CommandGpioBackend,
@@ -14,6 +15,7 @@ from wsprrypi_qualification.capability_helper import (
     SystemctlServiceBackend,
     decode_request,
     encode_request,
+    load_server_config,
 )
 from wsprrypi_qualification.real_capabilities import (
     CapabilityError,
@@ -26,6 +28,67 @@ from wsprrypi_qualification.real_capabilities import (
 )
 
 PLAN = "a" * 64
+
+
+def _static_config(path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "protocol_version": 1,
+                "helper_identity": "helper-1",
+                "allowed_services": ["wsprrypi"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_static_helper_config_binds_runtime_plan_without_circular_identity(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "immutable helper config.json"
+    _static_config(config)
+    original = config.read_bytes()
+    loaded = load_server_config(config, PLAN)
+    assert loaded.plan_sha256 == PLAN
+    assert config.read_bytes() == original
+    assert "plan_sha256" not in json.loads(original)
+
+    configured = json.loads(original)
+    configured["plan_sha256"] = "b" * 64
+    config.write_text(json.dumps(configured), encoding="utf-8")
+    with pytest.raises(HelperProtocolError, match="must not contain"):
+        load_server_config(config, PLAN)
+
+
+def test_runtime_helper_and_configuration_substitution_are_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    helper = tmp_path / "capability-helper"
+    helper.write_bytes(b"reviewed helper")
+    config = tmp_path / "helper.json"
+    _static_config(config)
+    monkeypatch.setattr(sys, "argv", [str(helper)])
+    monkeypatch.setattr(helper_module, "serve", lambda server: 0)
+    helper_hash = hashlib.sha256(helper.read_bytes()).hexdigest()
+    config_hash = hashlib.sha256(config.read_bytes()).hexdigest()
+    arguments = [
+        "--serve",
+        "--config",
+        str(config),
+        "--plan-sha256",
+        PLAN,
+        "--helper-sha256",
+        helper_hash,
+        "--config-sha256",
+        config_hash,
+    ]
+    assert helper_module.main(arguments) == 0
+    with pytest.raises(HelperProtocolError, match="executable SHA-256"):
+        helper_module.main([*arguments[:-3], "0" * 64, *arguments[-2:]])
+    config.write_text("{}", encoding="utf-8")
+    with pytest.raises(HelperProtocolError, match="configuration SHA-256"):
+        helper_module.main(arguments)
 
 
 def test_persistent_response_timeout_uses_one_absolute_budget(tmp_path: Path):

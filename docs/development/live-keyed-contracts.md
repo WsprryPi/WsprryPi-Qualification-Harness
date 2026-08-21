@@ -57,6 +57,15 @@ plan and argv, executable identity, parent and component revisions, complete
 receiver identity/settings, RF path, analyzer revision, SSH/helper/capture
 identities, named host services, and backend quiescence mechanism.
 
+Helper executable and deployment-configuration identities are immutable plan
+inputs. The keyed helper configuration omits `plan_sha256`; after those inputs
+are sealed, the launcher computes and supplies the resolved-plan digest with
+the expected helper and configuration SHA-256 values. The helper authenticates
+those files before accepting requests and correlates the exact digest on every
+request and response. A runtime-bound configuration containing any plan digest
+is rejected rather than overridden. This order makes the plan constructible and
+prevents configuration or digest substitution without weakening authorization.
+
 The command requires `--enable-live-keyed`, `--enable-rf`, a non-empty
 `--operator`, and `--confirm-plan-sha256` equal to the canonical resolved-plan
 digest. It accepts only QRSS, FSKCW, or DFCW and exactly three requested

@@ -245,11 +245,28 @@ def test_production_provider_builder_uses_exact_pinned_ssh_and_helper_argv(
         "capture_helper",
     ):
         path = (tmp_path / name).resolve()
-        path.write_text(name, encoding="utf-8")
+        if name.endswith("config"):
+            path.write_text(
+                json.dumps(
+                    {
+                        "protocol_version": 1,
+                        "helper_identity": "receiver-helper",
+                        "allowed_services": ["wsprrypi.service", "sdrplay.service"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+        else:
+            path.write_text(name, encoding="utf-8")
         local_paths[name] = path
         bindings[name] = artifact(path)
     bindings["transmitter_helper"]["path"] = "/opt/wspq/helper"
     bindings["transmitter_helper_config"]["path"] = "/etc/wspq/helper.json"
+    digest = resolved_keyed_plan_sha256(resolved)
+    assert "plan_sha256" not in json.loads(
+        local_paths["receiver_helper_config"].read_text(encoding="utf-8")
+    )
+    assert resolved_keyed_plan_sha256(resolved) == digest
     commands = []
 
     class FakePersistentTransport:
@@ -277,12 +294,21 @@ def test_production_provider_builder_uses_exact_pinned_ssh_and_helper_argv(
         f"UserKnownHostsFile={local_paths['known_hosts']}",
         "--",
         resolved["transmitter"]["host"],
-        "/opt/wspq/helper --serve --config /etc/wspq/helper.json",
+        "/opt/wspq/helper --serve --config /etc/wspq/helper.json "
+        f"--plan-sha256 {digest} "
+        f"--helper-sha256 {bindings['transmitter_helper']['sha256']} "
+        f"--config-sha256 {bindings['transmitter_helper_config']['sha256']}",
     )
     assert commands[1][0] == (
         str(local_paths["receiver_helper"]),
         "--serve",
         "--config",
         str(local_paths["receiver_helper_config"]),
+        "--plan-sha256",
+        digest,
+        "--helper-sha256",
+        bindings["receiver_helper"]["sha256"],
+        "--config-sha256",
+        bindings["receiver_helper_config"]["sha256"],
     )
     assert providers.close()
