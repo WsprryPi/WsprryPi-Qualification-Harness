@@ -68,6 +68,7 @@ def _send_json(connection: socket.socket, document: dict, *, masked: bool = Fals
 class FakeServer:
     def __init__(self, behavior: str = "success") -> None:
         self.listener = socket.socket()
+        self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         for candidate in range(39000, 40000):
             try:
                 self.listener.bind(("127.0.0.1", candidate))

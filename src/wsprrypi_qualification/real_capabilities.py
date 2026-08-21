@@ -1233,8 +1233,15 @@ def _evidence_plan_sha256(document: dict[str, object]) -> str:
 
 
 def _remove_capture_outputs(plan: CaptureCapabilityPlan) -> None:
-    plan.output_path.unlink(missing_ok=True)
-    plan.metadata_path.unlink(missing_ok=True)
+    for path in (
+        plan.output_path,
+        Path(f"{plan.output_path}.incomplete"),
+        plan.metadata_path,
+        Path(f"{plan.metadata_path}.incomplete"),
+        Path(f"{plan.metadata_path}.failure.json"),
+        Path(f"{plan.metadata_path}.failure.json.incomplete"),
+    ):
+        path.unlink(missing_ok=True)
 
 
 def validate_capability_semantics(document: dict[str, object]) -> None:

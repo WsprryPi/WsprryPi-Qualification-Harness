@@ -345,6 +345,30 @@ def test_soapy_adapter_rejects_overflow_and_output_collision(tmp_path: Path) -> 
         )
 
 
+def test_soapy_adapter_removes_all_partial_outputs_after_cancelled_capture(
+    tmp_path: Path,
+) -> None:
+    plan = capture_plan(tmp_path)
+
+    class CancelledCaptureLauncher:
+        def launch(self, arguments, timeout_s, cancellation):
+            del arguments, timeout_s, cancellation
+            Path(f"{plan.output_path}.incomplete").write_bytes(b"partial IQ")
+            Path(f"{plan.metadata_path}.incomplete").write_text("partial metadata")
+            Path(f"{plan.metadata_path}.failure.json").write_text("failure metadata")
+            Path(f"{plan.metadata_path}.failure.json.incomplete").write_text(
+                "partial failure metadata"
+            )
+            return LaunchResult(None, cancelled=True, cleanup_verified=True)
+
+    with pytest.raises(CapabilityError, match="capture helper failed"):
+        SoapyCaptureCapability(CancelledCaptureLauncher()).execute(
+            plan, authorization(plan.document())
+        )
+
+    assert not list(tmp_path.glob("capture*"))
+
+
 def test_semantic_validation_rejects_tampered_ssh_encoding(tmp_path: Path) -> None:
     plan = SshCapabilityPlan(executable(tmp_path), "host", "/opt/wspq-helper", ("true",), 1, 1, 1)
     document = OpenSshCapability(SealedFakeLauncher()).execute(plan, authorization(plan.document()))
