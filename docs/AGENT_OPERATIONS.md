@@ -183,6 +183,19 @@ readiness check and complete `pre_quiet_seconds` delay are what prevent the firs
 keyed symbol from preceding the authenticated capture. Treat a missing readiness
 file or an early capture exit as a transmitter-launch blocker.
 
+Run split-host keyed coordination from the receiver/capture host. Before plan
+resolution, prove that this host can reach the transmitter using the exact
+resolved username and hostname with `BatchMode=yes`, strict host-key checking,
+and the dedicated known-hosts file that the plan will bind. Compare a changed
+host key through an independently trusted connection; never disable checking.
+Record the SSH direction explicitly (for example, `wspr5 -> pi@wspr4.local`).
+
+Also check service authority without changing state: use `sudo -n -l` for each
+exact allowlisted start/stop command. When elevation is required, bind the
+absolute privilege-wrapper path and SHA-256 in each immutable helper
+configuration. Changing the SSH identity, known-hosts file, wrapper,
+`systemctl`, helper, or configuration invalidates the resolved digest.
+
 For live keyed plans, treat helper deployment configuration and runtime plan
 authorization as separate identities. First seal each helper executable and
 static configuration into `capability_bindings`; then compute the canonical

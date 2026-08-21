@@ -95,12 +95,25 @@ class SystemctlServiceBackend:
         executable_sha256: str,
         allowed_names: frozenset[str],
         timeout_s: float,
+        privilege_wrapper: Path | None = None,
+        privilege_wrapper_sha256: str | None = None,
     ) -> None:
         if not executable.is_absolute() or not executable.is_file() or timeout_s <= 0:
             raise HelperProtocolError("systemctl provider is not safely configured")
         if _sha256(executable) != executable_sha256:
             raise HelperProtocolError("systemctl executable hash does not match configuration")
+        if (privilege_wrapper is None) is not (privilege_wrapper_sha256 is None):
+            raise HelperProtocolError("service privilege wrapper binding is incomplete")
+        if privilege_wrapper is not None:
+            if not privilege_wrapper.is_absolute() or not privilege_wrapper.is_file():
+                raise HelperProtocolError("service privilege wrapper is not safely configured")
+            if _sha256(privilege_wrapper) != privilege_wrapper_sha256:
+                raise HelperProtocolError(
+                    "service privilege wrapper hash does not match configuration"
+                )
         self.executable, self.executable_sha256 = executable, executable_sha256
+        self.privilege_wrapper = privilege_wrapper
+        self.privilege_wrapper_sha256 = privilege_wrapper_sha256
         self.allowed, self.timeout_s = allowed_names, timeout_s
 
     def inspect(self, name: str, manager: str) -> bool:
@@ -120,7 +133,7 @@ class SystemctlServiceBackend:
         self._check(name, manager)
         action = "start" if running else "stop"
         result = subprocess.run(
-            [str(self.executable), action, "--", name],
+            [*self._prefix(), str(self.executable), action, "--", name],
             shell=False,
             check=False,
             timeout=self.timeout_s,
@@ -133,8 +146,17 @@ class SystemctlServiceBackend:
     def _check(self, name: str, manager: str) -> None:
         if _sha256(self.executable) != self.executable_sha256:
             raise HelperProtocolError("systemctl executable identity changed")
+        if self.privilege_wrapper is not None and (
+            _sha256(self.privilege_wrapper) != self.privilege_wrapper_sha256
+        ):
+            raise HelperProtocolError("service privilege wrapper identity changed")
         if manager != "systemd" or name not in self.allowed:
             raise HelperProtocolError("service is outside the configured provider scope")
+
+    def _prefix(self) -> list[str]:
+        if self.privilege_wrapper is None:
+            return []
+        return [str(self.privilege_wrapper), "-n", "--"]
 
 
 class JsonInspectionBackend:
@@ -480,6 +502,8 @@ def load_server_config(
         "plan_sha256",
         "systemctl_path",
         "systemctl_sha256",
+        "service_privilege_wrapper_path",
+        "service_privilege_wrapper_sha256",
         "service_timeout_s",
         "gpio_helper_path",
         "gpio_helper_sha256",
@@ -521,6 +545,12 @@ def load_server_config(
             cast(str, document["systemctl_sha256"]),
             allowed,
             float(document.get("service_timeout_s", 5.0)),
+            (
+                Path(cast(str, document["service_privilege_wrapper_path"]))
+                if "service_privilege_wrapper_path" in document
+                else None
+            ),
+            cast(str | None, document.get("service_privilege_wrapper_sha256")),
         )
     inspection_timeout = float(document.get("inspection_timeout_s", 5.0))
     gpio_backend: GpioBackend | None = None

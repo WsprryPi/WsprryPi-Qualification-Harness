@@ -48,7 +48,10 @@ def load_deployment_config(
     services = document["allowed_services"]
     if not services or len(services) > 16 or any("*" in item for item in services):
         raise DeploymentError("service allowlist must be narrow, explicit, and nonempty")
-    for name in ("python", "helper", "systemctl", "gpio", "si5351"):
+    executable_names = ["python", "helper", "systemctl", "gpio", "si5351"]
+    if "service_privilege_wrapper" in document["executables"]:
+        executable_names.append("service_privilege_wrapper")
+    for name in executable_names:
         configured = document["executables"][name]
         executable = Path(configured["path"])
         if not executable.is_absolute() or not executable.is_file():
@@ -83,6 +86,10 @@ def runtime_helper_config(
     }
     if not plan_digest_at_startup:
         result["plan_sha256"] = document["plan_sha256"]
+    if "service_privilege_wrapper" in executables:
+        wrapper = executables["service_privilege_wrapper"]
+        result["service_privilege_wrapper_path"] = wrapper["path"]
+        result["service_privilege_wrapper_sha256"] = wrapper["sha256"]
     for field in ("bounded_tone_endpoint", "wsprrypi_revision"):
         if field in document:
             result[field] = deepcopy(document[field])

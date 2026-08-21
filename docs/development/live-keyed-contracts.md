@@ -85,6 +85,22 @@ services are made inactive for that transaction. Cleanup restores every listed
 service to the state observed by that transaction. Failure to establish or
 restore any requested state makes the transaction unsuccessful.
 
+If the helper account cannot operate an allowlisted service directly, its
+static configuration binds `service_privilege_wrapper_path` and
+`service_privilege_wrapper_sha256` alongside the pinned `systemctl` identity.
+The maintained backend invokes the wrapper only in non-interactive mode and
+rechecks both executables before every inspect or state-change request. On
+Raspberry Pi OS this is normally `/usr/bin/sudo`; verify the exact allowlisted
+`systemctl start/stop SERVICE` permissions with `sudo -n -l` before resolving a
+plan. Never depend on an interactive password prompt or an unbound shell.
+
+The coordinator must also have strict SSH access to the transmitter from the
+host where `run-cw-live-keyed` executes. Resolve the actual hostname and user,
+verify the transmitter's current public host-key fingerprint through an
+independent trusted path, and bind a dedicated immutable known-hosts file into
+the plan. A hostname, username, host key, or known-hosts change requires a new
+resolved plan and digest; do not repair trust with `StrictHostKeyChecking=no`.
+
 Within the process-start boundary, the production adapter starts the exact-count
 capture worker first, waits for its retained `.incomplete` output to prove that
 capture is established, and then observes the mode plan's complete RF-off

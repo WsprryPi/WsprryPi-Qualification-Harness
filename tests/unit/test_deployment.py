@@ -450,7 +450,15 @@ def test_deployment_config_validates_absolute_pinned_files(tmp_path: Path):
         },
         "wsprrypi_revision": "1" * 40,
         "executables": {
-            name: entry for name in ("python", "helper", "systemctl", "gpio", "si5351")
+            name: entry
+            for name in (
+                "python",
+                "helper",
+                "systemctl",
+                "service_privilege_wrapper",
+                "gpio",
+                "si5351",
+            )
         },
         "gpio_contract": {
             "chip": "gpiochip0",
@@ -479,6 +487,8 @@ def test_deployment_config_validates_absolute_pinned_files(tmp_path: Path):
     assert loaded_server.bounded_tone.wsprrypi_revision == "1" * 40
     keyed_runtime = runtime_helper_config(load_deployment_config(path), plan_digest_at_startup=True)
     assert "plan_sha256" not in keyed_runtime
+    assert keyed_runtime["service_privilege_wrapper_path"] == str(executable)
+    assert keyed_runtime["service_privilege_wrapper_sha256"] == digest
     keyed_path = tmp_path / "static keyed helper.json"
     keyed_path.write_text(json.dumps(keyed_runtime), encoding="utf-8")
     assert load_server_config(keyed_path, PLAN).plan_sha256 == PLAN

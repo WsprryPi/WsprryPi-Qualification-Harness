@@ -49,6 +49,14 @@ helper's smaller runtime schema; write that generated document to the configured
 runtime path. Deployment-only facts therefore cannot be mistaken for helper
 protocol inputs.
 
+When the helper account needs elevation for service changes, add the optional
+`executables.service_privilege_wrapper` binding. The translator places its
+absolute path and SHA-256 in the runtime helper configuration. The service
+backend rechecks it and the pinned `systemctl` executable before every request
+and invokes the wrapper with non-interactive arguments only. For `/usr/bin/sudo`,
+provision narrow passwordless policy for the exact allowlisted service actions
+and verify it with `sudo -n -l`; never grant shell or wildcard service access.
+
 GPIO and Si5351 operations remain read-only. Each provider is a directly pinned
 executable. If a Python interpreter launches a fixture or provider script, that
 script is independently hashed and rechecked before every call. Provider

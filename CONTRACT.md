@@ -87,6 +87,11 @@ receiver services must be an explicit subset of the receiver-side service
 allowlist. They may be started only after cleanup is installed and must be
 restored to their observed initial state during transaction cleanup. Other
 allowlisted services are stopped for the transaction and likewise restored.
+When service management requires elevation, the immutable helper configuration
+must bind both the service manager and a non-interactive privilege wrapper by
+absolute path and SHA-256. The helper rechecks both identities before every
+allowlisted operation; an interactive prompt, missing authorization, or changed
+wrapper fails before transmitter launch.
 The receiver capture must establish its retained output and complete the
 resolved RF-off preamble before WsprryPi is launched. Capture setup failure or
 premature capture termination must therefore prevent transmitter launch.

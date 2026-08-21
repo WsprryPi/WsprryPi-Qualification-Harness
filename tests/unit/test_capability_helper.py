@@ -3,6 +3,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -410,3 +411,59 @@ def test_production_provider_hashes_are_pinned_and_rechecked(tmp_path: Path):
         backend.request({"pin": 4})
     with pytest.raises(HelperProtocolError, match="hash"):
         JsonInspectionBackend(provider.resolve(), digest, "gpio-inspect", 1)
+
+
+def test_service_backend_authenticates_privilege_wrapper_and_uses_noninteractive_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    systemctl = tmp_path / "systemctl"
+    wrapper = tmp_path / "sudo"
+    systemctl.write_bytes(b"systemctl")
+    wrapper.write_bytes(b"sudo")
+    calls: list[list[str]] = []
+
+    def fake_run(arguments, **kwargs):
+        del kwargs
+        calls.append(arguments)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(helper_module.subprocess, "run", fake_run)
+    backend = SystemctlServiceBackend(
+        systemctl.resolve(),
+        hashlib.sha256(systemctl.read_bytes()).hexdigest(),
+        frozenset({"sdrplay.service"}),
+        1,
+        wrapper.resolve(),
+        hashlib.sha256(wrapper.read_bytes()).hexdigest(),
+    )
+    assert backend.set_running("sdrplay.service", "systemd", True)
+    prefix = [str(wrapper.resolve()), "-n", "--", str(systemctl.resolve())]
+    assert calls == [
+        [*prefix, "start", "--", "sdrplay.service"],
+        [str(systemctl.resolve()), "is-active", "--quiet", "--", "sdrplay.service"],
+    ]
+    wrapper.write_bytes(b"substituted")
+    with pytest.raises(HelperProtocolError, match="wrapper identity changed"):
+        backend.inspect("sdrplay.service", "systemd")
+
+
+def test_helper_config_rejects_incomplete_service_privilege_wrapper(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "helper.json"
+    config.write_text(
+        json.dumps(
+            {
+                "protocol_version": 1,
+                "helper_identity": "helper",
+                "allowed_services": ["service"],
+                "systemctl_path": "/usr/bin/systemctl",
+                "systemctl_sha256": "a" * 64,
+                "service_privilege_wrapper_path": "/usr/bin/sudo",
+                "plan_sha256": PLAN,
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(Exception, match="violates schema"):
+        load_server_config(config)

@@ -94,6 +94,10 @@ return to their observed initial state during transaction cleanup.
 The production adapter establishes the exact-count capture and completes the
 resolved RF-off preamble before it launches WsprryPi; capture setup failure
 therefore blocks RF rather than producing a knowingly truncated observation.
+The receiver host must have strict, plan-bound SSH access to the transmitter.
+Service elevation, when required, uses a static-configuration-bound executable
+such as `/usr/bin/sudo` in non-interactive mode; both it and `systemctl` are
+hash-checked before each allowlisted operation.
 
 ## External archive intake
 
