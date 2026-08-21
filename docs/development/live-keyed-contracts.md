@@ -70,6 +70,14 @@ request and response. A runtime-bound configuration containing any plan digest
 is rejected rather than overridden. This order makes the plan constructible and
 prevents configuration or digest substitution without weakening authorization.
 
+The plan separately binds `transmitter_process_privilege_wrapper`. The static
+transmitter helper configuration must bind the same executable as
+`process_privilege_wrapper_path` and `process_privilege_wrapper_sha256`. Every
+process-start request carries that resolved wrapper digest; the helper rejects
+an absent or different binding and constructs `WRAPPER -n --` ahead of the
+already authenticated WsprryPi argv. On Raspberry Pi OS the wrapper is normally
+`/usr/bin/sudo`; direct launch as the unprivileged `pi` account is unsupported.
+
 The command requires `--enable-live-keyed`, `--enable-rf`, a non-empty
 `--operator`, and `--confirm-plan-sha256` equal to the canonical resolved-plan
 digest. It accepts only QRSS, FSKCW, or DFCW and exactly three requested
@@ -93,6 +101,10 @@ rechecks both executables before every inspect or state-change request. On
 Raspberry Pi OS this is normally `/usr/bin/sudo`; verify the exact allowlisted
 `systemctl start/stop SERVICE` permissions with `sudo -n -l` before resolving a
 plan. Never depend on an interactive password prompt or an unbound shell.
+Provision and verify narrow passwordless permission for the exact pinned
+WsprryPi executable and resolved argument forms as well. The wrapper is fixed by
+helper configuration; it is not accepted from application argv or operator
+input.
 
 The coordinator must also have strict SSH access to the transmitter from the
 host where `run-cw-live-keyed` executes. Resolve the actual hostname and user,

@@ -57,6 +57,15 @@ and invokes the wrapper with non-interactive arguments only. For `/usr/bin/sudo`
 provision narrow passwordless policy for the exact allowlisted service actions
 and verify it with `sudo -n -l`; never grant shell or wildcard service access.
 
+For Raspberry Pi transmitter helpers, also add
+`executables.process_privilege_wrapper`. The translator binds it separately as
+`process_privilege_wrapper_path` and `process_privilege_wrapper_sha256`. A keyed
+resolved plan must independently bind that same wrapper artifact. Process-start
+requests name its digest, while the helper constructs the fixed
+`/usr/bin/sudo -n -- EXACT_EXECUTABLE EXACT_ARGUMENTS` invocation. Do not place
+`sudo` in application argv, permit an interactive prompt, or allow an arbitrary
+shell command through sudo policy.
+
 GPIO and Si5351 operations remain read-only. Each provider is a directly pinned
 executable. If a Python interpreter launches a fixture or provider script, that
 script is independently hashed and rechecked before every call. Provider

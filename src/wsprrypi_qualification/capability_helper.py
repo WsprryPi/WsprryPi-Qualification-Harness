@@ -227,7 +227,22 @@ class OwnedChild:
 class OwnedProcessRegistry:
     """Own children by opaque handle and clean them with bounded escalation."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        privilege_wrapper: Path | None = None,
+        privilege_wrapper_sha256: str | None = None,
+    ) -> None:
+        if (privilege_wrapper is None) is not (privilege_wrapper_sha256 is None):
+            raise HelperProtocolError("process privilege wrapper binding is incomplete")
+        if privilege_wrapper is not None:
+            if not privilege_wrapper.is_absolute() or not privilege_wrapper.is_file():
+                raise HelperProtocolError("process privilege wrapper is not safely configured")
+            if _sha256(privilege_wrapper) != privilege_wrapper_sha256:
+                raise HelperProtocolError(
+                    "process privilege wrapper hash does not match configuration"
+                )
+        self.privilege_wrapper = privilege_wrapper
+        self.privilege_wrapper_sha256 = privilege_wrapper_sha256
         self._children: dict[str, OwnedChild] = {}
         self._lock = threading.RLock()
         self._closed = threading.Event()
@@ -236,6 +251,16 @@ class OwnedProcessRegistry:
 
     def start(self, payload: dict[str, object]) -> dict[str, object]:
         arguments = _string_list(payload, "arguments")
+        expected_wrapper_path = payload["privilege_wrapper_path"]
+        expected_wrapper_hash = payload["privilege_wrapper_sha256"]
+        configured_wrapper_path = (
+            str(self.privilege_wrapper) if self.privilege_wrapper is not None else None
+        )
+        if (
+            expected_wrapper_path != configured_wrapper_path
+            or expected_wrapper_hash != self.privilege_wrapper_sha256
+        ):
+            raise HelperProtocolError("process privilege wrapper does not match resolved plan")
         executable = Path(arguments[0])
         expected_hash = _string(payload, "executable_sha256")
         timeout = _positive_number(payload, "hard_timeout_s")
@@ -243,6 +268,10 @@ class OwnedProcessRegistry:
             raise HelperProtocolError("executable must be an existing absolute file")
         if _sha256(executable) != expected_hash:
             raise HelperProtocolError("executable SHA-256 does not match resolved plan")
+        if self.privilege_wrapper is not None and (
+            _sha256(self.privilege_wrapper) != self.privilege_wrapper_sha256
+        ):
+            raise HelperProtocolError("process privilege wrapper identity changed")
         pinned_arguments = payload.get("pinned_arguments")
         if not isinstance(pinned_arguments, dict):
             raise HelperProtocolError("pinned process arguments must be an object")
@@ -259,8 +288,11 @@ class OwnedProcessRegistry:
         environment = _environment(payload.get("environment", {}))
         out = tempfile.TemporaryFile(mode="w+b")  # noqa: SIM115
         err = tempfile.TemporaryFile(mode="w+b")  # noqa: SIM115
+        launch_arguments = arguments
+        if self.privilege_wrapper is not None:
+            launch_arguments = [str(self.privilege_wrapper), "-n", "--", *arguments]
         process = subprocess.Popen(
-            arguments,
+            launch_arguments,
             shell=False,
             env=environment,
             stdout=out,
@@ -456,6 +488,8 @@ def _validate_envelope(request: dict[str, object]) -> None:
         "process-start": {
             "arguments",
             "executable_sha256",
+            "privilege_wrapper_path",
+            "privilege_wrapper_sha256",
             "pinned_arguments",
             "hard_timeout_s",
             "environment",
@@ -504,6 +538,8 @@ def load_server_config(
         "systemctl_sha256",
         "service_privilege_wrapper_path",
         "service_privilege_wrapper_sha256",
+        "process_privilege_wrapper_path",
+        "process_privilege_wrapper_sha256",
         "service_timeout_s",
         "gpio_helper_path",
         "gpio_helper_sha256",
@@ -536,6 +572,15 @@ def load_server_config(
     ):
         raise HelperProtocolError("helper configuration values are invalid")
     allowed = frozenset(cast(list[str], services))
+    process_wrapper = (
+        Path(cast(str, document["process_privilege_wrapper_path"]))
+        if "process_privilege_wrapper_path" in document
+        else None
+    )
+    process_registry = OwnedProcessRegistry(
+        process_wrapper,
+        cast(str | None, document.get("process_privilege_wrapper_sha256")),
+    )
     service_backend: ServiceBackend | None = None
     if "systemctl_path" in document:
         if "systemctl_sha256" not in document:
@@ -595,6 +640,7 @@ def load_server_config(
         identity,
         digest,
         allowed,
+        processes=process_registry,
         services=service_backend,
         gpio=gpio_backend,
         si5351=si5351_backend,

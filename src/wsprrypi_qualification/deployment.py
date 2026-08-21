@@ -51,6 +51,8 @@ def load_deployment_config(
     executable_names = ["python", "helper", "systemctl", "gpio", "si5351"]
     if "service_privilege_wrapper" in document["executables"]:
         executable_names.append("service_privilege_wrapper")
+    if "process_privilege_wrapper" in document["executables"]:
+        executable_names.append("process_privilege_wrapper")
     for name in executable_names:
         configured = document["executables"][name]
         executable = Path(configured["path"])
@@ -90,6 +92,10 @@ def runtime_helper_config(
         wrapper = executables["service_privilege_wrapper"]
         result["service_privilege_wrapper_path"] = wrapper["path"]
         result["service_privilege_wrapper_sha256"] = wrapper["sha256"]
+    if "process_privilege_wrapper" in executables:
+        wrapper = executables["process_privilege_wrapper"]
+        result["process_privilege_wrapper_path"] = wrapper["path"]
+        result["process_privilege_wrapper_sha256"] = wrapper["sha256"]
     for field in ("bounded_tone_endpoint", "wsprrypi_revision"):
         if field in document:
             result[field] = deepcopy(document[field])

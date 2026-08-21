@@ -92,6 +92,13 @@ must bind both the service manager and a non-interactive privilege wrapper by
 absolute path and SHA-256. The helper rechecks both identities before every
 allowlisted operation; an interactive prompt, missing authorization, or changed
 wrapper fails before transmitter launch.
+Raspberry Pi transmitter processes are never launched directly as the helper
+account. The resolved keyed plan and immutable helper configuration must bind a
+non-interactive process privilege wrapper independently from WsprryPi. The
+helper authenticates the wrapper and the requested WsprryPi executable, checks
+that the request names the plan-bound wrapper digest, and constructs only
+`WRAPPER -n -- EXACT_WSPRRYPI_ARGV`. Missing privilege, an interactive prompt,
+or wrapper/executable/argument substitution fails before RF.
 The receiver capture must establish its retained output and complete the
 resolved RF-off preamble before WsprryPi is launched. Capture setup failure or
 premature capture termination must therefore prevent transmitter launch.

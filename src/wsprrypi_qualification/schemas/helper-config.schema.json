@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object", "additionalProperties": false,
   "required": ["protocol_version", "helper_identity", "allowed_services"],
-  "dependentRequired": {"bounded_tone_endpoint": ["wsprrypi_revision"], "wsprrypi_revision": ["bounded_tone_endpoint"], "service_privilege_wrapper_path": ["service_privilege_wrapper_sha256", "systemctl_path", "systemctl_sha256"], "service_privilege_wrapper_sha256": ["service_privilege_wrapper_path", "systemctl_path", "systemctl_sha256"]},
+  "dependentRequired": {"bounded_tone_endpoint": ["wsprrypi_revision"], "wsprrypi_revision": ["bounded_tone_endpoint"], "service_privilege_wrapper_path": ["service_privilege_wrapper_sha256", "systemctl_path", "systemctl_sha256"], "service_privilege_wrapper_sha256": ["service_privilege_wrapper_path", "systemctl_path", "systemctl_sha256"], "process_privilege_wrapper_path": ["process_privilege_wrapper_sha256"], "process_privilege_wrapper_sha256": ["process_privilege_wrapper_path"]},
   "properties": {
     "protocol_version": {"const": 1}, "helper_identity": {"type": "string", "minLength": 1},
     "plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
@@ -13,6 +13,8 @@
     "systemctl_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "service_privilege_wrapper_path": {"type": "string", "minLength": 1},
     "service_privilege_wrapper_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "process_privilege_wrapper_path": {"type": "string", "minLength": 1},
+    "process_privilege_wrapper_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "gpio_helper_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "si5351_helper_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "wsprrypi_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},

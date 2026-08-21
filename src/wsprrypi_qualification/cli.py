@@ -217,7 +217,10 @@ def _parser() -> argparse.ArgumentParser:
     live_tone.add_argument("--enable-rf", action="store_true", required=True)
     live_keyed = subparsers.add_parser(
         "run-cw-live-keyed",
-        help="run the digest-bound three-transaction QRSS/FSKCW/DFCW lifecycle",
+        help=(
+            "run the digest-bound three-transaction QRSS/FSKCW/DFCW lifecycle; "
+            "Raspberry Pi transmitters require a plan-bound noninteractive privilege wrapper"
+        ),
     )
     live_keyed.add_argument("plan", type=Path)
     live_keyed.add_argument("output_parent", type=Path)

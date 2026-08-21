@@ -203,6 +203,11 @@ resolved-plan digest. The production launcher passes that digest separately and
 the helper verifies the bound executable/configuration hashes before serving.
 Never write the resulting digest back into either bound configuration, because
 that would create a circular and unconstructible artifact identity.
+For a Raspberry Pi transmitter, bind `/usr/bin/sudo` (or the reviewed exact
+equivalent) as both the plan's `transmitter_process_privilege_wrapper` and the
+static helper configuration's process wrapper. Verify noninteractive policy
+with `sudo -n -l`. Never add sudo to WsprryPi application argv; the authenticated
+helper owns the fixed `sudo -n --` prefix and rejects wrapper substitution.
 
 Use `run-cw-actual-host-preflight` only under current explicit
 read-only host authorization. The command requires an exact plan digest and

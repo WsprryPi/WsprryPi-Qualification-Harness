@@ -456,6 +456,7 @@ def test_deployment_config_validates_absolute_pinned_files(tmp_path: Path):
                 "helper",
                 "systemctl",
                 "service_privilege_wrapper",
+                "process_privilege_wrapper",
                 "gpio",
                 "si5351",
             )
@@ -489,6 +490,8 @@ def test_deployment_config_validates_absolute_pinned_files(tmp_path: Path):
     assert "plan_sha256" not in keyed_runtime
     assert keyed_runtime["service_privilege_wrapper_path"] == str(executable)
     assert keyed_runtime["service_privilege_wrapper_sha256"] == digest
+    assert keyed_runtime["process_privilege_wrapper_path"] == str(executable)
+    assert keyed_runtime["process_privilege_wrapper_sha256"] == digest
     keyed_path = tmp_path / "static keyed helper.json"
     keyed_path.write_text(json.dumps(keyed_runtime), encoding="utf-8")
     assert load_server_config(keyed_path, PLAN).plan_sha256 == PLAN

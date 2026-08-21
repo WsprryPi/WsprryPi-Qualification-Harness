@@ -101,6 +101,7 @@ def validate_resolved_keyed_plan(document: dict[str, Any]) -> dict[str, Any]:
         bindings["known_hosts"],
         bindings["transmitter_helper"],
         bindings["transmitter_helper_config"],
+        bindings["transmitter_process_privilege_wrapper"],
         bindings["receiver_helper"],
         bindings["receiver_helper_config"],
         bindings["capture_helper"],

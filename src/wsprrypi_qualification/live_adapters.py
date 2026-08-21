@@ -1705,6 +1705,12 @@ class KeyedCapabilityProviders:
             tx_client,
             plan["deadlines"]["transaction_s"],
             plan["transmitter"]["executable"]["sha256"],
+            privilege_wrapper_path=plan["capability_bindings"][
+                "transmitter_process_privilege_wrapper"
+            ]["path"],
+            privilege_wrapper_sha256=plan["capability_bindings"][
+                "transmitter_process_privilege_wrapper"
+            ]["sha256"],
         )
         self.capture_capability = SoapyCaptureCapability(LocalTransportLauncher())
         self.work_directory = work_directory
@@ -2011,7 +2017,11 @@ def build_keyed_capability_providers(
     remote_config = bindings["transmitter_helper_config"]
     if any(
         re.fullmatch(r"/[A-Za-z0-9._/+:-]+", binding["path"]) is None
-        for binding in (remote_helper, remote_config)
+        for binding in (
+            remote_helper,
+            remote_config,
+            bindings["transmitter_process_privilege_wrapper"],
+        )
     ):
         raise RealSessionError("remote keyed helper or configuration path is unsafe")
     work_directory.mkdir(parents=True, exist_ok=False)

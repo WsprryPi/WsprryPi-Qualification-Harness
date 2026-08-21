@@ -144,6 +144,7 @@ def plan(mode: str = "QRSS") -> dict[str, object]:
             "transmitter_helper": artifact("tx-helper"),
             "transmitter_helper_config": artifact("tx-helper-config"),
             "transmitter_helper_identity": "tx-helper-v1",
+            "transmitter_process_privilege_wrapper": artifact("tx-process-sudo"),
             "receiver_helper": artifact("rx-helper"),
             "receiver_helper_config": artifact("rx-helper-config"),
             "receiver_helper_identity": "rx-helper-v1",

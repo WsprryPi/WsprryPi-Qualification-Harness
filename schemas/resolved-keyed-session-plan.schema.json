@@ -222,6 +222,7 @@
         "transmitter_helper",
         "transmitter_helper_config",
         "transmitter_helper_identity",
+        "transmitter_process_privilege_wrapper",
         "receiver_helper",
         "receiver_helper_config",
         "receiver_helper_identity",
@@ -246,6 +247,9 @@
         "transmitter_helper_identity": {
           "type": "string",
           "minLength": 1
+        },
+        "transmitter_process_privilege_wrapper": {
+          "$ref": "#/$defs/artifact"
         },
         "receiver_helper": {
           "$ref": "#/$defs/artifact"

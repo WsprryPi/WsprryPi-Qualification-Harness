@@ -400,12 +400,18 @@ class SshOwnedProcessLauncher:
         hard_timeout_s: float,
         executable_sha256: str,
         pinned_arguments: dict[str, str] | None = None,
+        privilege_wrapper_path: str | None = None,
+        privilege_wrapper_sha256: str | None = None,
     ) -> None:
         if hard_timeout_s <= 0:
             raise CapabilityError("remote process hard deadline must be positive")
         self.client, self.hard_timeout_s = client, hard_timeout_s
         self.executable_sha256 = executable_sha256
         self.pinned_arguments = dict(pinned_arguments or {})
+        if (privilege_wrapper_path is None) is not (privilege_wrapper_sha256 is None):
+            raise CapabilityError("remote process privilege wrapper binding is incomplete")
+        self.privilege_wrapper_path = privilege_wrapper_path
+        self.privilege_wrapper_sha256 = privilege_wrapper_sha256
 
     def begin(self, arguments: tuple[str, ...]) -> OwnedProcess:
         response = self.client.request(
@@ -413,6 +419,8 @@ class SshOwnedProcessLauncher:
             {
                 "arguments": list(arguments),
                 "executable_sha256": self.executable_sha256,
+                "privilege_wrapper_path": self.privilege_wrapper_path,
+                "privilege_wrapper_sha256": self.privilege_wrapper_sha256,
                 "pinned_arguments": self.pinned_arguments,
                 "hard_timeout_s": self.hard_timeout_s,
                 "environment": {},

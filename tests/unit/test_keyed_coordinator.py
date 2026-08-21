@@ -81,6 +81,7 @@ def _plan(mode: str = "QRSS", session_id: str = "fake-keyed-session") -> dict[st
             "transmitter_helper": _artifact("tx-helper"),
             "transmitter_helper_config": _artifact("tx-helper-config"),
             "transmitter_helper_identity": "tx-helper-v1",
+            "transmitter_process_privilege_wrapper": _artifact("tx-process-sudo"),
             "receiver_helper": _artifact("rx-helper"),
             "receiver_helper_config": _artifact("rx-helper-config"),
             "receiver_helper_identity": "rx-helper-v1",

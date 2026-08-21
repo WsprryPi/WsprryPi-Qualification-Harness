@@ -265,6 +265,7 @@ def test_production_provider_builder_uses_exact_pinned_ssh_and_helper_argv(
         bindings[name] = artifact(path)
     bindings["transmitter_helper"]["path"] = "/opt/wspq/helper"
     bindings["transmitter_helper_config"]["path"] = "/etc/wspq/helper.json"
+    bindings["transmitter_process_privilege_wrapper"]["path"] = "/usr/bin/sudo"
     digest = resolved_keyed_plan_sha256(resolved)
     assert "plan_sha256" not in json.loads(
         local_paths["receiver_helper_config"].read_text(encoding="utf-8")
@@ -313,6 +314,14 @@ def test_production_provider_builder_uses_exact_pinned_ssh_and_helper_argv(
         bindings["receiver_helper"]["sha256"],
         "--config-sha256",
         bindings["receiver_helper_config"]["sha256"],
+    )
+    assert (
+        providers.launcher.privilege_wrapper_path
+        == bindings["transmitter_process_privilege_wrapper"]["path"]
+    )
+    assert (
+        providers.launcher.privilege_wrapper_sha256
+        == bindings["transmitter_process_privilege_wrapper"]["sha256"]
     )
     assert providers.close()
 

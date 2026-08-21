@@ -13,6 +13,7 @@ from wsprrypi_qualification.capability_helper import (
     CommandGpioBackend,
     HelperProtocolError,
     JsonInspectionBackend,
+    OwnedProcessRegistry,
     SystemctlServiceBackend,
     decode_request,
     encode_request,
@@ -252,6 +253,8 @@ def test_owned_process_preserves_literal_argv_and_output(tmp_path: Path):
             {
                 "arguments": [str(executable), "-c", "import sys; print(sys.argv[1])", marker],
                 "executable_sha256": digest,
+                "privilege_wrapper_path": None,
+                "privilege_wrapper_sha256": None,
                 "pinned_arguments": {},
                 "hard_timeout_s": 2,
                 "environment": {},
@@ -273,6 +276,8 @@ def test_process_hash_mismatch_and_unknown_handle_fail_closed():
                 {
                     "arguments": [str(executable), "-c", "pass"],
                     "executable_sha256": "0" * 64,
+                    "privilege_wrapper_path": None,
+                    "privilege_wrapper_sha256": None,
                     "pinned_arguments": {},
                     "hard_timeout_s": 1,
                     "environment": {},
@@ -295,6 +300,8 @@ def test_process_start_rechecks_pinned_argument_identity(tmp_path: Path):
                 {
                     "arguments": [str(executable), str(config)],
                     "executable_sha256": digest,
+                    "privilege_wrapper_path": None,
+                    "privilege_wrapper_sha256": None,
                     "pinned_arguments": {str(config.resolve()): "0" * 64},
                     "hard_timeout_s": 1,
                     "environment": {},
@@ -315,6 +322,8 @@ def test_nonfinite_and_forbidden_environment_are_rejected():
                 {
                     "arguments": [str(executable), "-c", "pass"],
                     "executable_sha256": digest,
+                    "privilege_wrapper_path": None,
+                    "privilege_wrapper_sha256": None,
                     "pinned_arguments": {},
                     "hard_timeout_s": 1,
                     "environment": {"SECRET": "no"},
@@ -413,6 +422,90 @@ def test_production_provider_hashes_are_pinned_and_rechecked(tmp_path: Path):
         JsonInspectionBackend(provider.resolve(), digest, "gpio-inspect", 1)
 
 
+def test_owned_process_uses_only_authenticated_noninteractive_wrapper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = tmp_path / "wsprrypi"
+    wrapper = tmp_path / "sudo"
+    executable.write_bytes(b"wsprrypi")
+    wrapper.write_bytes(b"sudo")
+    executable_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
+    wrapper_hash = hashlib.sha256(wrapper.read_bytes()).hexdigest()
+    calls: list[list[str]] = []
+
+    class Process:
+        pid = 1234
+        returncode = 0
+
+        @staticmethod
+        def poll():
+            return 0
+
+    def fake_popen(arguments, **kwargs):
+        del kwargs
+        calls.append(arguments)
+        return Process()
+
+    monkeypatch.setattr(helper_module.subprocess, "Popen", fake_popen)
+    registry = OwnedProcessRegistry(wrapper.resolve(), wrapper_hash)
+    result = registry.start(
+        {
+            "arguments": [str(executable.resolve()), "--mode", "QRSS"],
+            "executable_sha256": executable_hash,
+            "privilege_wrapper_path": str(wrapper.resolve()),
+            "privilege_wrapper_sha256": wrapper_hash,
+            "pinned_arguments": {},
+            "hard_timeout_s": 1,
+            "environment": {},
+        }
+    )
+    assert result["handle_id"].startswith("owned-1234-")
+    assert calls == [
+        [str(wrapper.resolve()), "-n", "--", str(executable.resolve()), "--mode", "QRSS"]
+    ]
+    registry.shutdown()
+
+    with pytest.raises(HelperProtocolError, match="does not match resolved plan"):
+        OwnedProcessRegistry(wrapper.resolve(), wrapper_hash).start(
+            {
+                "arguments": [str(executable.resolve())],
+                "executable_sha256": executable_hash,
+                "privilege_wrapper_path": str(wrapper.resolve()),
+                "privilege_wrapper_sha256": "0" * 64,
+                "pinned_arguments": {},
+                "hard_timeout_s": 1,
+                "environment": {},
+            }
+        )
+    copied_wrapper = tmp_path / "copied-sudo"
+    copied_wrapper.write_bytes(wrapper.read_bytes())
+    with pytest.raises(HelperProtocolError, match="does not match resolved plan"):
+        registry.start(
+            {
+                "arguments": [str(executable.resolve())],
+                "executable_sha256": executable_hash,
+                "privilege_wrapper_path": str(copied_wrapper.resolve()),
+                "privilege_wrapper_sha256": wrapper_hash,
+                "pinned_arguments": {},
+                "hard_timeout_s": 1,
+                "environment": {},
+            }
+        )
+    wrapper.write_bytes(b"substituted")
+    with pytest.raises(HelperProtocolError, match="identity changed"):
+        registry.start(
+            {
+                "arguments": [str(executable.resolve())],
+                "executable_sha256": executable_hash,
+                "privilege_wrapper_path": str(wrapper.resolve()),
+                "privilege_wrapper_sha256": wrapper_hash,
+                "pinned_arguments": {},
+                "hard_timeout_s": 1,
+                "environment": {},
+            }
+        )
+
+
 def test_service_backend_authenticates_privilege_wrapper_and_uses_noninteractive_mode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -460,6 +553,24 @@ def test_helper_config_rejects_incomplete_service_privilege_wrapper(
                 "systemctl_path": "/usr/bin/systemctl",
                 "systemctl_sha256": "a" * 64,
                 "service_privilege_wrapper_path": "/usr/bin/sudo",
+                "plan_sha256": PLAN,
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(Exception, match="violates schema"):
+        load_server_config(config)
+
+
+def test_helper_config_rejects_incomplete_process_privilege_wrapper(tmp_path: Path) -> None:
+    config = tmp_path / "helper.json"
+    config.write_text(
+        json.dumps(
+            {
+                "protocol_version": 1,
+                "helper_identity": "helper",
+                "allowed_services": [],
+                "process_privilege_wrapper_path": "/usr/bin/sudo",
                 "plan_sha256": PLAN,
             }
         ),

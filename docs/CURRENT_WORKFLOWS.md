@@ -86,6 +86,11 @@ Its helper configurations are immutable plan inputs, not authorization
 receipts: their artifact hashes are placed in the resolved plan before its
 digest is computed. The exact digest is passed separately at helper startup and
 is correlated on every request and response.
+For Raspberry Pi transmission, the plan and transmitter helper configuration
+also bind the process privilege wrapper independently. The helper authenticates
+it on every start and supplies the fixed noninteractive `sudo -n --` prefix;
+the application plan continues to contain only the exact WsprryPi executable
+and arguments.
 
 Each of the three transactions sends one keyed message. Plans bind receiver
 services that must run for capture separately from the complete service
