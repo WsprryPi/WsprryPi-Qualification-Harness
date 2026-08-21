@@ -50,8 +50,16 @@ The harness provides:
 9. CF32 translation, per-slot WAV generation, and `wsprd` execution;
 10. tone, QRSS, FSKCW, and DFCW reference generation, symbol-spacing, drift,
     timing, transition, replay, and mock lifecycle analysis;
-11. cleanup supervisor and backend-specific quiescence verification;
-12. immutable-per-run result bundle and summary generation.
+11. offline resolved-plan, authorization, three-transaction, aggregate, result,
+    and artifact-index contracts for future live QRSS, FSKCW, and DFCW coordination;
+12. cleanup supervisor and backend-specific quiescence verification;
+13. immutable-per-run result bundle and summary generation.
+
+The live keyed contract layer is validation-only: it exposes no process,
+transport, receiver, transmitter, service, or RF operation. Its three
+transactions must have independent process, capture, acquisition, analysis, and
+artifact identities. Qualification requires three passing transactions;
+cleanup or quiescence failure has precedence over measurement success.
 
 Capability reporting describes only operations supplied by this harness. A
 target backend name in a plan identifies what is being tested; it does not imply

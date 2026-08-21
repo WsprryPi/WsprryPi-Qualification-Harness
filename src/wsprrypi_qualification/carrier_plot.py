@@ -193,7 +193,10 @@ def _save_figure_new(
                 metadata=metadata,
                 facecolor="white",
             )
-        with temporary.open("rb") as handle:
+        # Windows requires a writable descriptor for fsync; the renderer has
+        # already closed its handle before this durability barrier.
+        with temporary.open("r+b") as handle:
+            handle.flush()
             os.fsync(handle.fileno())
         temporary.replace(path)
     finally:

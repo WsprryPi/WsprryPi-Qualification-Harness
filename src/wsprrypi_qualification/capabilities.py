@@ -47,6 +47,10 @@ def capability_report() -> dict[str, Any]:
         ),
         "wspr_decode": "UTC-slot WAV generation, independent wsprd execution, and decode summary",
         "cw_analysis": "tone, QRSS, FSKCW, and DFCW reference, IQ, replay, and mode analysis",
+        "live_keyed_contracts": (
+            "offline-only QRSS, FSKCW, and DFCW three-transaction plan, authorization, "
+            "aggregate, result, and artifact-index validation"
+        ),
         "live_wspr_coordination": (
             "digest-authorized split-host carrier gate and three-frame WSPR lifecycle"
         ),

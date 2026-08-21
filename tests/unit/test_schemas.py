@@ -22,6 +22,12 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         "result.schema.json",
         "capture-metadata.schema.json",
         "carrier-analysis.schema.json",
+        "resolved-keyed-session-plan.schema.json",
+        "keyed-runtime-authorization.schema.json",
+        "keyed-transaction.schema.json",
+        "keyed-aggregate-session.schema.json",
+        "keyed-result.schema.json",
+        "keyed-artifact-index.schema.json",
         "audio-conversion.schema.json",
         "decoder-evidence.schema.json",
         "decode-summary.schema.json",
@@ -105,6 +111,20 @@ def test_packaged_cw_schemas_are_byte_identical() -> None:
         "cw-mode-gate.schema.json",
         "cw-final-session.schema.json",
         "cw-mock-lifecycle.schema.json",
+    ):
+        review_facing = ROOT / "schemas" / name
+        packaged = files("wsprrypi_qualification.schemas").joinpath(name)
+        assert packaged.read_bytes() == review_facing.read_bytes()
+
+
+def test_packaged_keyed_session_schemas_are_byte_identical() -> None:
+    for name in (
+        "resolved-keyed-session-plan.schema.json",
+        "keyed-runtime-authorization.schema.json",
+        "keyed-transaction.schema.json",
+        "keyed-aggregate-session.schema.json",
+        "keyed-result.schema.json",
+        "keyed-artifact-index.schema.json",
     ):
         review_facing = ROOT / "schemas" / name
         packaged = files("wsprrypi_qualification.schemas").joinpath(name)

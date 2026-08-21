@@ -158,6 +158,12 @@ For the hardware-free mock lifecycle rehearsal, use
 Only the closed mock injection vocabulary is accepted. This does not authorize
 or validate any live adapter, host, service, receiver, transmitter, or RF path.
 
+Use `keyed_session_contracts` for offline construction and semantic validation
+of future live QRSS, FSKCW, or DFCW session documents. Read
+[`live-keyed-contracts.md`](development/live-keyed-contracts.md) first. The
+module requires exactly three independent transactions and derives status with
+cleanup/quiescence precedence, but it deliberately has no execution entrypoint.
+
 Use `run-cw-actual-host-preflight` only under current explicit
 read-only host authorization. The command requires an exact plan digest and
 enable flag, executes only the schema-bounded probe set through structured SSH

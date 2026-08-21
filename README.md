@@ -20,6 +20,8 @@ The maintained package provides:
   plots, UTC-slot WAV generation, `wsprd` execution, and consecutive-decode validation;
 - deterministic tone and CW-family reference generation, synthetic-IQ analysis,
   acquired-IQ replay, and mock lifecycle rehearsal;
+- offline-only live-keyed plan, authorization, three-transaction aggregate,
+  result, and artifact-index contracts for QRSS, FSKCW, and DFCW;
 - authenticated archive and multi-capture evidence intake;
 - digest-bound, read-only actual-host preflight;
 - fail-closed split-host WSPR and carrier-only live coordinators; and

@@ -23,6 +23,11 @@ def test_capability_report_is_read_only_and_truthful() -> None:
     assert "Matplotlib Agg PNG/SVG" in carrier["reason"]
     assert states["live_wspr_coordination"] == "available"
     assert states["live_tone_coordination"] == "available"
+    assert states["live_keyed_contracts"] == "available"
+    keyed = next(
+        adapter for adapter in report["adapters"] if adapter["name"] == "live_keyed_contracts"
+    )
+    assert "offline-only" in keyed["reason"]
     assert all(tool["state"] in {"available", "unavailable"} for tool in report["external_tools"])
     for tool in report["external_tools"]:
         if "path" in tool:

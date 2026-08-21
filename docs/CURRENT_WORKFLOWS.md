@@ -68,6 +68,12 @@ Guides: [Reference encoders](development/cw-reference-encoders.md),
 [acquired-IQ replay](development/cw-acquired-iq-replay.md), and
 [mock bounded lifecycle](development/cw-mock-bounded-lifecycle.md).
 
+The [live keyed contracts](development/live-keyed-contracts.md) define and
+validate resolved QRSS, FSKCW, and DFCW plans, exact runtime-authorization
+bindings, three independent transaction records, aggregate sessions, derived
+results, and artifact indexes. This is an offline contract capability only; it
+does not start a process, open a receiver, contact a host, or enable RF.
+
 ## External archive intake
 
 Use `inventory-archive` and `validate-cw-multi-capture` to authenticate
