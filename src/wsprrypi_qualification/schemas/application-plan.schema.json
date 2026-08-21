@@ -1,5 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WsprryPi/WsprryPi-Qualification-Harness/schemas/application-plan.schema.json",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version","evidence_type","plan_id","identity","backend","protocol","protocol_contract","arguments","self_terminating_request","supervisor_required","random_offset_enabled","execution_authorized","stopping_contract","cleanup_contract"],

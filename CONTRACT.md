@@ -54,16 +54,25 @@ The harness provides:
     and artifact-index contracts for future live QRSS, FSKCW, and DFCW coordination;
 12. sealed hardware-free QRSS, FSKCW, and DFCW coordinator rehearsal through a
     deterministic fake adapter with lifecycle failure and cancellation injection;
-13. cleanup supervisor and backend-specific quiescence verification;
-14. immutable-per-run result bundle and summary generation.
+13. digest-authorized live QRSS, FSKCW, and DFCW coordination through the
+    authenticated helper, exact-count capture, service, and quiescence adapters;
+14. cleanup supervisor and backend-specific quiescence verification;
+15. immutable-per-run result bundle and summary generation.
 
-The live keyed contract layer is validation-only: it exposes no process,
+The keyed schema/validator layer is validation-only: it exposes no process,
 transport, receiver, transmitter, service, or RF operation. Its three
 transactions must have independent process, capture, acquisition, analysis, and
 artifact identities. An early-stop failure aggregate contains only the
 contiguous transactions actually attempted. Qualification requires exactly
 three passing transactions; cleanup or quiescence failure has precedence over
 measurement success.
+
+The separate production live-keyed coordinator uses that contract and binds the
+application-shim argv, executable
+identity, parent and component target revisions, receiver identity and settings,
+RF path, analyzer revision, external capability artifacts, and named services.
+The public command requires both live/RF enable flags, a non-empty operator, and
+an exact typed digest confirmation before production adapters are constructed.
 
 Capability reporting describes only operations supplied by this harness. A
 target backend name in a plan identifies what is being tested; it does not imply

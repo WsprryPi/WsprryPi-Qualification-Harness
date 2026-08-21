@@ -28,6 +28,12 @@ def _artifact(value: str) -> dict[str, object]:
     return {"path": f"inputs/{value}.json", "size_bytes": 1, "sha256": _digest(value)}
 
 
+def _application_plan(mode: str) -> dict[str, object]:
+    from tests.unit.test_keyed_session_contracts import application_plan
+
+    return application_plan(mode)
+
+
 def _plan(mode: str = "QRSS", session_id: str = "fake-keyed-session") -> dict[str, object]:
     return {
         "schema_version": 1,
@@ -36,19 +42,51 @@ def _plan(mode: str = "QRSS", session_id: str = "fake-keyed-session") -> dict[st
         "mode": mode,
         "transmitter": {
             "host": "sealed-fake",
-            "backend": "fake",
-            "output": "none",
+            "backend": "gpio",
+            "output": "GPIO4",
             "frequency_hz": 14_097_100,
             "drive": 0,
-            "executable": _artifact("executable"),
+            "executable": _artifact("wsprrypi"),
         },
-        "receiver": {"host": "sealed-fake", "device": "none", "sample_rate_hz": 250_000},
+        "receiver": {
+            "host": "sealed-fake",
+            "driver": "fake",
+            "device": "none",
+            "identity_sha256": _digest("none"),
+            "sample_rate_hz": 250_000,
+            "bandwidth_hz": 200_000,
+            "center_frequency_hz": 14_097_100,
+            "gain_db": 20,
+            "channel": 0,
+            "read_timeout_us": 100_000,
+            "clipping_threshold": 0.98,
+        },
         "rf_path": {
             "antenna_connected": False,
             "attenuation_db": 20,
+            "termination": "sealed fake",
+            "filter_state": "sealed fake",
+            "routing": "sealed fake",
             "safe_input_basis": "sealed hardware-free fixture",
         },
         "reference": {"plan": _artifact("plan"), "expected_events": _artifact("events")},
+        "application_plan": _application_plan(mode),
+        "target_revision": "1" * 40,
+        "target_submodule_revision": "2" * 40,
+        "analyzer_revision": "3" * 40,
+        "capability_bindings": {
+            "ssh": _artifact("ssh"),
+            "known_hosts": _artifact("known-hosts"),
+            "transmitter_helper": _artifact("tx-helper"),
+            "transmitter_helper_config": _artifact("tx-helper-config"),
+            "transmitter_helper_identity": "tx-helper-v1",
+            "receiver_helper": _artifact("rx-helper"),
+            "receiver_helper_config": _artifact("rx-helper-config"),
+            "receiver_helper_identity": "rx-helper-v1",
+            "capture_helper": _artifact("capture-helper"),
+            "services": ["tx:wsprrypi", "rx:SoapySDRServer"],
+            "quiescence": "gpio",
+        },
         "deadlines": {"transaction_s": 10, "cleanup_s": 5, "overall_s": 35},
         "stopping_procedure": "cancel sealed fake",
         "transaction_count": 3,

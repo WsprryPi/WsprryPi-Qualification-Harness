@@ -55,6 +55,10 @@ def capability_report() -> dict[str, Any]:
             "sealed deterministic QRSS, FSKCW, and DFCW three-transaction lifecycle "
             "rehearsal with failure and cancellation injection"
         ),
+        "live_keyed_coordination": (
+            "digest-authorized three-transaction QRSS, FSKCW, and DFCW coordination "
+            "through authenticated helper, capture, service, and quiescence adapters"
+        ),
         "live_wspr_coordination": (
             "digest-authorized split-host carrier gate and three-frame WSPR lifecycle"
         ),

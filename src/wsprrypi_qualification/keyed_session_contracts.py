@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, NoReturn
 
+from wsprrypi_qualification.application_shims import validate_application_plan
 from wsprrypi_qualification.offline import FailureCause, OfflineAnalysisError, validate_document
 
 KEYED_MODES = frozenset({"QRSS", "FSKCW", "DFCW"})
@@ -60,6 +61,51 @@ def validate_resolved_keyed_plan(document: dict[str, Any]) -> dict[str, Any]:
     validate_document(document, "resolved-keyed-session-plan.schema.json")
     if document["mode"] not in KEYED_MODES:
         _fail("resolved keyed mode is unsupported")
+    application = document["application_plan"]
+    validate_application_plan(application)
+    transmitter = document["transmitter"]
+    if (
+        application["protocol"].upper() != document["mode"]
+        or application["identity"]["executable"] != transmitter["executable"]["path"]
+        or application["identity"]["source_revision"] != document["target_revision"]
+        or application["identity"]["submodule_revision"] != document["target_submodule_revision"]
+        or application["backend"] != transmitter["backend"]
+        or application["backend_contract"] is None
+        or application["backend_contract"]["output"] != transmitter["output"]
+        or application["backend_contract"]["drive_or_power_level"] != transmitter["drive"]
+        or application["protocol_contract"]["primary_frequency_hz"] != transmitter["frequency_hz"]
+    ):
+        _fail("resolved WsprryPi application plan contradicts keyed plan bindings")
+    bindings = document["capability_bindings"]
+    if bindings["quiescence"] != transmitter["backend"]:
+        _fail("quiescence capability does not match the keyed backend")
+    if any(
+        not service.startswith(("tx:", "rx:")) or service.endswith(":")
+        for service in bindings["services"]
+    ):
+        _fail("keyed service bindings must identify the tx or rx host")
+    receiver = document["receiver"]
+    if (
+        hashlib.sha256(receiver["device"].encode("utf-8")).hexdigest()
+        != receiver["identity_sha256"]
+    ):
+        _fail("receiver identity hash does not bind the resolved device")
+    bound_artifacts = [
+        transmitter["executable"],
+        document["reference"]["plan"],
+        document["reference"]["expected_events"],
+        bindings["ssh"],
+        bindings["known_hosts"],
+        bindings["transmitter_helper"],
+        bindings["transmitter_helper_config"],
+        bindings["receiver_helper"],
+        bindings["receiver_helper_config"],
+        bindings["capture_helper"],
+    ]
+    for field in ("path", "sha256"):
+        values = [item[field] for item in bound_artifacts]
+        if len(values) != len(set(values)):
+            _fail(f"resolved keyed plan reuses artifact {field}")
     deadlines = document["deadlines"]
     minimum_overall = 3 * deadlines["transaction_s"] + deadlines["cleanup_s"]
     if deadlines["overall_s"] < minimum_overall:

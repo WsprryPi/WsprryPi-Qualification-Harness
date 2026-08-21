@@ -23,6 +23,8 @@ The maintained package provides:
 - offline live-keyed plan, authorization, transaction, aggregate, result, and
   artifact-index contracts plus a sealed deterministic hardware-free coordinator
   rehearsal for QRSS, FSKCW, and DFCW;
+- fail-closed `run-cw-live-keyed` production coordination for three independent
+  QRSS, FSKCW, or DFCW process/capture transactions;
 - authenticated archive and multi-capture evidence intake;
 - digest-bound, read-only actual-host preflight;
 - fail-closed split-host WSPR and carrier-only live coordinators; and

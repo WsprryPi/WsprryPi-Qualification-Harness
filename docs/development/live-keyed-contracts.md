@@ -44,6 +44,23 @@ every lifecycle boundary. Caller cancellation stops primary work but cannot
 suppress cleanup or quiescence verification. Each output path is single-use and
 is published only after its result documents and canonical manifest are complete.
 
-This coordinator is preparation for later live adapter wiring. Its `qualified`
-result means only that all three fake transactions passed their modeled contract.
-It is not runtime authorization, hardware evidence, or live qualification.
+The hardware-free coordinator's `qualified` result means only that all three
+fake transactions passed their modeled contract. It is not runtime
+authorization, hardware evidence, or live qualification. Production execution
+is exposed only by the separately gated command below.
+
+## Production command
+
+`run-cw-live-keyed` connects the same coordinator semantics to the authenticated
+production capabilities. The resolved digest includes the WsprryPi application
+plan and argv, executable identity, parent and component revisions, complete
+receiver identity/settings, RF path, analyzer revision, SSH/helper/capture
+identities, named host services, and backend quiescence mechanism.
+
+The command requires `--enable-live-keyed`, `--enable-rf`, a non-empty
+`--operator`, and `--confirm-plan-sha256` equal to the canonical resolved-plan
+digest. It accepts only QRSS, FSKCW, or DFCW and exactly three requested
+transactions. Each transaction uses a new owned process, capture, acquisition,
+analysis, and artifact identity. The command stops after the first unsuccessful
+transaction, but cleanup, service restoration, quiescence verification, helper
+shutdown, and partial immutable output remain mandatory.

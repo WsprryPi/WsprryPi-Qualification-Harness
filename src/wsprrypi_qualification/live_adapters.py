@@ -33,12 +33,16 @@ from wsprrypi_qualification.application_shims import (
 )
 from wsprrypi_qualification.cw_iq import analyze_synthetic_iq
 from wsprrypi_qualification.cw_reference import generate_expected_events
+from wsprrypi_qualification.cw_replay import compose_acquired_replay
+from wsprrypi_qualification.keyed_session_contracts import resolved_keyed_plan_sha256
 from wsprrypi_qualification.offline import artifact, load_json_document, write_json_new
 from wsprrypi_qualification.offline_context import load_profile_context
 from wsprrypi_qualification.real_capabilities import (
     CaptureCapabilityPlan,
     GpioQuiescenceCapability,
+    HelperGpioProvider,
     HelperServiceProvider,
+    HelperSi5351Provider,
     JsonHelperClient,
     LocalTransportLauncher,
     OwnedProcess,
@@ -1677,4 +1681,317 @@ def build_production_adapters(
         tx_transport.close()
         rx_transport.close()
         shutil.rmtree(work_directory)
+        raise
+
+
+class KeyedCapabilityProviders:
+    """Keyed composition over the existing helper, process, capture, service, and idle APIs."""
+
+    def __init__(
+        self,
+        plan: dict[str, Any],
+        tx_transport: PersistentHelperTransport,
+        rx_transport: PersistentHelperTransport,
+        tx_client: JsonHelperClient,
+        rx_client: JsonHelperClient,
+        work_directory: Path,
+    ) -> None:
+        self.plan = plan
+        self.tx_transport, self.rx_transport = tx_transport, rx_transport
+        self.tx_client, self.rx_client = tx_client, rx_client
+        self.tx_services = HelperServiceProvider(tx_client, "systemd")
+        self.rx_services = HelperServiceProvider(rx_client, "systemd")
+        self.launcher = SshOwnedProcessLauncher(
+            tx_client,
+            plan["deadlines"]["transaction_s"],
+            plan["transmitter"]["executable"]["sha256"],
+        )
+        self.capture_capability = SoapyCaptureCapability(LocalTransportLauncher())
+        self.work_directory = work_directory
+        self.owned: dict[int, OwnedProcess] = {}
+        self.initial_services: dict[int, list[tuple[HelperServiceProvider, str, bool]]] = {}
+        self.capture_metadata: dict[int, Path] = {}
+        self.capture_outputs: dict[int, Path] = {}
+        self.process_evidence: dict[int, Path] = {}
+        self.process_outcomes: dict[int, Path] = {}
+        self.analysis_evidence: dict[int, Path] = {}
+
+    def preflight(self, plan: dict[str, Any], number: int) -> bool:
+        for binding in plan["reference"].values():
+            path = Path(binding["path"])
+            if not path.is_absolute() or artifact(path) != binding:
+                return False
+        mode_plan = load_json_document(
+            Path(plan["reference"]["plan"]["path"]), "cw-mode-plan.schema.json"
+        )
+        protocol = mode_plan["protocol"]
+        application = plan["application_plan"]["protocol_contract"]
+        receiver = plan["receiver"]
+        rf_path = plan["rf_path"]
+        if (
+            mode_plan["mode"] != plan["mode"].lower()
+            or mode_plan["backend"] != plan["transmitter"]["backend"]
+            or mode_plan["source"]["parent_revision"] != plan["target_revision"]
+            or mode_plan["source"]["submodule_revision"] != plan["target_submodule_revision"]
+            or mode_plan["transmitter"]["host"] != plan["transmitter"]["host"]
+            or mode_plan["transmitter"]["output"] != plan["transmitter"]["output"]
+            or mode_plan["transmitter"]["drive_value"] != plan["transmitter"]["drive"]
+            or mode_plan["receiver"]["host"] != receiver["host"]
+            or mode_plan["receiver"]["driver"] != receiver["driver"]
+            or mode_plan["receiver"]["device_identity"] != receiver["device"]
+            or mode_plan["capture_contract"]["sample_rate_hz"] != receiver["sample_rate_hz"]
+            or mode_plan["capture_contract"]["center_frequency_hz"]
+            != receiver["center_frequency_hz"]
+            or mode_plan["rf_path"]["attenuation_db"] != rf_path["attenuation_db"]
+            or mode_plan["rf_path"]["termination"] != rf_path["termination"]
+            or mode_plan["rf_path"]["filter_state"] != rf_path["filter_state"]
+            or mode_plan["rf_path"]["safe_input_basis"] != rf_path["safe_input_basis"]
+            or mode_plan["rf_path"]["antenna_state"].lower()
+            not in {"disconnected", "not connected", "none"}
+            or protocol["message"] != application["message"]
+            or protocol["dot_seconds"] != application["dot_seconds"]
+            or protocol["primary_frequency_hz"] != application["primary_frequency_hz"]
+            or protocol["secondary_frequency_hz"] != application["secondary_frequency_hz"]
+        ):
+            return False
+        states: list[tuple[HelperServiceProvider, str, bool]] = []
+        for specification in plan["capability_bindings"]["services"]:
+            side, separator, name = specification.partition(":")
+            if separator != ":" or side not in {"tx", "rx"} or not name:
+                return False
+            provider = self.tx_services if side == "tx" else self.rx_services
+            state = provider.inspect(name)
+            states.append((provider, name, state.running))
+        self.initial_services[number] = states
+        return True
+
+    def install_cleanup(self, plan: dict[str, Any], number: int) -> bool:
+        del plan
+        for provider, name, running in self.initial_services.get(number, []):
+            if running:
+                provider.set_running(name, False)
+        return number in self.initial_services
+
+    def start_process(self, arguments: tuple[str, ...], number: int) -> str | None:
+        process = self.launcher.begin(arguments)
+        if process.handle_id in {owned.handle_id for owned in self.owned.values()}:
+            process.stop()
+            return None
+        self.owned[number] = process
+        directory = self.work_directory / f"transaction-{number}"
+        directory.mkdir(exist_ok=True)
+        process_path = directory / "process.json"
+        write_json_new(
+            process_path,
+            {"handle_id": process.handle_id, "arguments": list(arguments)},
+        )
+        self.process_evidence[number] = process_path
+        return process.handle_id
+
+    def _retain_process_outcome(self, number: int, result: object) -> None:
+        execution = cast(Any, result)
+        path = self.work_directory / f"transaction-{number}" / "process-outcome.json"
+        if path.exists():
+            return
+        write_json_new(
+            path,
+            {
+                "handle_id": execution.handle_id,
+                "return_code": execution.return_code,
+                "stdout": execution.stdout,
+                "stderr": execution.stderr,
+                "timed_out": execution.timed_out,
+                "cancelled": execution.cancelled,
+                "disconnected": execution.disconnected,
+                "cleanup_verified": execution.cleanup_verified,
+                "stop_requested": execution.stop_requested,
+                "running_before_stop": execution.running_before_stop,
+            },
+        )
+        self.process_outcomes[number] = path
+
+    def capture(self, plan: dict[str, Any], number: int) -> tuple[str, str] | None:
+        mode_plan = load_json_document(
+            Path(plan["reference"]["plan"]["path"]), "cw-mode-plan.schema.json"
+        )
+        capture = mode_plan["capture_contract"]
+        receiver = plan["receiver"]
+        directory = self.work_directory / f"transaction-{number}"
+        directory.mkdir(exist_ok=True)
+        capture_plan = CaptureCapabilityPlan(
+            helper=Path(plan["capability_bindings"]["capture_helper"]["path"]),
+            metadata_path=directory / "capture-metadata.json",
+            output_path=directory / "capture.cf32",
+            driver=receiver["driver"],
+            serial=receiver["device"],
+            channel=receiver["channel"],
+            sample_rate_hz=receiver["sample_rate_hz"],
+            bandwidth_hz=receiver["bandwidth_hz"],
+            center_frequency_hz=receiver["center_frequency_hz"],
+            gain_db=receiver["gain_db"],
+            sample_count=capture["sample_count"],
+            read_timeout_us=receiver["read_timeout_us"],
+            maximum_elapsed_s=plan["deadlines"]["transaction_s"],
+            clipping_threshold=receiver["clipping_threshold"],
+        )
+        authorization = RuntimeAuthorization(
+            capability_plan_sha256(capture_plan.document()),
+            "keyed-live-coordinator",
+            datetime.now(UTC),
+            True,
+        )
+        evidence = self.capture_capability.execute(capture_plan, authorization)
+        self.capture_metadata[number] = capture_plan.metadata_path
+        self.capture_outputs[number] = capture_plan.output_path
+        process = self.owned[number]
+        result = process.wait(plan["deadlines"]["transaction_s"], None)
+        self._retain_process_outcome(number, result)
+        if result.cleanup_verified:
+            self.owned.pop(number, None)
+        if result.return_code != 0 or not result.cleanup_verified:
+            return None
+        output_identity = cast(dict[str, object], evidence["output"])
+        metadata_identity = cast(dict[str, object], evidence["capture_metadata"])
+        return (str(output_identity["sha256"]), str(metadata_identity["sha256"]))
+
+    def analyze(self, plan: dict[str, Any], number: int) -> tuple[str, str]:
+        result = compose_acquired_replay(
+            Path(plan["reference"]["plan"]["path"]),
+            Path(plan["reference"]["expected_events"]["path"]),
+            self.capture_metadata[number],
+            self.work_directory / f"transaction-{number}" / "analysis",
+            source_revision=plan["analyzer_revision"],
+        )
+        result_path = self.work_directory / f"transaction-{number}" / "analysis" / "result.json"
+        self.analysis_evidence[number] = result_path
+        outcome = "passed" if result["measurement"]["mode_gate"] == "passed" else "failed"
+        return outcome, str(artifact(result_path)["sha256"])
+
+    def cleanup(self, plan: dict[str, Any], number: int) -> bool:
+        del plan
+        okay = True
+        process = self.owned.pop(number, None)
+        if process is not None:
+            stopped = process.stop()
+            self._retain_process_outcome(number, stopped)
+            okay = stopped.cleanup_verified and okay
+        for provider, name, running in reversed(self.initial_services.get(number, [])):
+            try:
+                provider.set_running(name, running)
+                okay = provider.inspect(name).running is running and okay
+            except Exception:
+                okay = False
+        return okay
+
+    def verify_quiescence(self, plan: dict[str, Any], number: int) -> bool:
+        del number
+        config = plan["application_plan"]["backend_contract"]
+        if plan["transmitter"]["backend"] == "gpio":
+            observed = HelperGpioProvider(self.tx_client).inspect(config["gpio_pin"])
+            return observed.direction == "input" and observed.owner is None
+        observed_si5351 = HelperSi5351Provider(self.tx_client).inspect(
+            config["i2c_bus"], config["i2c_address"]
+        )
+        return not observed_si5351.enabled_outputs and observed_si5351.owner is None
+
+    def evidence_paths(self, number: int) -> dict[str, Path]:
+        paths = {
+            "process": self.process_outcomes.get(number, self.process_evidence.get(number)),
+            "process_launch": self.process_evidence.get(number),
+            "capture": self.capture_outputs.get(number),
+            "acquisition": self.capture_metadata.get(number),
+            "analysis": self.analysis_evidence.get(number),
+        }
+        analysis = self.analysis_evidence.get(number)
+        if analysis is not None:
+            for candidate in sorted(analysis.parent.iterdir()):
+                if candidate.is_file() and candidate != analysis:
+                    role = "analysis_" + re.sub(r"[^a-z0-9]+", "_", candidate.name.lower()).strip(
+                        "_"
+                    )
+                    paths[role] = candidate
+        return {role: path for role, path in paths.items() if path is not None}
+
+    def close(self) -> bool:
+        okay = True
+        for transport in (self.tx_transport, self.rx_transport):
+            try:
+                transport.close()
+            except Exception:
+                okay = False
+        return okay
+
+
+def build_keyed_capability_providers(
+    plan: dict[str, Any], *, ssh_executable: Path, work_directory: Path
+) -> KeyedCapabilityProviders:
+    """Build keyed providers without substituting transport or hardware defaults."""
+    bindings = plan["capability_bindings"]
+    known_hosts = Path(bindings["known_hosts"]["path"])
+    receiver_helper = Path(bindings["receiver_helper"]["path"])
+    receiver_config = Path(bindings["receiver_helper_config"]["path"])
+    capture_helper = Path(bindings["capture_helper"]["path"])
+    for path, binding in (
+        (ssh_executable, bindings["ssh"]),
+        (known_hosts, bindings["known_hosts"]),
+        (receiver_helper, bindings["receiver_helper"]),
+        (receiver_config, bindings["receiver_helper_config"]),
+        (capture_helper, bindings["capture_helper"]),
+    ):
+        if not path.is_absolute() or not path.is_file() or artifact(path) != binding:
+            raise RealSessionError("keyed capability executable identity changed")
+    remote_helper = bindings["transmitter_helper"]
+    remote_config = bindings["transmitter_helper_config"]
+    if any(
+        re.fullmatch(r"/[A-Za-z0-9._/+:-]+", binding["path"]) is None
+        for binding in (remote_helper, remote_config)
+    ):
+        raise RealSessionError("remote keyed helper or configuration path is unsafe")
+    work_directory.mkdir(parents=True, exist_ok=False)
+    tx_transport: PersistentHelperTransport | None = None
+    rx_transport: PersistentHelperTransport | None = None
+    try:
+        tx_transport = PersistentHelperTransport(
+            (
+                str(ssh_executable),
+                "-o",
+                "StrictHostKeyChecking=yes",
+                "-o",
+                f"UserKnownHostsFile={known_hosts}",
+                "--",
+                plan["transmitter"]["host"],
+                f"{remote_helper['path']} --serve --config {remote_config['path']}",
+            ),
+            cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
+        )
+        rx_transport = PersistentHelperTransport(
+            (str(receiver_helper), "--serve", "--config", str(receiver_config)),
+            cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
+        )
+        digest = resolved_keyed_plan_sha256(plan)
+        tx_client = JsonHelperClient(
+            ssh_executable,
+            tx_transport,
+            plan["deadlines"]["transaction_s"],
+            digest,
+            bindings["transmitter_helper_identity"],
+            bindings["ssh"]["sha256"],
+        )
+        rx_client = JsonHelperClient(
+            receiver_helper,
+            rx_transport,
+            plan["deadlines"]["transaction_s"],
+            digest,
+            bindings["receiver_helper_identity"],
+            bindings["receiver_helper"]["sha256"],
+        )
+        return KeyedCapabilityProviders(
+            plan, tx_transport, rx_transport, tx_client, rx_client, work_directory
+        )
+    except Exception:
+        if tx_transport is not None:
+            tx_transport.close()
+        if rx_transport is not None:
+            rx_transport.close()
+        shutil.rmtree(work_directory, ignore_errors=True)
         raise

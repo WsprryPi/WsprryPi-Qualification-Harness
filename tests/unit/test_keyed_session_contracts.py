@@ -32,6 +32,71 @@ def artifact(label: str) -> dict[str, object]:
     return {"path": f"inputs/{label}.json", "size_bytes": len(label) + 1, "sha256": digest(label)}
 
 
+def application_plan(mode: str) -> dict[str, object]:
+    protocol = mode.lower()
+    return {
+        "schema_version": 1,
+        "evidence_type": "application_plan",
+        "plan_id": "keyed-session-001-application",
+        "identity": {
+            "application": "wsprrypi",
+            "executable": "inputs/wsprrypi.json",
+            "source_revision": "1" * 40,
+            "submodule_revision": "2" * 40,
+        },
+        "backend": "gpio",
+        "backend_contract": {
+            "output": "GPIO4",
+            "ppm": 0,
+            "drive_or_power_level": 0,
+            "gpio_pin": 4,
+        },
+        "protocol": protocol,
+        "protocol_contract": {
+            "message": "TEST",
+            "dot_seconds": 3.0,
+            "primary_frequency_hz": 14_097_100,
+            "secondary_frequency_hz": None if mode == "QRSS" else 14_097_099,
+        },
+        "arguments": [
+            "inputs/wsprrypi.json",
+            "--backend",
+            "gpio",
+            "--transmit-gpio",
+            "4",
+            "--gpio-power-level",
+            "0",
+            "--gpio-manual-ppm",
+            "0",
+            "--no-offset",
+            f"--{protocol}-message",
+            "TEST",
+            "--qrss-frequency"
+            if mode == "QRSS"
+            else f"--{protocol}-mark-frequency"
+            if mode == "FSKCW"
+            else "--dfcw-dot-frequency",
+            "14097100",
+            *(
+                []
+                if mode == "QRSS"
+                else [
+                    "--fskcw-space-frequency" if mode == "FSKCW" else "--dfcw-dash-frequency",
+                    "14097099",
+                ]
+            ),
+            f"--{protocol}-dot-seconds",
+            "3",
+        ],
+        "self_terminating_request": True,
+        "supervisor_required": True,
+        "random_offset_enabled": False,
+        "execution_authorized": False,
+        "stopping_contract": "supervisor deadline and application termination",
+        "cleanup_contract": "backend-specific disable and verified quiescence",
+    }
+
+
 def plan(mode: str = "QRSS") -> dict[str, object]:
     return {
         "schema_version": 1,
@@ -40,19 +105,51 @@ def plan(mode: str = "QRSS") -> dict[str, object]:
         "mode": mode,
         "transmitter": {
             "host": "wspr4",
-            "backend": "legacy_gpio",
+            "backend": "gpio",
             "output": "GPIO4",
             "frequency_hz": 14_097_100,
             "drive": 0,
             "executable": artifact("wsprrypi"),
         },
-        "receiver": {"host": "wspr5", "device": "RSP1B-2404058C60", "sample_rate_hz": 250_000},
+        "receiver": {
+            "host": "wspr5",
+            "driver": "sdrplay",
+            "device": "RSP1B-2404058C60",
+            "identity_sha256": digest("RSP1B-2404058C60"),
+            "sample_rate_hz": 250_000,
+            "bandwidth_hz": 200_000,
+            "center_frequency_hz": 14_097_100,
+            "gain_db": 20,
+            "channel": 0,
+            "read_timeout_us": 100_000,
+            "clipping_threshold": 0.98,
+        },
         "rf_path": {
             "antenna_connected": False,
             "attenuation_db": 20,
+            "termination": "direct SDR input through attenuators",
+            "filter_state": "none",
+            "routing": "direct conducted connection",
             "safe_input_basis": "bounded conducted fixture",
         },
         "reference": {"plan": artifact("mode-plan"), "expected_events": artifact("events")},
+        "application_plan": application_plan(mode),
+        "target_revision": "1" * 40,
+        "target_submodule_revision": "2" * 40,
+        "analyzer_revision": "3" * 40,
+        "capability_bindings": {
+            "ssh": artifact("ssh"),
+            "known_hosts": artifact("known-hosts"),
+            "transmitter_helper": artifact("tx-helper"),
+            "transmitter_helper_config": artifact("tx-helper-config"),
+            "transmitter_helper_identity": "tx-helper-v1",
+            "receiver_helper": artifact("rx-helper"),
+            "receiver_helper_config": artifact("rx-helper-config"),
+            "receiver_helper_identity": "rx-helper-v1",
+            "capture_helper": artifact("capture-helper"),
+            "services": ["tx:wsprrypi", "rx:SoapySDRServer"],
+            "quiescence": "gpio",
+        },
         "deadlines": {"transaction_s": 10, "cleanup_s": 5, "overall_s": 35},
         "stopping_procedure": "stop and notify operator",
         "transaction_count": 3,
@@ -139,7 +236,7 @@ def test_plan_digest_is_canonical_and_authorization_is_exact() -> None:
     auth = authorization(resolved)
     changed = deepcopy(resolved)
     changed["transmitter"]["drive"] = 1  # type: ignore[index]
-    with pytest.raises(KeyedSessionContractError, match="exact resolved keyed plan"):
+    with pytest.raises(KeyedSessionContractError, match="contradicts keyed plan bindings"):
         validate_keyed_runtime_authorization(changed, auth)
     stale = deepcopy(auth)
     stale["authorized_utc"] = "2026-08-21T12:00:00+00:00"
@@ -156,8 +253,17 @@ def test_plan_deadline_and_reference_independence_are_semantic() -> None:
     reused["reference"]["expected_events"]["sha256"] = reused["reference"]["plan"][  # type: ignore[index]
         "sha256"
     ]
-    with pytest.raises(KeyedSessionContractError, match="must be independent"):
+    with pytest.raises(KeyedSessionContractError, match="reuses artifact"):
         validate_resolved_keyed_plan(reused)
+
+
+@pytest.mark.parametrize("field", ("path", "sha256"))
+def test_resolved_plan_rejects_reused_capability_artifacts(field: str) -> None:
+    resolved = plan()
+    bindings = resolved["capability_bindings"]  # type: ignore[assignment]
+    bindings["capture_helper"][field] = bindings["receiver_helper"][field]  # type: ignore[index]
+    with pytest.raises(KeyedSessionContractError, match=f"reuses artifact {field}"):
+        validate_resolved_keyed_plan(resolved)
 
 
 def test_partial_failure_aggregate_is_allowed_but_three_are_required_to_qualify() -> None:

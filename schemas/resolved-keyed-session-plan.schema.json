@@ -1,1 +1,331 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://github.com/WsprryPi/WsprryPi-Qualification-Harness/schemas/resolved-keyed-session-plan.schema.json","type":"object","additionalProperties":false,"required":["schema_version","evidence_type","session_id","mode","transmitter","receiver","rf_path","reference","deadlines","stopping_procedure","transaction_count"],"properties":{"schema_version":{"const":1},"evidence_type":{"const":"resolved_keyed_session_plan"},"session_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._-]*$"},"mode":{"enum":["QRSS","FSKCW","DFCW"]},"transmitter":{"type":"object","additionalProperties":false,"required":["host","backend","output","frequency_hz","drive","executable"],"properties":{"host":{"type":"string","minLength":1},"backend":{"type":"string","minLength":1},"output":{"type":"string","minLength":1},"frequency_hz":{"type":"number","exclusiveMinimum":0},"drive":{"type":"number","minimum":0},"executable":{"$ref":"#/$defs/artifact"}}},"receiver":{"type":"object","additionalProperties":false,"required":["host","device","sample_rate_hz"],"properties":{"host":{"type":"string","minLength":1},"device":{"type":"string","minLength":1},"sample_rate_hz":{"type":"integer","minimum":1}}},"rf_path":{"type":"object","additionalProperties":false,"required":["antenna_connected","attenuation_db","safe_input_basis"],"properties":{"antenna_connected":{"const":false},"attenuation_db":{"type":"number","minimum":0},"safe_input_basis":{"type":"string","minLength":1}}},"reference":{"type":"object","additionalProperties":false,"required":["plan","expected_events"],"properties":{"plan":{"$ref":"#/$defs/artifact"},"expected_events":{"$ref":"#/$defs/artifact"}}},"deadlines":{"type":"object","additionalProperties":false,"required":["transaction_s","cleanup_s","overall_s"],"properties":{"transaction_s":{"type":"number","exclusiveMinimum":0},"cleanup_s":{"type":"number","exclusiveMinimum":0},"overall_s":{"type":"number","exclusiveMinimum":0}}},"stopping_procedure":{"type":"string","minLength":1},"transaction_count":{"const":3}},"$defs":{"artifact":{"type":"object","additionalProperties":false,"required":["path","size_bytes","sha256"],"properties":{"path":{"type":"string","minLength":1},"size_bytes":{"type":"integer","minimum":1},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WsprryPi/WsprryPi-Qualification-Harness/schemas/resolved-keyed-session-plan.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_type",
+    "session_id",
+    "mode",
+    "transmitter",
+    "receiver",
+    "rf_path",
+    "reference",
+    "application_plan",
+    "target_revision",
+    "target_submodule_revision",
+    "analyzer_revision",
+    "capability_bindings",
+    "deadlines",
+    "stopping_procedure",
+    "transaction_count"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "evidence_type": {
+      "const": "resolved_keyed_session_plan"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "mode": {
+      "enum": [
+        "QRSS",
+        "FSKCW",
+        "DFCW"
+      ]
+    },
+    "transmitter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "backend",
+        "output",
+        "frequency_hz",
+        "drive",
+        "executable"
+      ],
+      "properties": {
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "backend": {
+          "enum": [
+            "gpio",
+            "si5351"
+          ]
+        },
+        "output": {
+          "type": "string",
+          "minLength": 1
+        },
+        "frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "drive": {
+          "type": "number",
+          "minimum": 0
+        },
+        "executable": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "receiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "driver",
+        "device",
+        "identity_sha256",
+        "sample_rate_hz",
+        "bandwidth_hz",
+        "center_frequency_hz",
+        "gain_db",
+        "channel",
+        "read_timeout_us",
+        "clipping_threshold"
+      ],
+      "properties": {
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "driver": {
+          "type": "string",
+          "minLength": 1
+        },
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "sample_rate_hz": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "bandwidth_hz": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "center_frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "gain_db": {
+          "type": "number"
+        },
+        "channel": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "read_timeout_us": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "clipping_threshold": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "rf_path": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "antenna_connected",
+        "attenuation_db",
+        "termination",
+        "filter_state",
+        "routing",
+        "safe_input_basis"
+      ],
+      "properties": {
+        "antenna_connected": {
+          "const": false
+        },
+        "attenuation_db": {
+          "type": "number",
+          "minimum": 0
+        },
+        "termination": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filter_state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "routing": {
+          "type": "string",
+          "minLength": 1
+        },
+        "safe_input_basis": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan",
+        "expected_events"
+      ],
+      "properties": {
+        "plan": {
+          "$ref": "#/$defs/artifact"
+        },
+        "expected_events": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "application_plan": {
+      "$ref": "application-plan.schema.json"
+    },
+    "target_revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "target_submodule_revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "analyzer_revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "capability_bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ssh",
+        "known_hosts",
+        "transmitter_helper",
+        "transmitter_helper_config",
+        "transmitter_helper_identity",
+        "receiver_helper",
+        "receiver_helper_config",
+        "receiver_helper_identity",
+        "capture_helper",
+        "services",
+        "quiescence"
+      ],
+      "properties": {
+        "ssh": {
+          "$ref": "#/$defs/artifact"
+        },
+        "known_hosts": {
+          "$ref": "#/$defs/artifact"
+        },
+        "transmitter_helper": {
+          "$ref": "#/$defs/artifact"
+        },
+        "transmitter_helper_config": {
+          "$ref": "#/$defs/artifact"
+        },
+        "transmitter_helper_identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "receiver_helper": {
+          "$ref": "#/$defs/artifact"
+        },
+        "receiver_helper_config": {
+          "$ref": "#/$defs/artifact"
+        },
+        "receiver_helper_identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capture_helper": {
+          "$ref": "#/$defs/artifact"
+        },
+        "services": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "quiescence": {
+          "enum": [
+            "gpio",
+            "si5351"
+          ]
+        }
+      }
+    },
+    "deadlines": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transaction_s",
+        "cleanup_s",
+        "overall_s"
+      ],
+      "properties": {
+        "transaction_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "cleanup_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "overall_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "stopping_procedure": {
+      "type": "string",
+      "minLength": 1
+    },
+    "transaction_count": {
+      "const": 3
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "size_bytes",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

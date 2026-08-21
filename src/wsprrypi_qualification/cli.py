@@ -47,6 +47,13 @@ from wsprrypi_qualification.cw_replay import (
 )
 from wsprrypi_qualification.decoder import run_wsprd_acquired, summarize_decodes
 from wsprrypi_qualification.deployment import DeploymentError, load_deployment_config
+from wsprrypi_qualification.keyed_session_contracts import (
+    KeyedSessionContractError,
+    compose_keyed_runtime_authorization,
+    resolved_keyed_plan_sha256,
+    validate_resolved_keyed_plan,
+)
+from wsprrypi_qualification.live_keyed import LiveKeyedError, run_live_keyed_session
 from wsprrypi_qualification.offline import OfflineAnalysisError, write_offline_failure
 from wsprrypi_qualification.profiles import ProfileError, load_profile
 from wsprrypi_qualification.real_session import (
@@ -208,6 +215,18 @@ def _parser() -> argparse.ArgumentParser:
     live_tone.add_argument("--operator", required=True)
     live_tone.add_argument("--enable-live-tone", action="store_true", required=True)
     live_tone.add_argument("--enable-rf", action="store_true", required=True)
+    live_keyed = subparsers.add_parser(
+        "run-cw-live-keyed",
+        help="run the digest-bound three-transaction QRSS/FSKCW/DFCW lifecycle",
+    )
+    live_keyed.add_argument("plan", type=Path)
+    live_keyed.add_argument("output_parent", type=Path)
+    live_keyed.add_argument("--work-directory", type=Path, required=True)
+    live_keyed.add_argument("--ssh", type=Path, required=True)
+    live_keyed.add_argument("--operator", required=True)
+    live_keyed.add_argument("--confirm-plan-sha256", required=True)
+    live_keyed.add_argument("--enable-live-keyed", action="store_true", required=True)
+    live_keyed.add_argument("--enable-rf", action="store_true", required=True)
     simulator = subparsers.add_parser(
         "simulate-qualification", help="run the bounded hardware-free lifecycle simulator"
     )
@@ -277,6 +296,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if (LIVE_COMMANDS.intersection(arguments) or "--enable-rf" in arguments) and not {
         "run-live-session",
         "run-cw-live-tone",
+        "run-cw-live-keyed",
     }.intersection(arguments):
         print("live RF and hardware actions are unavailable in the portable CLI", file=sys.stderr)
         return 2
@@ -614,6 +634,42 @@ def main(argv: Sequence[str] | None = None) -> int:
                 else 1
             )
         return 0 if result["final_status"] == "qualified" else 1
+    if args.command == "run-cw-live-keyed":
+        try:
+            document = json.loads(args.plan.read_text(encoding="utf-8"))
+            if not isinstance(document, dict):
+                raise LiveKeyedError("live keyed plan must be a JSON object")
+            resolved = validate_resolved_keyed_plan(document)
+            digest = resolved_keyed_plan_sha256(resolved)
+            if args.confirm_plan_sha256 != digest:
+                raise LiveKeyedError("typed plan digest confirmation did not match")
+            if not args.operator.strip():
+                raise LiveKeyedError("operator identity must not be empty")
+            confirmed_at = datetime.now(UTC)
+            authorization = compose_keyed_runtime_authorization(
+                resolved,
+                operator=args.operator,
+                authorized_utc=confirmed_at.isoformat().replace("+00:00", "Z"),
+            )
+            from wsprrypi_qualification.live_keyed import build_production_keyed_adapter
+
+            adapter = build_production_keyed_adapter(
+                resolved,
+                ssh_executable=args.ssh.resolve(),
+                work_directory=args.work_directory.resolve(),
+            )
+            result = run_live_keyed_session(resolved, authorization, args.output_parent, adapter)
+        except (
+            OSError,
+            json.JSONDecodeError,
+            KeyedSessionContractError,
+            LiveKeyedError,
+            OfflineAnalysisError,
+        ) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["result"]["final_status"] == "qualified" else 1
     if args.command == "simulate-qualification":
         try:
             result = run_simulation(

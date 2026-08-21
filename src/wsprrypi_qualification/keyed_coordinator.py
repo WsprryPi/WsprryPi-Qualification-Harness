@@ -97,6 +97,32 @@ def run_hardware_free_keyed_session(
             transactions.append(transaction)
             if transaction["final_outcome"] != "passed":
                 break
+        return publish_keyed_session(resolved, auth, transactions, parent)
+    except Exception:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
+
+
+def publish_keyed_session(
+    plan: dict[str, Any],
+    authorization: dict[str, Any],
+    transactions: list[dict[str, Any]],
+    output_parent: Path,
+    *,
+    artifact_sources: dict[str, Path] | None = None,
+) -> dict[str, Any]:
+    """Publish already validated keyed transactions to one new immutable directory."""
+    resolved = validate_resolved_keyed_plan(plan)
+    auth = validate_keyed_runtime_authorization(resolved, authorization)
+    session_directory = validate_manifest_name(str(resolved["session_id"]))
+    parent = output_parent.resolve()
+    final = parent / session_directory
+    temporary = parent / f".incomplete-{session_directory}"
+    if final.exists():
+        raise KeyedCoordinatorError("unsafe or reused keyed-session destination")
+    if not temporary.exists():
+        temporary.mkdir(parents=True)
+    try:
         aggregate = compose_keyed_aggregate_session(resolved, auth, transactions)
         result = compose_keyed_result(resolved, auth, aggregate)
         write_json_new(
@@ -114,7 +140,16 @@ def run_hardware_free_keyed_session(
             for artifact in transaction["artifacts"]:
                 target = temporary / str(artifact["path"])
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(_artifact_payload(int(number), str(artifact["role"])))
+                source = (artifact_sources or {}).get(str(artifact["path"]))
+                if source is None:
+                    target.write_bytes(_artifact_payload(int(number), str(artifact["role"])))
+                else:
+                    if source.is_symlink() or not source.is_file():
+                        raise KeyedCoordinatorError("production keyed artifact is unavailable")
+                    identity = artifact_path_identity(source)
+                    if any(identity[key] != artifact[key] for key in ("size_bytes", "sha256")):
+                        raise KeyedCoordinatorError("production keyed artifact identity changed")
+                    shutil.copyfile(source, target)
             write_json_new(
                 temporary / f"transaction-{number}.json",
                 transaction,
@@ -246,6 +281,11 @@ def _artifact_payload(number: int, role: str) -> bytes:
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
+
+
+def artifact_path_identity(path: Path) -> dict[str, Any]:
+    payload = path.read_bytes()
+    return {"size_bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}
 
 
 def _artifact_index(plan: dict[str, Any], root: Path) -> dict[str, Any]:

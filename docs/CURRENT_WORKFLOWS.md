@@ -76,6 +76,13 @@ deterministic hardware-free coordinator rehearsal with boundary-specific failure
 and cancellation injection. It does not start a process, open a receiver,
 contact a host, operate a service, or enable RF.
 
+`run-cw-live-keyed` is the separate production command. It accepts only QRSS,
+FSKCW, or DFCW plans with exactly three requested transactions and requires
+`--enable-live-keyed`, `--enable-rf`, `--operator`, and an exact
+`--confirm-plan-sha256`. It stops after the first unsuccessful transaction and
+still performs cleanup, service restoration, quiescence verification, provider
+shutdown, and partial-bundle publication.
+
 ## External archive intake
 
 Use `inventory-archive` and `validate-cw-multi-capture` to authenticate
@@ -112,8 +119,10 @@ The production live commands are deliberately fail-closed:
   three-frame WSPR lifecycle.
 - `run-cw-live-tone` coordinates carrier-only tone cadence and stops before WSPR
   decoding.
+- `run-cw-live-keyed` coordinates three independent QRSS, FSKCW, or DFCW
+  process/capture/analyze transactions.
 
-Do not run either command without current authorization for the exact resolved
+Do not run any production live command without current authorization for the exact resolved
 plan, host and device identities, RF path, level budget, stopping procedure, and
 operator window. A prior run or authorization does not carry forward.
 
