@@ -38,8 +38,7 @@ The maintained sequence is:
 Offline analysis does not prove transmitter lifecycle, cleanup, calibrated
 power, or spectral compliance.
 
-Guides: [Bounded carrier evidence](development/bounded-carrier-evidence.md) and
-[split-host WSPR lifecycle](development/live-three-frame.md). Use each command's
+Guide: [Split-host WSPR lifecycle](development/live-three-frame.md). Use each command's
 current `--help` output for its exact offline arguments.
 
 ## Tone and CW-family evidence
@@ -61,7 +60,7 @@ Guides: [Reference encoders](development/cw-reference-encoders.md),
 [acquired-IQ replay](development/cw-acquired-iq-replay.md), and
 [mock bounded lifecycle](development/cw-mock-bounded-lifecycle.md).
 
-## Preserved archive intake
+## External archive intake
 
 Use `inventory-archive` and `validate-cw-multi-capture` to authenticate
 preserved artifacts and their declared relationships. These commands do not
@@ -105,9 +104,13 @@ operator window. A prior run or authorization does not carry forward.
 Guides: [Split-host WSPR lifecycle](development/live-three-frame.md) and
 [bounded tone loopback mediator](development/bounded-tone-loopback-mediator.md).
 
-## Evidence review
+## Result review
 
-Validate retained bundles with the command specific to their evidence type and
+Validate output bundles with the command specific to their document type and
 apply the checklist in [AGENT_OPERATIONS.md](AGENT_OPERATIONS.md). Qualification
 claims must remain exact to the recorded backend, band, hardware, source,
 receiver path, settings, time, and cleanup outcome.
+
+The harness does not keep these bundles in Git. Use a temporary or external
+output directory, then move records selected for preservation to the target
+project or another approved evidence store.

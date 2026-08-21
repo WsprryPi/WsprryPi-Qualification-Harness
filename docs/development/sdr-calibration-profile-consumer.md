@@ -50,7 +50,7 @@ Status `1` is a structurally valid but non-qualification-usable application,
 and status `2` is invalid input, unsupported schema/version, failed integrity,
 or another contract error.
 
-Any future integration must bind this result and the exact source profile into
-recorded and live plans and immutable evidence. Both paths must require exactly
+The current consumer is standalone. Any caller that binds its result into a
+recorded or live plan must also bind the exact source profile. Both paths require exactly
 profile version `1.0.0`; neither may silently fall back to uncalibrated carrier
 offset interpretation when calibration is required.

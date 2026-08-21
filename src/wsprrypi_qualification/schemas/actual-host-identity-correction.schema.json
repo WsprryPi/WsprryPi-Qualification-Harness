@@ -1,4 +1,0 @@
-{
-  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["schema_version","evidence_type","retrospective_correction","hosts"],
-  "properties":{"schema_version":{"const":1},"evidence_type":{"const":"actual_host_identity_correction"},"retrospective_correction":{"const":true},"hosts":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"object","additionalProperties":false,"required":["ssh_destination","hostname_observed","server_key_fingerprint_at_run","exact_host_identity_verified","identity_outcome","known_hosts_context"],"properties":{"ssh_destination":{"enum":["pi@wspr4.local","pi@wspr5.local"]},"hostname_observed":{"enum":["wspr4","wspr5"]},"server_key_fingerprint_at_run":{"type":["string","null"]},"exact_host_identity_verified":{"const":false},"identity_outcome":{"const":"unresolved"},"known_hosts_context":{"type":"array","items":{"type":"string"}}}}}}
-}

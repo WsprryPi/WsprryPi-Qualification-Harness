@@ -326,8 +326,8 @@ class WsprryPiShim:
             supervisor_required=True,
             random_offset_enabled=False,
             execution_authorized=False,
-            stopping_contract="future supervisor deadline and application termination",
-            cleanup_contract="future backend-specific disable and verified quiescence",
+            stopping_contract="supervisor deadline and application termination",
+            cleanup_contract="backend-specific disable and verified quiescence",
         )
 
 

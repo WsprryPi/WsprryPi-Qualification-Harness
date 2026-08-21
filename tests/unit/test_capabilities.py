@@ -9,16 +9,16 @@ def test_capability_report_is_read_only_and_truthful() -> None:
     assert report["read_only"] is True
     assert report["schema_version"] == 1
     states = {adapter["name"]: adapter["state"] for adapter in report["adapters"]}
-    assert states["local_command"] == "available"
-    assert states["ssh_command"] == "unsupported"
-    assert states["service_inspection"] == "unsupported"
-    assert states["gpio_quiescence"] == "unsupported"
-    assert states["local_soapy_capture"] == "unsupported"
+    assert set(states.values()) == {"available"}
+    assert "remote_capture" not in states
+    assert "rp1_gpclk" not in states
     local_soapy = next(
         adapter for adapter in report["adapters"] if adapter["name"] == "local_soapy_capture"
     )
-    assert "wspr5-validated" in local_soapy["reason"]
-    assert "orchestration remains unsupported" in local_soapy["reason"]
+    assert "exact-count" in local_soapy["reason"]
+    assert states["carrier_analysis"] == "available"
+    assert states["live_wspr_coordination"] == "available"
+    assert states["live_tone_coordination"] == "available"
     assert all(tool["state"] in {"available", "unavailable"} for tool in report["external_tools"])
     for tool in report["external_tools"]:
         if "path" in tool:

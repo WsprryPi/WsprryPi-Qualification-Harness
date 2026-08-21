@@ -1,4 +1,4 @@
-"""Phase 5 mock-only bounded lifecycle evidence for tone and CW-family modes."""
+"""Mock-only bounded lifecycle evidence for tone and CW-family modes."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from wsprrypi_qualification.supervisor import (
 
 
 class CwLifecycleError(RuntimeError):
-    """A Phase 5 mock lifecycle request or document is invalid."""
+    """A mock lifecycle request or document is invalid."""
 
 
 INJECTIONS = {

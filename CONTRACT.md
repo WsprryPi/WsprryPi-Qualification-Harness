@@ -1,11 +1,11 @@
 # WsprryPi Qualification Harness Contract
 
-## 1. Purpose
+## 1. Purpose and capabilities
 
-Build a reusable, cross-platform maintainer tool that coordinates WsprryPi
+This repository provides a reusable, cross-platform maintainer harness that coordinates WsprryPi
 transmitter qualification, exact-count complex-IQ capture, carrier analysis,
-independent WSJT-X `wsprd` decoding, lifecycle verification, and durable
-evidence packaging.
+independent WSJT-X `wsprd` decoding, lifecycle verification, and portable
+result packaging.
 
 The harness is an engineering qualification tool, not an operator transmitter
 UI, production service manager, spectrum-compliance instrument, or automatic
@@ -28,26 +28,34 @@ systemd, `/tmp`, Unix path syntax, or fork semantics in its portable core.
 Platform-specific behavior must be capability-detected and isolated behind
 adapters. Unsupported live capabilities must fail before RF is enabled.
 
-## 3. Architecture
+## 3. Harness capabilities
 
 Use a Python 3.11+ package for CLI orchestration, schemas, analysis, process
 supervision, SSH coordination, manifests, and reporting. Use CMake for the
 small C++ SoapySDR capture helper so it can be built on all target platforms.
 
-Required logical components:
+The harness provides:
 
 1. profile loader and JSON Schema validation;
 2. capability and dependency discovery;
 3. local and SSH command transports;
-4. transmitter adapters for GPIO and Si5351, with future RP1 extensibility;
+4. application-plan adapters that bind the target executable, source identity,
+   backend, output, drive, mode, and structured arguments without embedding
+   target implementation details;
 5. local SoapySDR capture adapter;
 6. exact-sample-count CF32 capture helper;
 7. RF-silence and continuous-carrier analysis;
 8. WSPR-slot planning and bounded three-frame orchestration;
 9. CF32 translation, per-slot WAV generation, and `wsprd` execution;
-10. optional symbol-spacing, drift, and transition analysis;
+10. tone, QRSS, FSKCW, and DFCW reference generation, symbol-spacing, drift,
+    timing, transition, replay, and mock lifecycle analysis;
 11. cleanup supervisor and backend-specific quiescence verification;
-12. immutable evidence bundle and summary generation.
+12. immutable-per-run result bundle and summary generation.
+
+Capability reporting describes only operations supplied by this harness. A
+target backend name in a plan identifies what is being tested; it does not imply
+that the harness implements the target's synthesizer, GPIO controller, kernel
+driver, or application internals.
 
 ## 4. Configuration
 
@@ -141,7 +149,7 @@ The machine-readable final status must be exactly one of:
 Gate outcomes and failure reasons must remain separate fields. Do not flatten
 all unsuccessful runs into `failed`.
 
-## 8. Evidence bundle
+## 8. Result bundle
 
 Each run creates a new, never-reused UTC-and-test-ID directory containing:
 
@@ -149,14 +157,17 @@ Each run creates a new, never-reused UTC-and-test-ID directory containing:
 - tool, OS, package, decoder, SoapySDR, source, and submodule identities;
 - preflight, session, transmitter, capture, decoder, analysis, and cleanup logs;
 - raw IQ or its durable location, byte size, format, sample count, and SHA-256;
-- RF-off/on carrier results and plots;
+- RF-off/on carrier results;
 - per-slot WAV files and complete `wsprd` output;
 - frame/tone/transition results when run;
 - `result.json`; and
 - a SHA-256 manifest covering retained artifacts.
 
-Raw IQ retention is policy-controlled. It may be removed only after required
-derivatives are generated and reviewed; its metadata and hash remain.
+Run directories are operational outputs, not repository content. This harness
+does not retain target qualification evidence in Git. After review, move any
+records that must be preserved to the target project or another approved
+evidence store. Raw-IQ retention is controlled by that store's policy; do not
+commit raw IQ, copied host archives, or target-specific evidence anchors here.
 
 ## 9. External tools
 
@@ -174,7 +185,7 @@ preflight result, never an implicit fallback that changes measurement meaning.
 
 ## 10. Test strategy
 
-Hardware-free validation precedes live work. Provide:
+Hardware-free validation precedes live work. The harness test suite covers:
 
 - schema and profile tests;
 - UTC slot and sample-boundary tests;
@@ -184,8 +195,8 @@ Hardware-free validation precedes live work. Provide:
 - short-read and overflow simulation;
 - cancellation, timeout, child-process, and cleanup-failure injection;
 - golden result and manifest tests; and
-- replay tests using retained historical captures supplied outside Git when
-  they are too large to commit.
+- replay validation against temporary or operator-supplied captures outside
+  the source repository.
 
 CI must cover current macOS, Ubuntu, and Windows runners. Raspberry Pi OS and
 real SDR/transmitter validation remain separately recorded hardware gates.
@@ -201,9 +212,9 @@ records when appropriate. Keep operator-facing support changes in the separate
 Wsprry_Pi_Docs repository. Treat changes across repositories as separate review,
 commit, and push boundaries.
 
-## 12. Completion standard
+## 12. Change acceptance
 
-Do not call the project complete until portable offline workflows and CI pass,
-the capture helper builds on each supported OS, failure injection proves safe
-cleanup behavior, documentation is reviewed, and explicitly authorized live
-tests validate each claimed host/receiver/transmitter combination.
+Accept changes only when applicable portable workflows and CI pass, the capture
+helper builds on each supported OS, failure injection covers cleanup behavior,
+documentation matches the checked-out capabilities, and every hardware claim is
+supported by a separately authorized live test of that exact combination.

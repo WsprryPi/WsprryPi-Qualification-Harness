@@ -8,7 +8,7 @@ replacement for the governing contract or runtime authorization.
 
 When sources disagree, use this order:
 
-1. [`CONTRACT.md`](../CONTRACT.md) defines safety, measurement, evidence, and
+1. [`CONTRACT.md`](../CONTRACT.md) defines safety, measurement, output, and
    classification requirements.
 2. [`AGENTS.md`](../AGENTS.md) defines repository scope and preservation rules.
 3. JSON Schemas under [`schemas/`](../schemas/) define review-time document
@@ -16,12 +16,13 @@ When sources disagree, use this order:
    `src/wsprrypi_qualification/schemas/` are the runtime copies.
 4. The installed CLI help and production source define the commands available
    at the checked-out revision.
-5. Development guides under [`docs/development/`](development/) describe the
-   implemented boundaries and retained actual-host work.
+5. Capability guides under [`docs/development/`](development/) describe the
+   implemented interfaces and operating boundaries.
 6. A run bundle describes only its recorded revision, hardware, settings, RF
    path, and time. Never generalize it to another combination.
 
-Historical files are evidence, not executable operating instructions.
+Target-specific evidence is not kept in this repository. Old logs, copied host
+content, and output bundles are never executable operating instructions.
 
 For task-oriented navigation, begin with
 [`CURRENT_WORKFLOWS.md`](CURRENT_WORKFLOWS.md). Use the checked-out CLI and
@@ -108,7 +109,7 @@ python -m wsprrypi_qualification simulate-qualification RUN_PARENT \
 See [`bounded-simulator.md`](development/bounded-simulator.md) for injection
 cases and bundle validation.
 
-### Offline evidence analysis
+### Offline capture analysis
 
 The maintained offline sequence is:
 
@@ -123,13 +124,12 @@ The maintained offline sequence is:
 The separate hardware-free SDR calibration consumer accepts only the frozen
 native `sdr-calibration-profile` version `1.0.0` contract. Use
 `evaluate-sdr-calibration PROFILE.json APPLICATION.json` to validate and apply
-it without device access. This command is not yet connected to recorded or live
-qualification; see [`sdr-calibration-profile-consumer.md`](development/sdr-calibration-profile-consumer.md).
+it without device access. It is a standalone profile-evaluation capability;
+see [`sdr-calibration-profile-consumer.md`](development/sdr-calibration-profile-consumer.md).
 
 The command synopsis in [`CURRENT_WORKFLOWS.md`](CURRENT_WORKFLOWS.md) provides
-the supported sequence. Detailed acquired-evidence checks are in
-[`bounded-carrier-evidence.md`](development/bounded-carrier-evidence.md) and the
-relevant command's current `--help` output. On macOS, tool discovery includes the
+the supported sequence. Use the relevant command's current `--help` output and
+the carrier-analysis schemas for exact inputs. On macOS, tool discovery includes the
 WSJT-X application bundle; do not claim `wsprd` is absent until discovery has
 checked `/Applications/wsjtx.app/Contents/MacOS/wsprd` as well as `PATH`.
 
@@ -139,7 +139,7 @@ composer and validator described in
 replay measurement remains `inconclusive`: it cannot substitute for runtime
 authorization, live-session, cleanup, or quiescence evidence.
 
-For preserved whole-host evidence and separately acquired keyed repetitions,
+For externally stored whole-host evidence and separately acquired keyed repetitions,
 use the non-qualifying archive inventory and multi-capture validator described
 in [`archive-normalization.md`](development/archive-normalization.md). These
 commands authenticate intake relationships only; they cannot establish a
@@ -162,7 +162,7 @@ preflight result, not permission to correct the host or begin live RF. See
 ### Live split-host WSPR lifecycle
 
 The maintained topology currently uses `wspr4` for WsprryPi transmission and
-`wspr5` for local RSP1B capture, offline analysis, decoding, and evidence
+`wspr5` for local RSP1B capture, offline analysis, decoding, and result
 publication. Read [`live-three-frame.md`](development/live-three-frame.md) and
 the strict [`resolved-real-session-plan.schema.json`](../schemas/resolved-real-session-plan.schema.json)
 before constructing a plan.
@@ -192,7 +192,7 @@ requires three independent complete decodes of the configured identity.
 
 `run-cw-live-tone` is a separate digest-bound production path for an exact
 leading-off, repeated on/off, and closing-off carrier schedule. It never calls
-the WSPR frame or decoder phases. Its resolved plan must use
+the WSPR frame or decoder lifecycle steps. Its resolved plan must use
 `session_kind: cw_live_tone`, `mode: TONE`, zero frames, an exact
 `tone_schedule`, a pinned loopback-only `tone_server` process and configuration,
 and an RF-on capture count equal to the complete schedule at the resolved sample
@@ -219,11 +219,11 @@ WSPR command. A passing carrier result remains carrier-only evidence with final
 status `inconclusive`; it is not WSPR qualification, calibrated power, or
 spectral-compliance evidence.
 
-## Evidence review checklist
+## Result review checklist
 
 Treat a status as trustworthy only when all applicable checks pass:
 
-- the run directory is new and its UTC/test ID agrees with retained documents;
+- the run directory is new and its UTC/test ID agrees with its documents;
 - requested and resolved plans, runtime authorization, tool identities, source
   revisions, host identities, and RF-path facts are retained;
 - `SHA256SUMS` is canonical and covers the exact required artifact set;
@@ -274,12 +274,10 @@ hosted-CI result into a hardware qualification claim.
 - Safety and result meaning: [`CONTRACT.md`](../CONTRACT.md)
 - Task and command routing: [`CURRENT_WORKFLOWS.md`](CURRENT_WORKFLOWS.md)
 - Contributor workflow: [`CONTRIBUTING.md`](../CONTRIBUTING.md)
-- Carrier evidence: [`bounded-carrier-evidence.md`](development/bounded-carrier-evidence.md)
 - Capability adapters: [`real-capability-adapters.md`](development/real-capability-adapters.md)
 - Raspberry Pi helper deployment: [`helper-deployment.md`](development/helper-deployment.md)
 - Receiver lifecycle: [`receiver-integration.md`](development/receiver-integration.md)
 - Transmitter lifecycle: [`transmitter-lifecycle.md`](development/transmitter-lifecycle.md)
-- Bounded carrier evidence: [`bounded-carrier-evidence.md`](development/bounded-carrier-evidence.md)
 - Split-host live sequence: [`live-three-frame.md`](development/live-three-frame.md)
 - Preserved archive intake: [`archive-normalization.md`](development/archive-normalization.md)
 

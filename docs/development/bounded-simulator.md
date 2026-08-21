@@ -35,7 +35,7 @@ enforces the approved overall deadline plus a fixed 0.5-second worker-reaping
 margin, so a blocked carrier, WAV, decoder, or publication stage cannot silently
 run past the bound or promote a completed bundle. Deterministic stage-hang
 injections exercise that outer boundary. The optional
-full-duration mode remains future work and is not run by CI.
+full-duration operation is outside this simulator and is not run by CI.
 
 The decode summary authenticates exactly three consecutive even-UTC slots and
 their WAV and decoder-document hashes. Before atomic promotion, the bundle
@@ -64,5 +64,5 @@ SDR capture, GPIO/I2C behavior, RF safety, transmitter behavior, or hardware
 qualification. A successful simulation is always `inconclusive` with
 `qualification_claim: false`; it never authorizes RF.
 
-The next gates remain separately authorized actual-host checks on `wspr4` and
-`wspr5`, beginning with verification that ongoing work will not be interrupted.
+Actual-host checks on `wspr4` or `wspr5` require separate authorization and
+begin by verifying that ongoing work will not be interrupted.

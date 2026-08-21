@@ -1,4 +1,4 @@
-"""Phase 1 fail-closed contracts for tone and CW-family evidence chains."""
+"""Fail-closed contracts for tone and CW-family document chains."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from wsprrypi_qualification.offline import (
 
 
 class CwContractError(OfflineAnalysisError):
-    """A Phase 1 CW contract chain is malformed, unbound, or contradictory."""
+    """A CW contract chain is malformed, unbound, or contradictory."""
 
 
 def _fail(message: str) -> None:
@@ -436,11 +436,11 @@ def _validate_session(
         if evidence is not None:
             _resolved_reference(evidence, session_path)
     if session["final_status"] != "inconclusive":
-        _fail("Phase 1 final status must remain inconclusive")
+        _fail("hardware-free contract final status must remain inconclusive")
     if session["qualification_claim"]:
-        _fail("Phase 1 contract validation cannot authorize hardware qualification")
+        _fail("contract validation cannot authorize hardware qualification")
     if not session["failure_causes"]:
-        _fail("non-qualifying Phase 1 sessions require a failure cause")
+        _fail("non-qualifying hardware-free sessions require a failure cause")
 
 
 def load_cw_contract_chain(
@@ -450,7 +450,7 @@ def load_cw_contract_chain(
     gate_path: Path,
     session_path: Path,
 ) -> dict[str, Any]:
-    """Load and cross-validate the complete Phase 1 document chain."""
+    """Load and cross-validate the complete CW document chain."""
     plan = load_json_document(plan_path, "cw-mode-plan.schema.json")
     expected = load_json_document(expected_path, "cw-expected-events.schema.json")
     observations = load_json_document(observations_path, "cw-generated-observations.schema.json")

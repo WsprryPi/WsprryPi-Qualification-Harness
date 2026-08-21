@@ -1,4 +1,4 @@
-"""Pure Phase 2 reference encoders for tone and CW-family expected events."""
+"""Pure reference encoders for tone and CW-family expected events."""
 
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ MORSE: dict[str, str] = {
 
 
 class ReferenceEncoderError(OfflineAnalysisError):
-    """A normalized plan cannot produce a supported Phase 2 timeline."""
+    """A normalized plan cannot produce a supported reference timeline."""
 
 
 def _fail(message: str) -> None:

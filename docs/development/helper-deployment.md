@@ -1,4 +1,4 @@
-# Hardware-free Raspberry Pi OS helper deployment preparation
+# Raspberry Pi OS helper deployment validation
 
 This document specifies a deployment procedure; it does not install, enable,
 start, or contact a helper. Actual-host validation remains separate.
@@ -71,9 +71,10 @@ create a new immutable virtual environment, validate it, then atomically select
 the reviewed version. Rollback selects the retained prior environment and its
 matching configuration. Removal first verifies no owned child remains, then
 removes only the explicit unit/configuration/environment/state paths. These
-steps are future operator procedures, not commands executed by this phase.
+steps are operator procedures, not commands executed by the validator.
 
-Future topology: `wspr5` hosts the SDR and `wspr4` can transmit. Before any
+The supported split-host topology can use `wspr5` for the SDR and `wspr4` for
+transmission. Before any
 connection, read-only inspection, service action, SDR opening, or RF, the
 operator must establish that neither host has ongoing work that could be
 interrupted. Uncertainty fails closed.

@@ -551,12 +551,12 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
             raise RealSessionError("WSPR receiver deadline must exceed its coherent capture")
     elif session_kind == "cw_live_tone":
         if document["mode"] != "TONE" or document["frame_count"] != 0:
-            raise RealSessionError("carrier-only Phase 7 requires TONE mode and zero frames")
+            raise RealSessionError("carrier-only live sessions require TONE mode and zero frames")
         schedule = document.get("tone_schedule")
         if not isinstance(schedule, dict):
-            raise RealSessionError("carrier-only Phase 7 requires an exact tone schedule")
+            raise RealSessionError("carrier-only live sessions require an exact tone schedule")
         if not isinstance(document.get("cw_contract"), dict):
-            raise RealSessionError("carrier-only Phase 7 requires a pinned analyzer contract")
+            raise RealSessionError("carrier-only live sessions require a pinned analyzer contract")
         rf_on_seconds = schedule["cycles"] * schedule["on_seconds"]
         if abs(rf_on_seconds - schedule["maximum_rf_on_seconds"]) > 1e-9:
             raise RealSessionError("tone schedule exceeds its resolved RF-on bound")

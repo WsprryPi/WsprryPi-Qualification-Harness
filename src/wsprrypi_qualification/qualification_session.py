@@ -1,4 +1,4 @@
-"""Mock-only Slice 6 composition of reviewed qualification contracts."""
+"""Mock-only composition of reviewed qualification contracts."""
 
 from __future__ import annotations
 
@@ -109,7 +109,7 @@ class RuntimeConfirmation:
 
 @dataclass(frozen=True)
 class OfflineEvidenceSet:
-    """Retained Slice 3 outputs consumed by the Slice 6 coordinator."""
+    """Synthetic analyzer outputs consumed by the mock coordinator."""
 
     carrier_analysis: Path
     audio_conversions: tuple[Path, Path, Path]
@@ -197,7 +197,7 @@ def validate_session_plan(plan: QualificationSessionPlan) -> None:
     except ApplicationPlanError as error:
         raise SessionError(f"application plan is invalid: {error}") from error
     if not plan.mock_only or plan.application.execution_authorized is not False:
-        raise SessionError("Slice 6 preparation accepts mock-only non-authorized plans")
+        raise SessionError("mock preparation accepts only non-authorized plans")
     if plan.application.protocol is not ProtocolMode.WSPR:
         raise SessionError("only WSPR has a prepared qualification workflow")
     if plan.application.backend != plan.test.transmitter.backend.value:
@@ -661,7 +661,7 @@ class QualificationSession:
                 event(SessionPhase.PREFLIGHT, "blocked", injection.value)
             else:
                 if self.plan.offline_evidence is None:
-                    raise SessionError("retained Slice 3 evidence is required")
+                    raise SessionError("synthetic analyzer evidence is required")
                 authenticated_carrier = _load_carrier_evidence(
                     self.plan.offline_evidence, self.plan
                 )

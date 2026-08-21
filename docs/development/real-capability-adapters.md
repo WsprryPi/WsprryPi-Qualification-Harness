@@ -1,15 +1,16 @@
 # Production capability adapters: hardware-free implementation
 
-This phase adds fail-closed production contracts for OpenSSH control, the
+The harness provides fail-closed production contracts for OpenSSH control, the
 native SoapySDR capture helper, WsprryPi child ownership, narrowly scoped
 service restoration, and distinct GPIO and Si5351 quiescence inspection.
 
-No public live command exists. Every external adapter method requires an
+Live coordinators compose these adapters only after their command-specific
+authorization gates pass. Every external adapter method requires an
 ephemeral `RuntimeAuthorization`; transmitter launch additionally requires its
 separate RF authorization bit and a digest of the complete resolved session
-plan. Committed profile fields cannot satisfy either. Capability reporting
-remains read-only and reports live adapters unsupported until a provider and
-separately authorized live validation are configured.
+plan. Committed profile fields cannot satisfy either. Capability reporting is
+read-only and describes the adapter contracts implemented by the harness;
+runtime preflight verifies the selected providers.
 
 `ResolvedCapabilityPlan` binds transport, receiver/transmitter enablement,
 named services, quiescence backend, and the overall deadline. It contains no
@@ -57,15 +58,15 @@ waits for the helper's bounded shutdown cleanup. It does not abruptly kill the
 watchdog; an unverifiable cleanup is reported as failure while the helper keeps
 ownership until its child deadline.
 `SystemctlServiceBackend` is the narrowly scoped Raspberry Pi OS service
-provider; GPIO and Si5351 retain injectable read-only providers because this
-phase does not access either hardware interface.
+provider; GPIO and Si5351 retain injectable read-only providers so capability
+discovery does not access either hardware interface.
 
 The provider protocols and pinned JSON-helper boundary are deliberately small
 so operating-system and hardware implementation stays isolated from the
 portable coordinator. Unsupported or unconfigured helpers must fail preflight;
 they may not be replaced with shell snippets or inferred defaults.
 
-## Validation and next gate
+## Validation
 
 Unit tests inject deterministic providers and cover authorization, paths with
 spaces, SSH outcome classification, exact capture count, overflow rejection,
@@ -73,7 +74,7 @@ output collision, WsprryPi timeout ownership, service restoration, GPIO state,
 and Si5351 identity/output state. Schemas are packaged with the wheel and kept
 byte-identical to review copies.
 
-The next gate is a separately authorized, read-only real-capability preflight.
-It must pause before the first SSH connection, SDR enumeration/open, service
-inspection, GPIO inspection, or I2C transaction. Transmitter launch and RF
-remain later and separately authorized.
+Read-only real-capability preflight requires separate authorization and must
+pause before the first SSH connection, SDR enumeration/open, service inspection,
+GPIO inspection, or I2C transaction. Transmitter launch and RF require their own
+authorization.

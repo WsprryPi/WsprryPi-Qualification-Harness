@@ -1,4 +1,4 @@
-"""Deterministic, hardware-free Phase 3 CW-family IQ generation and analysis."""
+"""Deterministic, hardware-free CW-family IQ generation and analysis."""
 
 from __future__ import annotations
 

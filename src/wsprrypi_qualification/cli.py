@@ -1,4 +1,4 @@
-"""Portable command-line interface through Slice 5."""
+"""Portable command-line interface for qualification-harness capabilities."""
 
 from __future__ import annotations
 
@@ -101,7 +101,7 @@ def _parser() -> argparse.ArgumentParser:
     cw_evidence.add_argument("path", type=Path)
     cw_contract = subparsers.add_parser(
         "validate-cw-contract-chain",
-        help="validate the Phase 1 tone/CW-family evidence contract chain",
+        help="validate the tone/CW-family document chain",
     )
     cw_contract.add_argument("plan", type=Path)
     cw_contract.add_argument("expected_events", type=Path)
@@ -110,14 +110,14 @@ def _parser() -> argparse.ArgumentParser:
     cw_contract.add_argument("session", type=Path)
     cw_reference = subparsers.add_parser(
         "generate-cw-expected-events",
-        help="generate a Phase 2 reference timeline without hardware access",
+        help="generate a reference timeline without hardware access",
     )
     cw_reference.add_argument("plan", type=Path)
     cw_reference.add_argument("output", type=Path)
     cw_reference.add_argument("--source-revision", required=True)
     cw_fixture = subparsers.add_parser(
         "generate-cw-synthetic-iq",
-        help="generate deterministic Phase 3 synthetic CF32LE without hardware",
+        help="generate deterministic synthetic CF32LE without hardware",
     )
     cw_fixture.add_argument("plan", type=Path)
     cw_fixture.add_argument("expected_events", type=Path)
@@ -126,7 +126,7 @@ def _parser() -> argparse.ArgumentParser:
     cw_fixture.add_argument("--seed", type=int, required=True)
     cw_analyzer = subparsers.add_parser(
         "analyze-cw-synthetic-iq",
-        help="analyze Phase 3 synthetic IQ; output can never qualify hardware",
+        help="analyze synthetic IQ; output can never qualify hardware",
     )
     cw_analyzer.add_argument("plan", type=Path)
     cw_analyzer.add_argument("expected_events", type=Path)
@@ -136,7 +136,7 @@ def _parser() -> argparse.ArgumentParser:
     cw_analyzer.add_argument("--source-revision", required=True)
     cw_replay = subparsers.add_parser(
         "compose-cw-acquired-replay",
-        help="compose a Phase 4 acquired-IQ replay bundle; never qualifies hardware",
+        help="compose an acquired-IQ replay bundle; never qualifies hardware",
     )
     cw_replay.add_argument("plan", type=Path)
     cw_replay.add_argument("expected_events", type=Path)
@@ -145,12 +145,12 @@ def _parser() -> argparse.ArgumentParser:
     cw_replay.add_argument("--source-revision", required=True)
     cw_replay_validate = subparsers.add_parser(
         "validate-cw-acquired-replay",
-        help="authenticate and recompute a non-qualifying Phase 4 replay bundle",
+        help="authenticate and recompute a non-qualifying replay bundle",
     )
     cw_replay_validate.add_argument("bundle", type=Path)
     cw_lifecycle = subparsers.add_parser(
         "run-cw-mock-lifecycle",
-        help="run a bounded Phase 5 mock-only lifecycle; never qualifies hardware",
+        help="run a bounded mock-only lifecycle; never qualifies hardware",
     )
     cw_lifecycle.add_argument("plan", type=Path)
     cw_lifecycle.add_argument("expected_events", type=Path)
@@ -160,12 +160,12 @@ def _parser() -> argparse.ArgumentParser:
     cw_lifecycle.add_argument("--injection", choices=tuple(sorted(INJECTIONS)), default="none")
     cw_lifecycle_validate = subparsers.add_parser(
         "validate-cw-mock-lifecycle",
-        help="authenticate Phase 5 mock-only lifecycle evidence",
+        help="authenticate mock-only lifecycle evidence",
     )
     cw_lifecycle_validate.add_argument("path", type=Path)
     host_preflight = subparsers.add_parser(
         "run-cw-actual-host-preflight",
-        help="run the Phase 6 read-only actual-host preflight; never transmits or qualifies",
+        help="run the read-only actual-host preflight; never transmits or qualifies",
     )
     host_preflight.add_argument("plan", type=Path)
     host_preflight.add_argument("output_parent", type=Path)
@@ -176,7 +176,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     host_preflight_validate = subparsers.add_parser(
         "validate-cw-actual-host-preflight",
-        help="authenticate a retained Phase 6 preflight bundle",
+        help="authenticate a read-only host-preflight bundle",
     )
     host_preflight_validate.add_argument("bundle", type=Path)
     deployment = subparsers.add_parser(
