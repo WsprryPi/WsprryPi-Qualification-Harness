@@ -530,7 +530,6 @@ def test_keyed_capture_failure_prevents_process_launch(
             del authorization, cancellation
             if fail_after_ready:
                 Path(str(capture_plan.output_path) + ".incomplete").write_bytes(b"")
-                time.sleep(0.01)
             raise RuntimeError("injected capture failure")
 
     class ForbiddenLauncher:
