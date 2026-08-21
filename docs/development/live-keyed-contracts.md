@@ -1,7 +1,7 @@
 # Live keyed session contracts
 
-`keyed_session_contracts` is the hardware-free contract boundary for future
-live QRSS, FSKCW, and DFCW coordination. It constructs and validates documents;
+`keyed_session_contracts` is the hardware-free contract boundary used by live
+QRSS, FSKCW, and DFCW coordination. It constructs and validates documents;
 it cannot start a process, contact a host, open an SDR, change a service, touch
 GPIO, or enable RF.
 

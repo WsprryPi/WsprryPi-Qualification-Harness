@@ -40,7 +40,7 @@ class Boundary(StrEnum):
 
 
 class KeyedCoordinatorAdapter(Protocol):
-    """Future adapter seam; this coordinator accepts only the sealed fake today."""
+    """Hardware-free adapter seam; this coordinator accepts only the sealed fake."""
 
     def perform(self, boundary: Boundary, transaction_number: int) -> bool: ...
 
@@ -89,18 +89,13 @@ def run_hardware_free_keyed_session(
     if final.parent != parent or temporary.parent != parent or final.exists() or temporary.exists():
         raise KeyedCoordinatorError("unsafe or reused keyed-session destination")
     parent.mkdir(parents=True, exist_ok=True)
-    temporary.mkdir()
     transactions: list[dict[str, Any]] = []
-    try:
-        for number in (1, 2, 3):
-            transaction = _run_transaction(resolved, auth, adapters, number, cancellation)
-            transactions.append(transaction)
-            if transaction["final_outcome"] != "passed":
-                break
-        return publish_keyed_session(resolved, auth, transactions, parent)
-    except Exception:
-        shutil.rmtree(temporary, ignore_errors=True)
-        raise
+    for number in (1, 2, 3):
+        transaction = _run_transaction(resolved, auth, adapters, number, cancellation)
+        transactions.append(transaction)
+        if transaction["final_outcome"] != "passed":
+            break
+    return publish_keyed_session(resolved, auth, transactions, parent)
 
 
 def publish_keyed_session(
@@ -118,10 +113,9 @@ def publish_keyed_session(
     parent = output_parent.resolve()
     final = parent / session_directory
     temporary = parent / f".incomplete-{session_directory}"
-    if final.exists():
+    if final.exists() or temporary.exists():
         raise KeyedCoordinatorError("unsafe or reused keyed-session destination")
-    if not temporary.exists():
-        temporary.mkdir(parents=True)
+    temporary.mkdir(parents=True)
     try:
         aggregate = compose_keyed_aggregate_session(resolved, auth, transactions)
         result = compose_keyed_result(resolved, auth, aggregate)
@@ -150,6 +144,11 @@ def publish_keyed_session(
                     if any(identity[key] != artifact[key] for key in ("size_bytes", "sha256")):
                         raise KeyedCoordinatorError("production keyed artifact identity changed")
                     shutil.copyfile(source, target)
+                    copied_identity = artifact_path_identity(target)
+                    if any(
+                        copied_identity[key] != artifact[key] for key in ("size_bytes", "sha256")
+                    ):
+                        raise KeyedCoordinatorError("copied keyed artifact identity changed")
             write_json_new(
                 temporary / f"transaction-{number}.json",
                 transaction,

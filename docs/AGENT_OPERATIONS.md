@@ -159,7 +159,7 @@ Only the closed mock injection vocabulary is accepted. This does not authorize
 or validate any live adapter, host, service, receiver, transmitter, or RF path.
 
 Use `keyed_session_contracts` for offline construction and semantic validation
-of future live QRSS, FSKCW, or DFCW session documents. Read
+of live QRSS, FSKCW, or DFCW session documents. Read
 [`live-keyed-contracts.md`](development/live-keyed-contracts.md) first. The
 module requires exactly three independent transactions and derives status with
 cleanup/quiescence precedence. Use `keyed_coordinator` only for the sealed

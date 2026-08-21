@@ -210,6 +210,16 @@ def test_adapter_is_sealed_single_injection_and_destination_is_immutable(tmp_pat
         _run(tmp_path, SealedFakeKeyedAdapter())
 
 
+def test_preexisting_incomplete_destination_is_never_reused(tmp_path: Path) -> None:
+    incomplete = tmp_path / ".incomplete-fake-keyed-session"
+    incomplete.mkdir()
+    marker = incomplete / "untrusted.txt"
+    marker.write_text("must remain untouched", encoding="utf-8")
+    with pytest.raises(KeyedCoordinatorError, match="reused"):
+        _run(tmp_path, SealedFakeKeyedAdapter())
+    assert marker.read_text(encoding="utf-8") == "must remain untouched"
+
+
 def test_session_directory_is_portably_safe(tmp_path: Path) -> None:
     plan = _plan(session_id="CON")
     authorization = compose_keyed_runtime_authorization(

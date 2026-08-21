@@ -51,7 +51,7 @@ The harness provides:
 10. tone, QRSS, FSKCW, and DFCW reference generation, symbol-spacing, drift,
     timing, transition, replay, and mock lifecycle analysis;
 11. offline resolved-plan, authorization, three-transaction, aggregate, result,
-    and artifact-index contracts for future live QRSS, FSKCW, and DFCW coordination;
+    and artifact-index contracts for live QRSS, FSKCW, and DFCW coordination;
 12. sealed hardware-free QRSS, FSKCW, and DFCW coordinator rehearsal through a
     deterministic fake adapter with lifecycle failure and cancellation injection;
 13. digest-authorized live QRSS, FSKCW, and DFCW coordination through the
@@ -68,8 +68,8 @@ three passing transactions; cleanup or quiescence failure has precedence over
 measurement success.
 
 The separate production live-keyed coordinator uses that contract and binds the
-application-shim argv, executable
-identity, parent and component target revisions, receiver identity and settings,
+application-shim argv, executable identity, parent and component target
+revisions, receiver identity and settings,
 RF path, analyzer revision, external capability artifacts, and named services.
 The public command requires both live/RF enable flags, a non-empty operator, and
 an exact typed digest confirmation before production adapters are constructed.

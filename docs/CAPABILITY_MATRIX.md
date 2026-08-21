@@ -5,23 +5,20 @@ each capability governed by `CONTRACT.md`. It is a navigation index, not test
 evidence or a project roadmap. Confirm command syntax with the checked-out CLI
 `--help` before use.
 
-| Contract area | Capability entry points | Principal schemas | Verification breadcrumbs |
+| Contract clause | Capability entry points | Principal schemas | Verification breadcrumbs |
 |---|---|---|---|
-| Purpose and platform | `cli.py`, `capabilities.py`, `tool_discovery.py` | profile and capability schemas | `test_cli.py`, `test_capabilities.py`, CI workflows |
-| Profiles and plans | `profiles.py`, `application_shims.py`, `real_session.py` | bench, test, receiver-run, application-plan, resolved-session | `test_profiles.py`, `test_application_shims.py`, `test_real_session.py` |
-| Local and SSH execution | `transports.py`, `remote_exec.py`, `real_capabilities.py` | SSH and process capability schemas | `test_real_capabilities.py`, `test_live_adapters.py` |
-| Helper boundary | `capability_helper.py`, `deployment.py` | helper request/response/configuration and deployment schemas | `test_capability_helper.py`, `test_deployment.py` |
-| Exact-count capture | `native/src/capture.cpp`, `capture_metadata.py`, `live_adapters.py` | capture metadata and receiver lifecycle schemas | native CTest, `test_capture_metadata.py`, `test_receiver_integration.py` |
-| Carrier analysis and plotting | `carrier.py`, `carrier_plot.py`; `analyze-carrier --plot` | carrier-analysis, including optional plot binding | `test_carrier.py`, `test_acquired_offline.py` |
-| WSPR timing and decode | `timing.py`, `audio.py`, `decoder.py` | audio, decoder, and decode-summary schemas | `test_timing.py`, `test_audio.py`, `test_decoder.py` |
-| Tone and keyed-mode analysis | `cw_reference.py`, `cw_iq.py`, `cw_replay.py`, `cw_qualification.py` | CW plan, expected-event, observation, gate, replay, and qualification schemas | `test_cw_reference.py`, `test_cw_contracts.py`, `test_cw_qualification.py` |
-| Live keyed contracts (offline only) | `keyed_session_contracts.py` | resolved keyed plan, runtime authorization, transaction, aggregate, result, artifact index | `test_keyed_session_contracts.py`, `test_schemas.py` |
-| Hardware-free keyed coordination | `keyed_coordinator.py` | sealed fake adapter, independent modeled transactions, early stop, mandatory cleanup/quiescence, immutable bundle | `test_keyed_coordinator.py` |
-| Live keyed coordination | `live_keyed.py`, keyed providers in `live_adapters.py`; `run-cw-live-keyed` | digest-bound application, target, receiver, RF path, analyzer, helper, capture, service, and quiescence identities | `test_live_keyed.py`, `test_live_adapters.py` |
-| Supervision and cleanup | `supervisor.py`, `real_session.py`, `receiver_integration.py`, `transmitter_lifecycle.py` | session, result, cleanup, quiescence, and lifecycle schemas | supervisor, real-session, receiver, and transmitter lifecycle tests |
-| Live WSPR and TONE | `real_session.py`, `live_adapters.py`, `bounded_tone_control.py` | resolved real-session, runtime authorization, real-session result | `test_real_session.py`, `test_live_adapters.py`, `test_bounded_tone_control.py` |
-| Result classification | `classification.py`, `results.py`, `manifests.py` | result and artifact-index schemas | `test_classification.py`, `test_results.py`, `test_manifests.py` |
-| Repository boundary | `.gitignore`, packaging configuration, package-asset tests | packaged schemas mirror review schemas | `test_packaging_assets.py`, `test_schemas.py`, `test_requirements.py` |
+| 1. Purpose and capabilities | `cli.py`, `capabilities.py`, application, capture, analysis, decode, coordinator, and result modules | capability-specific schemas listed below | `test_cli.py`, `test_capabilities.py`, capability-specific suites |
+| 2. Supported control hosts | portable Python core; `transports.py`; CMake native helper | transport, SSH, process, and capture capability schemas | macOS/Ubuntu/native-Windows CI matrix; native CTest; `test_paths.py` |
+| 3. Harness capabilities | `application_shims.py`, `carrier.py`, `carrier_plot.py`, `audio.py`, `decoder.py`, `cw_*`, `keyed_*`, `live_keyed.py` | application-plan, carrier-analysis, audio, decoder, CW, keyed plan/authorization/transaction/aggregate/result/index | application, carrier, decoder, CW, keyed contract/coordinator/live tests |
+| 4. Configuration | `profiles.py`, `application_shims.py`, `real_session.py`, `sdr_calibration.py` | bench, test, receiver-run, application-plan, resolved-session, calibration profile/request | `test_profiles.py`, `test_application_shims.py`, `test_real_session.py`, `test_sdr_calibration.py` |
+| 5. Safety invariants | `supervisor.py`, `real_session.py`, `receiver_integration.py`, `transmitter_lifecycle.py`, `live_adapters.py`, `live_keyed.py` | runtime authorization, lifecycle/session, helper, service, process, capture, cleanup, quiescence | supervisor, real-session, receiver, transmitter, live-adapter, and live-keyed failure-injection tests |
+| 6. Measurement contract | `capture_metadata.py`, native capture helper, `carrier.py`, `audio.py`, `decoder.py`, `qualification_session.py` | capture metadata, carrier analysis, audio conversion, decoder evidence, decode summary, qualification session | native CTest; capture, carrier, acquired-offline, audio, decoder, and qualification tests |
+| 7. Result states | `classification.py`, `results.py`, `real_session.py`, `keyed_session_contracts.py` | result, simulator result, real qualification session, keyed aggregate/result | classification, results, real-session, and keyed precedence tests |
+| 8. Result bundle | `manifests.py`, `results.py`, replay/coordinator publishers | artifact-index, replay, simulator, receiver, keyed, and session schemas | manifest, result, replay, coordinator, tampering, and immutable-destination tests |
+| 9. External tools | `tool_discovery.py`, `transports.py`, `remote_exec.py`, `real_capabilities.py`, `live_adapters.py` | SSH/transport/process/Soapy/helper capability schemas | tool-discovery, real-capability, deployment, and live-adapter tests |
+| 10. Test strategy | hardware-free fixtures, sealed fakes, failure injection, native mock helper | all review-facing schemas | complete pytest suite, package build, native build/CTest, CI workflow |
+| 11. Repository boundaries | `.gitignore`, packaging configuration, archive intake | archive inventory and non-qualifying multi-capture schemas | archive, packaging-asset, schema-parity, and requirements tests |
+| 12. Change acceptance | checked-out docs and CLI; CI workflow | every `schemas/*.schema.json` byte-matched to its packaged copy | Ruff, Mypy, all pytest, sdist/wheel, CMake/CTest, macOS/Ubuntu/native-Windows CI |
 
 Generated IQ, WAV, logs, manifests, and result directories are operational
 outputs. Keep selected target records with the target project or another

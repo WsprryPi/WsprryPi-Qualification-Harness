@@ -313,6 +313,16 @@ def test_artifact_roles_cannot_be_reused_within_a_transaction() -> None:
         validate_keyed_transaction(resolved, auth, item)
 
 
+@pytest.mark.parametrize("unsafe_path", ("../outside.json", r"C:\outside.json", "/outside.json"))
+def test_transaction_artifact_paths_must_be_portably_safe(unsafe_path: str) -> None:
+    resolved = plan()
+    auth = authorization(resolved)
+    item = transaction(resolved, auth, 1)
+    item["artifacts"][0]["path"] = unsafe_path  # type: ignore[index]
+    with pytest.raises(KeyedSessionContractError, match="safe and relative"):
+        validate_keyed_transaction(resolved, auth, item)
+
+
 @pytest.mark.parametrize(
     ("mutation", "expected"),
     (

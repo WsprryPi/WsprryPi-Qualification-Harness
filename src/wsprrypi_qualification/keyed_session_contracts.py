@@ -196,6 +196,8 @@ def validate_keyed_transaction(
     artifact_roles = [item["role"] for item in transaction["artifacts"]]
     if len(artifact_roles) != len(set(artifact_roles)):
         _fail("keyed transaction reuses an artifact role")
+    for item in transaction["artifacts"]:
+        _validate_safe_relative_path(item["path"], "keyed transaction artifact")
     return deepcopy(transaction)
 
 
@@ -385,17 +387,21 @@ def validate_keyed_artifact_index(plan: dict[str, Any], index: dict[str, Any]) -
         if len(values) != len(set(values)):
             _fail(f"keyed artifact index reuses artifact {field}")
     for item in index["artifacts"]:
-        posix = PurePosixPath(item["path"])
-        windows = PureWindowsPath(item["path"])
-        if (
-            posix.is_absolute()
-            or windows.is_absolute()
-            or ".." in posix.parts
-            or ".." in windows.parts
-            or not posix.parts
-        ):
-            _fail("keyed artifact index paths must be safe and relative")
+        _validate_safe_relative_path(item["path"], "keyed artifact index")
     return deepcopy(index)
+
+
+def _validate_safe_relative_path(value: str, context: str) -> None:
+    posix = PurePosixPath(value)
+    windows = PureWindowsPath(value)
+    if (
+        posix.is_absolute()
+        or windows.is_absolute()
+        or ".." in posix.parts
+        or ".." in windows.parts
+        or not posix.parts
+    ):
+        _fail(f"{context} paths must be safe and relative")
 
 
 def _fail(message: str) -> NoReturn:
