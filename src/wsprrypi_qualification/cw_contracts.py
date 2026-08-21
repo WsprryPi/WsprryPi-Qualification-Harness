@@ -234,6 +234,42 @@ def _validate_observations(
         _fail("analysis failure causes contradict the analysis outcome")
     shifted_model = observations.get("measurement_summary", {}).get("shifted_frequency_model")
     unshifted_model = observations.get("measurement_summary", {}).get("unshifted_frequency_model")
+    timing_alignment = observations.get("measurement_summary", {}).get("timing_alignment")
+    if capture["synthetic"] or plan["mode"] != "tone":
+        if timing_alignment is not None:
+            _fail("timing alignment is restricted to acquired tone evidence")
+    elif timing_alignment is None:
+        if derived == "passed":
+            _fail("passing acquired tone observations require bounded timing alignment")
+    else:
+        boundary_offsets: list[float] = []
+        for event, item in zip(expected["events"], measured, strict=True):
+            if event["rf_state"] == "off":
+                continue
+            start = item["measured_start_s"]
+            end = item["measured_end_s"]
+            if start is None or end is None:
+                _fail("timing alignment requires every active event boundary")
+            boundary_offsets.extend(
+                (
+                    float(start) - float(event["start_s"]),
+                    float(end) - float(event["end_s"]),
+                )
+            )
+        common_shift = float(np.median(np.asarray(boundary_offsets)))
+        maximum_residual = max(abs(value - common_shift) for value in boundary_offsets)
+        maximum_shift = float(thresholds["maximum_transition_s"]) + float(
+            thresholds["timing_tolerance_s"]
+        )
+        if (
+            abs(float(timing_alignment["common_shift_s"]) - common_shift) > 1e-6
+            or abs(float(timing_alignment["maximum_boundary_residual_s"]) - maximum_residual) > 1e-6
+            or float(timing_alignment["maximum_shift_s"]) != maximum_shift
+            or timing_alignment["observation_count"] != len(boundary_offsets)
+            or abs(common_shift) > maximum_shift
+            or maximum_residual > float(thresholds["timing_tolerance_s"])
+        ):
+            _fail("timing alignment contradicts measured active-event boundaries")
     if plan["mode"] in {"fskcw", "dfcw"} and unshifted_model is not None:
         _fail("shifted modes cannot contain an unshifted-frequency model")
     if plan["mode"] not in {"fskcw", "dfcw"}:

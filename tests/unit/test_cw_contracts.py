@@ -10,6 +10,7 @@ from wsprrypi_qualification.cli import main
 from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contract_chain
 from wsprrypi_qualification.cw_iq import (
     CwIqError,
+    _acquired_tone_timing_alignment,
     _shifted_frequency_model,
     _unshifted_frequency_model,
     analyze_synthetic_iq,
@@ -476,8 +477,8 @@ def test_phase4_detects_iq_shifted_event_boundaries(tmp_path: Path) -> None:
     metadata_document = json.loads(metadata.read_text(encoding="utf-8"))
     capture = source / metadata_document["capture"]["path"]
     samples = np.fromfile(capture, dtype="<c8")
-    shifted = np.roll(samples, 20)
-    shifted[:20] = 0
+    shifted = np.roll(samples, 31)
+    shifted[:31] = 0
     shifted.astype("<c8").tofile(capture)
     metadata_document["capture"] = _artifact(capture)
     _write(metadata, metadata_document)
@@ -494,6 +495,27 @@ def test_phase4_detects_iq_shifted_event_boundaries(tmp_path: Path) -> None:
         )
         if measured["measured_start_s"] is not None
     )
+
+
+def test_phase4_aligns_one_bounded_common_acquired_tone_latency(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, "tone")
+    metadata_document = json.loads(metadata.read_text(encoding="utf-8"))
+    capture = source / metadata_document["capture"]["path"]
+    samples = np.fromfile(capture, dtype="<c8")
+    shifted = np.roll(samples, 22)
+    shifted[:22] = 0
+    shifted.astype("<c8").tofile(capture)
+    metadata_document["capture"] = _artifact(capture)
+    _write(metadata, metadata_document)
+    bundle = tmp_path / "bundle"
+    result = compose_acquired_replay(plan, expected, metadata, bundle, source_revision="e" * 40)
+    observations = json.loads((bundle / "observations.json").read_text(encoding="utf-8"))
+    alignment = observations["measurement_summary"]["timing_alignment"]
+    assert result["measurement"]["carrier_gate"] == "passed"
+    assert alignment["common_shift_s"] == pytest.approx(0.22, abs=0.02)
+    assert observations["failure_causes"] == []
 
 
 def test_phase4_cli_composes_and_validates_non_qualifying_replay(
@@ -717,6 +739,61 @@ def test_unshifted_frequency_model_uses_bounded_relative_centering(
         assert causes == []
     else:
         assert expected_cause in causes
+
+
+def _tone_detected_states(
+    tmp_path: Path, *, shift_s: float, inconsistent_s: float = 0.0, extra: bool = False
+) -> tuple[dict, dict, np.ndarray, float]:
+    plan_path, expected_path, *_ = _chain(tmp_path, "tone")
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    expected = json.loads(expected_path.read_text(encoding="utf-8"))
+    rate = float(plan["capture_contract"]["sample_rate_hz"])
+    count = int(plan["capture_contract"]["sample_count"])
+    states = np.zeros(count, dtype=np.int8)
+    active_index = 0
+    for event in expected["events"]:
+        if event["rf_state"] == "off":
+            continue
+        event_shift = shift_s + (inconsistent_s if active_index == 1 else 0.0)
+        start = round((float(event["start_s"]) + event_shift) * rate)
+        end = round((float(event["end_s"]) + event_shift) * rate)
+        states[start:end] = 1
+        active_index += 1
+    if extra:
+        states[0 : round(1.85 * rate)] = 1
+    return plan, expected, states, rate
+
+
+def test_acquired_tone_timing_alignment_accepts_only_one_bounded_common_shift(
+    tmp_path: Path,
+) -> None:
+    plan, expected, states, rate = _tone_detected_states(tmp_path, shift_s=0.22)
+    model = _acquired_tone_timing_alignment(plan, expected, states, rate)
+    assert model is not None
+    assert model["common_shift_s"] == pytest.approx(0.22)
+    assert model["maximum_boundary_residual_s"] == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["excessive_shift", "inconsistent_latency", "extra_tone", "missing_tone", "interruption"],
+)
+def test_acquired_tone_timing_alignment_fails_closed(case: str, tmp_path: Path) -> None:
+    plan, expected, states, rate = _tone_detected_states(
+        tmp_path,
+        shift_s=0.31 if case == "excessive_shift" else 0.15,
+        inconsistent_s=0.11 if case == "inconsistent_latency" else 0.0,
+        extra=case == "extra_tone",
+    )
+    if case == "missing_tone":
+        active = np.flatnonzero(states)
+        split = np.flatnonzero(np.diff(active) > 1)
+        start = active[split[0] + 1]
+        end_index = split[1] + 1 if len(split) > 1 else len(active)
+        states[start : active[end_index - 1] + 1] = 0
+    if case == "interruption":
+        states[round(3.55 * rate) : round(3.85 * rate)] = 0
+    assert _acquired_tone_timing_alignment(plan, expected, states, rate) is None
 
 
 def test_phase3_shifted_iq_with_bounded_common_drift_passes(tmp_path: Path) -> None:

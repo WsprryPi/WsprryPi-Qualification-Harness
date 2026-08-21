@@ -19,7 +19,7 @@ from wsprrypi_qualification.offline import (
 )
 
 ANALYZER_NAME = "wsprrypi-qualification-cw-iq"
-ANALYZER_VERSION = "3"
+ANALYZER_VERSION = "4"
 RELATIVE_ACQUISITION_OFFSET_GATE_HZ = 500.0
 
 
@@ -224,6 +224,59 @@ def _unshifted_frequency_model(
     }, sorted(set(causes))
 
 
+def _acquired_tone_timing_alignment(
+    plan: dict[str, Any],
+    expected: dict[str, Any],
+    detected_states: np.ndarray,
+    rate: float,
+) -> dict[str, float | int] | None:
+    """Resolve one bounded common helper latency without relaxing cadence checks."""
+    if plan["mode"] != "tone":
+        return None
+    thresholds = plan["thresholds"]
+    tolerance = float(thresholds["timing_tolerance_s"])
+    maximum_shift = float(thresholds["maximum_transition_s"]) + tolerance
+    expected_active = [event for event in expected["events"] if event["rf_state"] != "off"]
+    minimum_duration = min(
+        float(event["end_s"]) - float(event["start_s"]) for event in expected_active
+    ) - (2.0 * tolerance)
+    if minimum_duration <= 0:
+        return None
+    active = detected_states != 0
+    runs: list[tuple[int, int]] = []
+    cursor = 0
+    while cursor < active.size:
+        if not active[cursor]:
+            cursor += 1
+            continue
+        end = cursor + 1
+        while end < active.size and active[end]:
+            end += 1
+        if (end - cursor) / rate >= minimum_duration:
+            runs.append((cursor, end))
+        cursor = end
+    if len(runs) != len(expected_active):
+        return None
+    boundary_offsets: list[float] = []
+    for event, (start, end) in zip(expected_active, runs, strict=True):
+        boundary_offsets.extend(
+            (
+                (start / rate) - float(event["start_s"]),
+                (end / rate) - float(event["end_s"]),
+            )
+        )
+    common_shift = float(np.median(np.asarray(boundary_offsets)))
+    maximum_residual = max(abs(value - common_shift) for value in boundary_offsets)
+    if abs(common_shift) > maximum_shift or maximum_residual > tolerance:
+        return None
+    return {
+        "common_shift_s": common_shift,
+        "maximum_shift_s": maximum_shift,
+        "maximum_boundary_residual_s": maximum_residual,
+        "observation_count": len(boundary_offsets),
+    }
+
+
 def analyze_synthetic_iq(
     plan_path: Path,
     expected_path: Path,
@@ -318,10 +371,22 @@ def analyze_synthetic_iq(
         )
         detected_states[1:][active[1:] & secondary_samples] = 2
 
+    timing_alignment = (
+        _acquired_tone_timing_alignment(plan, expected, detected_states, rate)
+        if not _synthetic
+        else None
+    )
+    common_shift_s = (
+        float(timing_alignment["common_shift_s"]) if timing_alignment is not None else 0.0
+    )
+
+    def aligned_time(value: float) -> float:
+        return value + common_shift_s
+
     def measured_run(event: dict[str, Any]) -> tuple[int, int] | None:
         target = {"off": 0, "primary": 1, "secondary": 2}[event["rf_state"]]
-        expected_start = round(float(event["start_s"]) * rate)
-        expected_end = min(count, round(float(event["end_s"]) * rate))
+        expected_start = round(aligned_time(float(event["start_s"])) * rate)
+        expected_end = min(count, round(aligned_time(float(event["end_s"])) * rate))
         margin = max(smoothing_samples, round(float(thresholds["timing_tolerance_s"]) * rate) + 1)
         search_start = max(0, expected_start - margin)
         search_end = min(count, expected_end + margin)
@@ -370,8 +435,8 @@ def analyze_synthetic_iq(
         frequency: float | None = None
         continuous: bool | None = None
         outcome = "passed"
-        expected_start = round(float(event["start_s"]) * rate)
-        expected_end = min(count, round(float(event["end_s"]) * rate))
+        expected_start = max(0, round(aligned_time(float(event["start_s"])) * rate))
+        expected_end = min(count, round(aligned_time(float(event["end_s"])) * rate))
         expected_segment = samples[expected_start:expected_end]
         if not blocked and state != "off" and expected_segment.size >= 4:
             frequency = _estimate_frequency(expected_segment, rate, center)
@@ -404,8 +469,22 @@ def analyze_synthetic_iq(
             outcome = "failed"
             causes.append("missing_carrier" if state != "off" else "false_silence")
         elif max(
-            abs(start / rate - float(event["start_s"])),
-            abs(end / rate - float(event["end_s"])),
+            abs(
+                start / rate
+                - (
+                    float(event["start_s"])
+                    if event_position == 0
+                    else aligned_time(float(event["start_s"]))
+                )
+            ),
+            abs(
+                end / rate
+                - (
+                    float(event["end_s"])
+                    if event_position == len(expected["events"]) - 1
+                    else min(count / rate, aligned_time(float(event["end_s"])))
+                ),
+            ),
         ) > float(thresholds["timing_tolerance_s"]):
             outcome = "failed"
             causes.append("timing_error")
@@ -553,6 +632,7 @@ def analyze_synthetic_iq(
             ],
             "shifted_frequency_model": shifted_model,
             "unshifted_frequency_model": unshifted_model,
+            "timing_alignment": timing_alignment,
             "qualification_claim": False,
         },
         "analysis_outcome": analysis_outcome,
