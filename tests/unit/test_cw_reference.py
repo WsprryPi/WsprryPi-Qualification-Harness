@@ -6,15 +6,61 @@ from pathlib import Path
 import pytest
 
 from wsprrypi_qualification.cli import main
+from wsprrypi_qualification.cw_defaults import hardware_free_keyed_protocol
 from wsprrypi_qualification.cw_reference import (
     ReferenceEncoderError,
     generate_expected_events,
 )
 
 
-def _plan(mode: str, *, message: str = "A B") -> dict:
+def _plan(mode: str, *, message: str | None = None, repetitions: int | None = None) -> dict:
     tone = mode == "tone"
-    shifted = mode in {"fskcw", "dfcw"}
+    resolved_repetitions = 3 if mode == "cw" and repetitions is None else repetitions or 1
+    protocol = (
+        {
+            "definition": "wspq-tone@v1",
+            "message": None,
+            "dot_seconds": None,
+            "repetitions": None,
+            "primary_frequency_hz": 14_000_100,
+            "secondary_frequency_hz": None,
+            "pre_quiet_seconds": None,
+            "post_quiet_seconds": None,
+            "intra_element_gap_units": None,
+            "inter_character_gap_units": None,
+            "inter_word_gap_units": None,
+            "tone_cycles": 3,
+            "tone_on_seconds": 2,
+            "tone_off_seconds": 1,
+        }
+        if tone
+        else {
+            "definition": "wspq-cw@v1",
+            "message": "A B" if message is None else message,
+            "dot_seconds": 2,
+            "repetitions": resolved_repetitions,
+            "primary_frequency_hz": 14_000_100,
+            "secondary_frequency_hz": None,
+            "pre_quiet_seconds": 2,
+            "post_quiet_seconds": 3,
+            "intra_element_gap_units": 1,
+            "inter_character_gap_units": 3,
+            "inter_word_gap_units": 7,
+            "tone_cycles": None,
+            "tone_on_seconds": None,
+            "tone_off_seconds": None,
+        }
+        if mode == "cw"
+        else hardware_free_keyed_protocol(
+            mode,
+            primary_frequency_hz=14_000_100,
+            pre_quiet_seconds=2,
+            post_quiet_seconds=3,
+            **({} if message is None else {"message": message}),
+        )
+    )
+    if not tone:
+        protocol["repetitions"] = resolved_repetitions
     return {
         "schema_version": 1,
         "evidence_type": "resolved_cw_mode_plan",
@@ -40,22 +86,7 @@ def _plan(mode: str, *, message: str = "A B") -> dict:
             "antenna_state": "disconnected",
             "safe_input_basis": "synthetic",
         },
-        "protocol": {
-            "definition": "wsprrypi-dfcw@v1" if mode == "dfcw" else f"wspq-{mode}@v1",
-            "message": None if tone else message,
-            "dot_seconds": None if tone else 2,
-            "repetitions": None if tone else 3,
-            "primary_frequency_hz": 14_000_100,
-            "secondary_frequency_hz": 14_000_080 if shifted else None,
-            "pre_quiet_seconds": None if tone else 2,
-            "post_quiet_seconds": None if tone else 3,
-            "intra_element_gap_units": None if tone else 0.333333 if mode == "dfcw" else 1,
-            "inter_character_gap_units": None if tone else 1 if mode == "dfcw" else 3,
-            "inter_word_gap_units": None if tone else 3 if mode == "dfcw" else 7,
-            "tone_cycles": 3 if tone else None,
-            "tone_on_seconds": 2 if tone else None,
-            "tone_off_seconds": 1 if tone else None,
-        },
+        "protocol": protocol,
         "capture_contract": {
             "format": "CF32LE",
             "sample_rate_hz": 1000,
@@ -94,7 +125,7 @@ def test_tone_golden_alternates_three_cycles_from_and_to_quiet() -> None:
 
 @pytest.mark.parametrize("mode", ["cw", "qrss"])
 def test_on_off_morse_golden_has_traceable_repetitions(mode: str) -> None:
-    events = generate_expected_events(_plan(mode, message=" e\tT "))
+    events = generate_expected_events(_plan(mode, message=" e\tT ", repetitions=3))
     assert events[0]["role"] == events[-1]["role"] == "quiet"
     keyed = [event for event in events if event["role"] in {"dot", "dash"}]
     assert [
@@ -121,7 +152,9 @@ def test_fskcw_uses_mark_for_elements_and_continuous_space_for_gaps() -> None:
 
 
 def test_dfcw_v1_uses_equal_symbol_durations_two_tones_and_compressed_off_gap() -> None:
-    events = generate_expected_events(_plan("dfcw", message="A"))
+    plan = _plan("dfcw", message="A")
+    plan["protocol"]["dot_seconds"] = 2
+    events = generate_expected_events(plan)
     first_dot, gap, dash = events[1:4]
     assert (
         first_dot["symbol"],

@@ -21,23 +21,23 @@ def write_wav(path: Path) -> None:
 
 
 def test_parse_preserves_line_and_exact_identity(tmp_path: Path) -> None:
-    line = "0128 -18 -0.8   0.001500  0  AA0NT EM18 20 "
+    line = "0128 -18 -0.8   0.001500  0  Q0QQQ JJ00 0 "
     decoded = parse_wsprd_output("diagnostic\n" + line + "\n")
     assert decoded[0]["line_number"] == 2
     assert decoded[0]["raw"] == line
-    assert decoded[0]["callsign"] == "AA0NT"
+    assert decoded[0]["callsign"] == "Q0QQQ"
 
 
 def test_parse_accepts_token_from_canonical_iso_wav_name() -> None:
-    decoded = parse_wsprd_output("200Z -26 0.4 0.001402 0 AA0NT EM18 20\n")
+    decoded = parse_wsprd_output("200Z -26 0.4 0.001402 0 Q0QQQ JJ00 0\n")
     assert decoded[0]["decoder_time_token"] == "200Z"
-    assert decoded[0]["callsign"] == "AA0NT"
+    assert decoded[0]["callsign"] == "Q0QQQ"
 
 
 def test_decoder_time_token_is_opaque_and_never_authenticates_slot() -> None:
-    identity = WsprIdentity("AA0NT", "EM18", 20)
+    identity = WsprIdentity("Q0QQQ", "JJ00", 0)
     for token in ("200Z", "999Z", "000Z"):
-        decoded = parse_wsprd_output(f"{token} -26 0.4 0.001500 0 AA0NT EM18 20\n")
+        decoded = parse_wsprd_output(f"{token} -26 0.4 0.001500 0 Q0QQQ JJ00 0\n")
         assert decoded[0]["decoder_time_token"] == token
         assert decoder_module._classify_expected_decodes(
             decoded,
@@ -55,11 +55,11 @@ def test_fake_wsprd_success_wrong_identity_and_complete_logs(tmp_path: Path) -> 
     good_script.write_text(
         "import sys\n"
         "print('diagnostic retained')\n"
-        "print('0128 -18 -0.8 0.001500 0 AA0NT EM18 20')\n"
+        "print('0128 -18 -0.8 0.001500 0 Q0QQQ JJ00 0')\n"
         "print('warning retained', file=sys.stderr)\n",
         encoding="utf-8",
     )
-    identity = WsprIdentity("AA0NT", "EM18", 20)
+    identity = WsprIdentity("Q0QQQ", "JJ00", 0)
     good = run_wsprd(
         wav,
         tmp_path / "good.json",
@@ -84,7 +84,7 @@ def test_fake_wsprd_success_wrong_identity_and_complete_logs(tmp_path: Path) -> 
     wrong = run_wsprd(
         wav,
         tmp_path / "wrong.json",
-        WsprIdentity("N0CALL", "EM18", 20),
+        WsprIdentity("N0CALL", "JJ00", 0),
         executable=Path(sys.executable),
         extra_arguments=(str(good_script),),
     )
@@ -101,7 +101,7 @@ def test_fake_wsprd_nonzero_and_timeout_are_blocked(tmp_path: Path) -> None:
     write_wav(wav)
     failing = tmp_path / "fail.py"
     failing.write_text("import sys\nprint('kept failure')\nsys.exit(7)\n", encoding="utf-8")
-    identity = WsprIdentity("AA0NT", "EM18", 20)
+    identity = WsprIdentity("Q0QQQ", "JJ00", 0)
     result = run_wsprd(
         wav,
         tmp_path / "failure.json",
@@ -138,7 +138,7 @@ def test_decoder_preflights_all_destinations_before_execution(tmp_path: Path) ->
         run_wsprd(
             wav,
             evidence,
-            WsprIdentity("AA0NT", "EM18", 20),
+            WsprIdentity("Q0QQQ", "JJ00", 0),
             executable=Path(sys.executable),
             extra_arguments=(str(script),),
         )
@@ -150,7 +150,7 @@ def test_decoder_rolls_back_directory_on_launch_and_publication_failures(
 ) -> None:
     wav = tmp_path / "slot.wav"
     write_wav(wav)
-    identity = WsprIdentity("AA0NT", "EM18", 20)
+    identity = WsprIdentity("Q0QQQ", "JJ00", 0)
 
     def version_then_launch_error(arguments, **_kwargs):
         if arguments[-1] == "--version":
@@ -343,7 +343,7 @@ def test_decoder_rejects_malformed_wav_before_directory_creation(tmp_path: Path)
         run_wsprd(
             wav,
             tmp_path / "bad.json",
-            WsprIdentity("AA0NT", "EM18", 20),
+            WsprIdentity("Q0QQQ", "JJ00", 0),
             executable=Path(sys.executable),
             data_directory=data,
         )
@@ -353,7 +353,7 @@ def test_decoder_rejects_malformed_wav_before_directory_creation(tmp_path: Path)
 def test_decoder_rejects_invalid_slots_before_directory_creation(tmp_path: Path) -> None:
     wav = tmp_path / "slot.wav"
     write_wav(wav)
-    identity = WsprIdentity("AA0NT", "EM18", 20)
+    identity = WsprIdentity("Q0QQQ", "JJ00", 0)
     naive_data = tmp_path / "naive-data"
     with pytest.raises(OfflineAnalysisError, match="UTC slot is invalid"):
         run_wsprd(

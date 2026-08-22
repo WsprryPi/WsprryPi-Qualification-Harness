@@ -337,7 +337,7 @@ def test_acquired_audio_uses_capture_utc_and_canonical_name(
                 stdout = (
                     "fake version\n"
                     if arguments[-1] == "--version"
-                    else "1202 -18 -0.8 0.002000 0 AA0NT EM18 20\n"
+                    else "1202 -18 -0.8 0.002000 0 Q0QQQ JJ00 0\n"
                 )
                 return subprocess.CompletedProcess(arguments, 0, stdout, "")
 

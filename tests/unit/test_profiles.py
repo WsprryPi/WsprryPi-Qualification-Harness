@@ -115,7 +115,9 @@ def test_receiver_run_conducted_invariants(tmp_path: Path, field: str, value: ob
 def test_valid_test_profile() -> None:
     profile = load_test_profile(ROOT / "examples" / "test-si5351-160m.json")
     assert profile.transmitter.backend is Backend.SI5351
-    assert profile.identity.callsign == "AA0NT"
+    assert profile.identity.callsign == "Q0QQQ"
+    assert profile.identity.grid == "JJ00"
+    assert profile.identity.power_dbm == 0
     assert "quiescence" in profile.stopping_procedure.cleanup_expectation.lower()
 
 

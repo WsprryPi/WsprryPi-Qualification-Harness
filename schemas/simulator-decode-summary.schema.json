@@ -73,13 +73,13 @@
             ],
             "properties": {
               "callsign": {
-                "const": "AA0NT"
+                "const": "Q0QQQ"
               },
               "grid": {
-                "const": "EM18"
+                "const": "JJ00"
               },
               "power_dbm": {
-                "const": 20
+                "const": 0
               }
             }
           },
@@ -116,4 +116,3 @@
     }
   }
 }
-

@@ -20,9 +20,9 @@
   "bounded_duration_s": 370,
   "random_offset_enabled": false,
   "identity": {
-    "callsign": "AA0NT",
-    "grid": "EM18",
-    "power_dbm": 20
+    "callsign": "Q0QQQ",
+    "grid": "JJ00",
+    "power_dbm": 0
   },
   "gates": {
     "carrier_offset_max_hz": 100,

@@ -116,7 +116,7 @@ def application_plan(tmp_path: Path):
         ApplicationIdentity("wsprrypi", executable(tmp_path, "fake wsprrypi"), "parent", "sub"),
         backend="si5351",
         backend_config=WsprryPiBackendConfig("CLK0", 2.5, 1, "0x60", 27_000_000, 1),
-    ).resolve_plan("plan", WsprProtocol("AA0NT", "EM18", 20, 10_140_200, 3, 1500))
+    ).resolve_plan("plan", WsprProtocol("Q0QQQ", "JJ00", 0, 10_140_200, 3, 1500))
 
 
 def transmitter_session_plan(plan) -> ResolvedCapabilityPlan:
