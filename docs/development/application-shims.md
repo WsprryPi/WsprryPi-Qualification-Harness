@@ -25,6 +25,10 @@ hard-bounded process.
   once to form the positional dial-frequency argument. Canonical uppercase
   identity and standard encoded WSPR power are required so application-side
   normalization cannot silently change the evidence contract.
+  The harness's canonical synthetic scenario is documented in
+  `bounded-simulator.md`, but every resolved test or live-session plan must
+  continue to carry its identity explicitly. No synthetic default is injected
+  across the live authorization boundary.
 - QRSS carries message, carrier frequency, and dot duration.
 - FSKCW carries message, mark and space frequencies, and dot duration.
 - DFCW carries message, dot and dash frequencies, and dot duration.

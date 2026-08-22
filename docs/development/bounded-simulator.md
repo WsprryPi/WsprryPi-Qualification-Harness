@@ -57,6 +57,21 @@ post-gate files are rejected even if both hash inventories are regenerated.
 Failed publication remains in a uniquely named `.incomplete-*` directory for
 diagnosis and can never be mistaken for a completed run.
 
+## Canonical synthetic WSPR identity
+
+The simulator and ordinary synthetic WSPR examples use `Q0QQQ / JJ00 / 0 dBm`.
+`Q0QQQ` is an intentionally synthetic, structurally valid Type-1 WSPR callsign.
+`JJ00` is the four-character Maidenhead locator containing 0 degrees latitude
+and 0 degrees longitude. The six-character locator at the origin is `JJ00AA`,
+but a conventional Type-1 WSPR message carries the four-character `JJ00` locator.
+
+The `0 dBm` value is only the encoded power field in the WSPR message. It neither
+measures nor controls transmitter output, backend drive, calibrated power, or
+spectral compliance. This synthetic identity is limited to simulation, conducted
+testing, or shielded testing. It must not be radiated or reported to WSPRnet.
+Resolved test profiles and live-session plans must still state their WSPR identity
+explicitly; the synthetic convention never supplies or authorizes a live-plan value.
+
 The simulator proves portable composition, real subprocess deadlines, offline
 analysis, decoder invocation, evidence publication, and fail-closed result
 semantics. It does not prove SSH, Raspberry Pi OS service behavior, physical

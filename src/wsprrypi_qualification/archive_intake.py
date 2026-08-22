@@ -8,6 +8,10 @@ from collections import Counter
 from pathlib import Path, PurePosixPath
 from typing import Any, NoReturn
 
+from wsprrypi_qualification.cw_defaults import (
+    KEYED_MESSAGES_PER_TRANSACTION,
+    KEYED_QUALIFICATION_TRANSACTION_COUNT,
+)
 from wsprrypi_qualification.offline import (
     FailureCause,
     OfflineAnalysisError,
@@ -184,7 +188,13 @@ def validate_multi_capture_session(path: Path) -> dict[str, Any]:
     plan = load_json_document(plan_path, "cw-mode-plan.schema.json")
     if plan["mode"] != document["mode"]:
         _fail("multi-capture session mode contradicts its normalized plan")
+    if plan["mode"] in {"qrss", "fskcw", "dfcw"} and (
+        plan["protocol"]["repetitions"] != KEYED_MESSAGES_PER_TRANSACTION
+    ):
+        _fail("multi-capture plans must contain one keyed message per acquisition")
     repetitions = document["repetitions"]
+    if len(repetitions) != KEYED_QUALIFICATION_TRANSACTION_COUNT:
+        _fail("multi-capture sessions require exactly three independent acquisitions")
     numbers = [item["repetition"] for item in repetitions]
     if numbers != list(range(1, len(repetitions) + 1)):
         _fail("multi-capture repetitions must be contiguous and ordered from one")

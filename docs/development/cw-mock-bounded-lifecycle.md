@@ -26,6 +26,11 @@ release, restoration, leak, or quiescence failure is `cleanup_failed`. Cleanup
 failure retains precedence even when the carrier and mode measurements passed.
 Every document has `mock_only: true` and `qualification_claim: false`.
 
+Generic keyed-mode mock inputs use the canonical `ET`, `0.7`-second hardware-free
+scenario described in `cw-reference-encoders.md`. The lifecycle still consumes
+a fully resolved, schema-valid plan; it does not inject protocol values into the
+plan or treat a clean mock rehearsal as one of three independent live observations.
+
 Read-only actual-host preflight and every live workflow require separate,
 current authorization. Preflight performs no transmission and makes no
 qualification claim.

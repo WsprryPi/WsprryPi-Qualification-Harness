@@ -36,7 +36,7 @@ def plan_document(tmp_path: Path) -> dict[str, object]:
         ApplicationIdentity("wsprrypi", str(executable), "a" * 40, "b" * 40),
         backend="gpio",
         backend_config=WsprryPiBackendConfig("GPIO4", 0, drive_or_power_level=1, gpio_pin=4),
-    ).resolve_plan("lifecycle", WsprProtocol("AA0NT", "EM18", 20, 14_097_100, 1, 1500))
+    ).resolve_plan("lifecycle", WsprProtocol("Q0QQQ", "JJ00", 0, 14_097_100, 1, 1500))
     return {
         "schema_version": 1,
         "plan_type": "resolved_transmitter_lifecycle",

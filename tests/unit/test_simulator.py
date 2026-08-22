@@ -37,6 +37,11 @@ def test_bounded_success_is_inconclusive_and_retained(tmp_path: Path) -> None:
     assert len(list(root.glob("*.wav"))) == 3
     assert len(list(root.glob("decoder-*.json"))) == 3
     assert all(child["cleanup_verified"] for child in session["children"])
+    decode_summary = json.loads((root / "decode-summary.json").read_text(encoding="utf-8"))
+    assert {
+        (slot["identity"]["callsign"], slot["identity"]["grid"], slot["identity"]["power_dbm"])
+        for slot in decode_summary["slots"]
+    } == {("Q0QQQ", "JJ00", 0)}
     validate_simulator_bundle(root)
 
 

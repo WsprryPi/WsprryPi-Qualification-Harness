@@ -6,9 +6,9 @@
     "--no-offset",
     "--terminate",
     "3",
-    "AA0NT",
-    "EM18",
-    "20",
+    "Q0QQQ",
+    "JJ00",
+    "0",
     "144489000"
   ],
   "backend": "si5351",
@@ -25,11 +25,11 @@
   "protocol": "wspr",
   "protocol_contract": {
     "audio_offset_hz": 1500.0,
-    "callsign": "AA0NT",
+    "callsign": "Q0QQQ",
     "dial_frequency_hz": 144489000.0,
     "frame_count": 3,
-    "grid": "EM18",
-    "power_dbm": 20,
+    "grid": "JJ00",
+    "power_dbm": 0,
     "requested_rf_frequency_hz": 144490500.0
   },
   "random_offset_enabled": false,

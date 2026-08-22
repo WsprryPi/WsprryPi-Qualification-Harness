@@ -137,7 +137,7 @@ def plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
         },
         "frequency_hz": 1838100,
         "band": "160m",
-        "identity": {"callsign": "AA0NT", "grid": "EM18", "power_dbm": 20},
+        "identity": {"callsign": "Q0QQQ", "grid": "JJ00", "power_dbm": 0},
         "calibration": {"ppm": 2.3536},
         "drive": {"value": 2, "unit": "mA"},
         "mode": "WSPR",
