@@ -11,6 +11,7 @@ from wsprrypi_qualification.application_shims import (
     WsprryPiShim,
     validate_application_plan,
 )
+from wsprrypi_qualification.cw_defaults import hardware_free_keyed_protocol
 
 
 def identity(executable: str = "/opt/Wsprry Pi/wsprrypi") -> ApplicationIdentity:
@@ -19,7 +20,7 @@ def identity(executable: str = "/opt/Wsprry Pi/wsprrypi") -> ApplicationIdentity
 
 def test_wspr_plan_is_bounded_and_not_authorized() -> None:
     plan = WsprryPiShim(identity(), backend="si5351").resolve_plan(
-        "three-frames", WsprProtocol("AA0NT", "EM18", 20, 144_490_500, 3, 1500)
+        "three-frames", WsprProtocol("Q0QQQ", "JJ00", 0, 144_490_500, 3, 1500)
     )
     assert plan.arguments == (
         "/opt/Wsprry Pi/wsprrypi",
@@ -28,9 +29,9 @@ def test_wspr_plan_is_bounded_and_not_authorized() -> None:
         "--no-offset",
         "--terminate",
         "3",
-        "AA0NT",
-        "EM18",
-        "20",
+        "Q0QQQ",
+        "JJ00",
+        "0",
         "144489000",
     )
     assert not plan.execution_authorized
@@ -70,7 +71,7 @@ def test_resolved_backend_contract_authenticates_complete_arguments(
     backend: str, config: WsprryPiBackendConfig, expected: tuple[str, ...]
 ) -> None:
     plan = WsprryPiShim(identity(), backend=backend, backend_config=config).resolve_plan(
-        "resolved", WsprProtocol("AA0NT", "EM18", 20, 10_140_200, 3, 1500)
+        "resolved", WsprProtocol("Q0QQQ", "JJ00", 0, 10_140_200, 3, 1500)
     )
     assert all(item in plan.arguments for item in expected)
     validate_application_plan(plan.to_document())
@@ -115,12 +116,27 @@ def test_si5351_power_level_is_bounded_by_application_contract(level: int) -> No
 def test_qrss_family_uses_mode_specific_transient_interface(
     mode: ProtocolMode, flags: tuple[str, ...]
 ) -> None:
-    second = None if mode is ProtocolMode.QRSS else 10_140_098.5
+    protocol = hardware_free_keyed_protocol(
+        mode.value,
+        primary_frequency_hz=10_140_100.0,
+        pre_quiet_seconds=1.0,
+        post_quiet_seconds=1.0,
+    )
     plan = WsprryPiShim(identity(), backend="gpio").resolve_plan(
-        "cw-plan", CwProtocol(mode, "TEST DE AA0NT", 3.0, 10_140_100.0, second)
+        "cw-plan",
+        CwProtocol(
+            mode,
+            str(protocol["message"]),
+            float(protocol["dot_seconds"]),
+            float(protocol["primary_frequency_hz"]),
+            None
+            if protocol["secondary_frequency_hz"] is None
+            else float(protocol["secondary_frequency_hz"]),
+        ),
     )
     assert all(flag in plan.arguments for flag in flags)
     assert "--repeat" not in plan.arguments
+    assert "ET" in plan.arguments and "0.7" in plan.arguments
     validate_application_plan(plan.to_document())
 
 
@@ -165,11 +181,11 @@ def test_non_finite_values_are_rejected(value: float) -> None:
 def test_wspr_requires_application_supported_identity_power_and_offset() -> None:
     shim = WsprryPiShim(identity(), backend="gpio")
     with pytest.raises(ApplicationPlanError, match="uppercase"):
-        shim.resolve_plan("case", WsprProtocol("aa0nt", "EM18", 20, 10_140_200, 3, 1500))
+        shim.resolve_plan("case", WsprProtocol("q0qqq", "JJ00", 0, 10_140_200, 3, 1500))
     with pytest.raises(ApplicationPlanError, match="standard"):
-        shim.resolve_plan("power", WsprProtocol("AA0NT", "EM18", 21, 10_140_200, 3, 1500))
+        shim.resolve_plan("power", WsprProtocol("Q0QQQ", "JJ00", 1, 10_140_200, 3, 1500))
     with pytest.raises(ApplicationPlanError, match="1500"):
-        shim.resolve_plan("offset", WsprProtocol("AA0NT", "EM18", 20, 10_140_200, 3, 1200))
+        shim.resolve_plan("offset", WsprProtocol("Q0QQQ", "JJ00", 0, 10_140_200, 3, 1200))
 
 
 def test_unimplemented_backend_is_rejected() -> None:
@@ -180,7 +196,7 @@ def test_unimplemented_backend_is_rejected() -> None:
 def test_windows_path_with_spaces_is_preserved_as_one_argument() -> None:
     executable = r"C:\Program Files\WsprryPi\wsprrypi.exe"
     plan = WsprryPiShim(identity(executable), backend="si5351").resolve_plan(
-        "windows", WsprProtocol("AA0NT", "EM18", 20, 10_140_200, 3, 1500)
+        "windows", WsprProtocol("Q0QQQ", "JJ00", 0, 10_140_200, 3, 1500)
     )
     document = plan.to_document()
     assert document["identity"]["executable"] == executable
@@ -192,7 +208,7 @@ def test_windows_path_with_spaces_is_preserved_as_one_argument() -> None:
 def test_posix_path_with_spaces_round_trips_without_host_normalization() -> None:
     executable = "/opt/Wsprry Pi/wsprrypi"
     plan = WsprryPiShim(identity(executable), backend="si5351").resolve_plan(
-        "posix", WsprProtocol("AA0NT", "EM18", 20, 10_140_200, 3, 1500)
+        "posix", WsprProtocol("Q0QQQ", "JJ00", 0, 10_140_200, 3, 1500)
     )
     document = plan.to_document()
     assert document["identity"]["executable"] == executable
@@ -203,7 +219,7 @@ def test_posix_path_with_spaces_round_trips_without_host_normalization() -> None
 def test_schema_rejects_execution_authorization() -> None:
     document = (
         WsprryPiShim(identity(), backend="gpio")
-        .resolve_plan("safe", WsprProtocol("AA0NT", "EM18", 20, 10_140_200, 3, 1500))
+        .resolve_plan("safe", WsprProtocol("Q0QQQ", "JJ00", 0, 10_140_200, 3, 1500))
         .to_document()
     )
     document["execution_authorized"] = True
@@ -214,7 +230,7 @@ def test_schema_rejects_execution_authorization() -> None:
 def test_schema_rejects_protocol_argument_mismatch() -> None:
     document = (
         WsprryPiShim(identity(), backend="gpio")
-        .resolve_plan("safe", WsprProtocol("AA0NT", "EM18", 20, 10_140_200, 3, 1500))
+        .resolve_plan("safe", WsprProtocol("Q0QQQ", "JJ00", 0, 10_140_200, 3, 1500))
         .to_document()
     )
     document["protocol"] = "qrss"
@@ -225,7 +241,7 @@ def test_schema_rejects_protocol_argument_mismatch() -> None:
 def test_schema_rejects_wspr_frequency_semantic_mismatch() -> None:
     document = (
         WsprryPiShim(identity(), backend="gpio")
-        .resolve_plan("safe", WsprProtocol("AA0NT", "EM18", 20, 10_140_200, 3, 1500))
+        .resolve_plan("safe", WsprProtocol("Q0QQQ", "JJ00", 0, 10_140_200, 3, 1500))
         .to_document()
     )
     contract = document["protocol_contract"]
@@ -237,12 +253,12 @@ def test_schema_rejects_wspr_frequency_semantic_mismatch() -> None:
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    (("frame_count", 3.9), ("frame_count", 3.0), ("power_dbm", 20.9), ("power_dbm", 20.0)),
+    (("frame_count", 3.9), ("frame_count", 3.0), ("power_dbm", 0.9), ("power_dbm", 0.0)),
 )
 def test_validator_rejects_lossy_numeric_contract(field: str, value: float) -> None:
     document = (
         WsprryPiShim(identity(), backend="gpio")
-        .resolve_plan("safe", WsprProtocol("AA0NT", "EM18", 20, 10_140_200, 3, 1500))
+        .resolve_plan("safe", WsprProtocol("Q0QQQ", "JJ00", 0, 10_140_200, 3, 1500))
         .to_document()
     )
     contract = document["protocol_contract"]

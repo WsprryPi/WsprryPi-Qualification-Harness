@@ -61,6 +61,12 @@ Guides: [Reference encoders](development/cw-reference-encoders.md),
 [acquired-IQ replay](development/cw-acquired-iq-replay.md), and
 [mock bounded lifecycle](development/cw-mock-bounded-lifecycle.md).
 
+Generic QRSS, FSKCW, and DFCW fixtures use the documented `ET` / `0.7`-second
+canonical hardware-free scenario, with a `5.0` Hz separation only for FSKCW and
+DFCW. Resolved inputs remain explicit; this convention supplies no live-plan
+frequency, hardware identity, RF path, authorization, deadline, cleanup, or
+quiescence fact.
+
 ## Preserved archive intake
 
 Use `inventory-archive` and `validate-cw-multi-capture` to authenticate

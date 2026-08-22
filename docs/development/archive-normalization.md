@@ -23,8 +23,9 @@ wsprrypi-qualification inventory-archive ARCHIVE_ROOT MANIFEST OUTPUT \
 
 ## Multi-capture relationship validation
 
-`validate-cw-multi-capture` validates a session relationship above at least
-three separately authenticated keyed-mode repetitions. Repetition numbering
+`validate-cw-multi-capture` validates a session relationship above exactly
+three separately authenticated keyed-mode acquisitions. The referenced plan
+must describe one keyed message per acquisition. Repetition numbering
 must be ordered and contiguous. Acquisition IDs, capture paths, capture
 content, metadata, and observations must be distinct and authenticated.
 Metadata and observations must bind the same normalized plan, mode, and

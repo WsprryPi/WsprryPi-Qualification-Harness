@@ -188,7 +188,7 @@ def session_plan(executable: Path = Path("/opt/Wsprry Pi/wsprrypi")) -> Qualific
         10_100,
         10_000,
         10,
-        WsprIdentity("AA0NT", "EM18", 20),
+        WsprIdentity("Q0QQQ", "JJ00", 0),
         QualificationGates(100, 0.5, 3),
         StoppingProcedure("bounded", "exact count", "cancel", "verify", "bench stop"),
         ppm=2.3536,
@@ -220,7 +220,7 @@ def session_plan(executable: Path = Path("/opt/Wsprry Pi/wsprrypi")) -> Qualific
             reference_frequency_hz=27_000_000,
             drive_or_power_level=1,
         ),
-    ).resolve_plan("slice6-mock", WsprProtocol("AA0NT", "EM18", 20, 10_100, 3, 1500))
+    ).resolve_plan("slice6-mock", WsprProtocol("Q0QQQ", "JJ00", 0, 10_100, 3, 1500))
     return QualificationSessionPlan(
         receiver_run.run_id, bench, test, receiver_run, application, NOW, 120, 380
     )
@@ -277,7 +277,7 @@ def retained_evidence(
                 arguments, python_version.returncode, python_version.stdout, python_version.stderr
             )
         slot = Path(arguments[-1]).stem[9:13]
-        identity = "AA0NT EM18 20" if correct_decode else "N0CALL EM00 10"
+        identity = "Q0QQQ JJ00 0" if correct_decode else "N0CALL EM00 10"
         return subprocess.CompletedProcess(
             arguments, 0, f"{slot} -18 0.8 0.001500 0 {identity}\n", ""
         )
@@ -406,7 +406,7 @@ def test_integral_and_fractional_ppm_reconcile(tmp_path: Path, ppm: float) -> No
             reference_frequency_hz=27_000_000,
             drive_or_power_level=1,
         ),
-    ).resolve_plan("slice6-mock", WsprProtocol("AA0NT", "EM18", 20, 10_100, 3, 1500))
+    ).resolve_plan("slice6-mock", WsprProtocol("Q0QQQ", "JJ00", 0, 10_100, 3, 1500))
     plan = replace(base, test=test, application=application)
     validate_session_plan(plan)
 

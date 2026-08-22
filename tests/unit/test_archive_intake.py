@@ -11,6 +11,7 @@ from wsprrypi_qualification.archive_intake import (
     validate_multi_capture_session,
 )
 from wsprrypi_qualification.cli import main
+from wsprrypi_qualification.offline import OfflineAnalysisError
 
 
 def _manifest(root: Path, paths: list[Path]) -> Path:
@@ -110,6 +111,9 @@ def test_archive_inventory_rejects_empty_manifest_and_symlink_entry(tmp_path: Pa
 
 def _multi_capture_document(tmp_path: Path) -> tuple[Path, list[Path]]:
     plan, _, _, _, _ = _chain(tmp_path, "fskcw")
+    plan_document = json.loads(plan.read_text(encoding="utf-8"))
+    plan_document["protocol"]["repetitions"] = 1
+    _write(plan, plan_document)
     plan_reference = _artifact(plan)
     repetitions = []
     captures = []
@@ -197,6 +201,28 @@ def test_multi_capture_rejects_reorder_reuse_and_tampering(tmp_path: Path) -> No
     session, captures = _multi_capture_document(tmp_path)
     captures[2].write_bytes(b"tampered")
     with pytest.raises(ArchiveIntakeError, match="identity mismatch"):
+        validate_multi_capture_session(session)
+
+
+def test_multi_capture_requires_one_message_in_each_of_exactly_three_acquisitions(
+    tmp_path: Path,
+) -> None:
+    session, _ = _multi_capture_document(tmp_path)
+    document = json.loads(session.read_text(encoding="utf-8"))
+    document["repetitions"].append(document["repetitions"][-1])
+    _write(session, document)
+    with pytest.raises(OfflineAnalysisError, match="too long"):
+        validate_multi_capture_session(session)
+
+    session, _ = _multi_capture_document(tmp_path)
+    document = json.loads(session.read_text(encoding="utf-8"))
+    plan_path = tmp_path / document["plan"]["path"]
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan["protocol"]["repetitions"] = 3
+    _write(plan_path, plan)
+    document["plan"] = _artifact(plan_path)
+    _write(session, document)
+    with pytest.raises(ArchiveIntakeError, match="one keyed message"):
         validate_multi_capture_session(session)
 
 

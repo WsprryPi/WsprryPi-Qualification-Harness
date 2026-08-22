@@ -44,6 +44,7 @@ RF_FIXTURE_SAMPLE_COUNT = 3_072
 COHERENT_FIXTURE_SAMPLE_COUNT = 243_000
 PHYSICAL_SAMPLE_RATE_HZ = 1_000
 WAV_FRAME_COUNT = 1_000
+SIMULATOR_WSPR_IDENTITY = WsprIdentity("Q0QQQ", "JJ00", 0)
 
 
 @dataclass(frozen=True)
@@ -378,7 +379,7 @@ def _run_simulation_inner(plan: SimulatorPlan) -> dict[str, Any]:
                 run_wsprd(
                     wav,
                     decoder_path,
-                    WsprIdentity("AA0NT", "EM18", 20),
+                    SIMULATOR_WSPR_IDENTITY,
                     executable=Path(sys.executable),
                     extra_arguments=(str(helper),),
                     timeout_s=min(plan.child_timeout_s, _remaining_timeout(started, plan)),
@@ -405,7 +406,11 @@ def _run_simulation_inner(plan: SimulatorPlan) -> dict[str, Any]:
                         "wav": _relative_artifact(temporary, wav_path),
                         "decoder": _relative_artifact(temporary, decoder_path),
                         "gate_outcome": decoder["gate_outcome"],
-                        "identity": {"callsign": "AA0NT", "grid": "EM18", "power_dbm": 20},
+                        "identity": {
+                            "callsign": SIMULATOR_WSPR_IDENTITY.callsign,
+                            "grid": SIMULATOR_WSPR_IDENTITY.grid,
+                            "power_dbm": SIMULATOR_WSPR_IDENTITY.power_dbm,
+                        },
                         "intended_signal_found": decoder["expected_intended_signal_found"],
                     }
                 )
@@ -685,7 +690,7 @@ def _fake_wsprd(root: Path) -> Path:
         """import pathlib, sys
 if '--version' in sys.argv: print('fake-wsprd 1'); raise SystemExit
 stem=pathlib.Path(sys.argv[-1]).stem
-print(f'{stem[9:13]} -10 0.1 0.001500 0 AA0NT EM18 20')
+print(f'{stem[9:13]} -10 0.1 0.001500 0 Q0QQQ JJ00 0')
 """,
         encoding="utf-8",
     )
@@ -769,7 +774,14 @@ def validate_simulator_decode_summary(document: dict[str, Any], root: Path) -> N
         (item["identity"]["callsign"], item["identity"]["grid"], item["identity"]["power_dbm"])
         for item in document["slots"]
     }
-    if identities != {("AA0NT", "EM18", 20)}:
+    expected_identity = {
+        (
+            SIMULATOR_WSPR_IDENTITY.callsign,
+            SIMULATOR_WSPR_IDENTITY.grid,
+            SIMULATOR_WSPR_IDENTITY.power_dbm,
+        )
+    }
+    if identities != expected_identity:
         raise SimulationError("simulator decode identity is contradictory")
     gates: list[str] = []
     paths: set[str] = set()
