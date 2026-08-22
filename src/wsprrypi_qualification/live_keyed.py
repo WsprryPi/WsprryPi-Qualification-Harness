@@ -29,7 +29,7 @@ class LiveKeyedProviders(Protocol):
     def preflight(self, plan: dict[str, Any], number: int) -> bool: ...
     def install_cleanup(self, plan: dict[str, Any], number: int) -> bool: ...
     def start_process(self, arguments: tuple[str, ...], number: int) -> str | None: ...
-    def capture(self, plan: dict[str, Any], number: int) -> tuple[str, str] | None: ...
+    def capture(self, plan: dict[str, Any], number: int) -> tuple[str, str, str] | None: ...
     def analyze(self, plan: dict[str, Any], number: int) -> tuple[str, str]: ...
     def cleanup(self, plan: dict[str, Any], number: int) -> bool: ...
     def verify_quiescence(self, plan: dict[str, Any], number: int) -> bool: ...
@@ -101,7 +101,16 @@ class ProductionKeyedAdapter:
                     primary_failed = True
                 elif captured := self.providers.capture(plan, number):
                     outcomes["capture_completed"] = "passed"
-                    capture_id, acquisition_id = captured
+                    capture_id, acquisition_id, process_outcome = captured
+                    if process_outcome == "failed":
+                        outcomes["analysis_completed"] = "failed"
+                        measurement = "failed"
+                        primary_failed = True
+                    elif process_outcome == "aborted":
+                        outcomes["analysis_completed"] = "aborted"
+                        primary_failed = True
+                    elif process_outcome != "passed":
+                        raise LiveKeyedError("keyed process outcome is invalid")
                 else:
                     outcomes["capture_completed"] = "failed"
                     measurement = "blocked"

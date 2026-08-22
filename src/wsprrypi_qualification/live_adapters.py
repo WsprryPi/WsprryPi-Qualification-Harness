@@ -1719,6 +1719,7 @@ class KeyedCapabilityProviders:
         self.initial_services: dict[int, list[tuple[HelperServiceProvider, str, bool]]] = {}
         self.capture_metadata: dict[int, Path] = {}
         self.capture_outputs: dict[int, Path] = {}
+        self.validated_captures: set[int] = set()
         self.process_evidence: dict[int, Path] = {}
         self.process_outcomes: dict[int, Path] = {}
         self.analysis_evidence: dict[int, Path] = {}
@@ -1853,6 +1854,7 @@ class KeyedCapabilityProviders:
                     self.capture_capability.execute(capture_plan, authorization, cancellation)
                 )
             except BaseException as error:
+                self._discard_untrusted_capture(number)
                 diagnostics = getattr(self, "capture_diagnostics", None)
                 if diagnostics is None:
                     diagnostics = {}
@@ -1922,7 +1924,7 @@ class KeyedCapabilityProviders:
         )
         self.process_outcomes[number] = path
 
-    def capture(self, plan: dict[str, Any], number: int) -> tuple[str, str] | None:
+    def capture(self, plan: dict[str, Any], number: int) -> tuple[str, str, str] | None:
         task = self.capture_tasks.get(number)
         if task is None:
             return None
@@ -1935,16 +1937,40 @@ class KeyedCapabilityProviders:
         if errors or len(captured) != 1:
             return None
         evidence = captured[0]
+        validated_captures = getattr(self, "validated_captures", None)
+        if validated_captures is None:
+            validated_captures = set()
+            self.validated_captures = validated_captures
+        validated_captures.add(number)
         process = self.owned[number]
-        result = process.wait(plan["deadlines"]["transaction_s"], None)
+        output_identity = cast(dict[str, object], evidence["output"])
+        metadata_identity = cast(dict[str, object], evidence["capture_metadata"])
+        try:
+            result = process.wait(plan["deadlines"]["transaction_s"], None)
+        except Exception:
+            return (
+                str(output_identity["sha256"]),
+                str(metadata_identity["sha256"]),
+                "aborted",
+            )
         self._retain_process_outcome(number, result)
         if result.cleanup_verified:
             self.owned.pop(number, None)
-        if result.return_code != 0 or not result.cleanup_verified:
-            return None
-        output_identity = cast(dict[str, object], evidence["output"])
-        metadata_identity = cast(dict[str, object], evidence["capture_metadata"])
-        return (str(output_identity["sha256"]), str(metadata_identity["sha256"]))
+        process_outcome = (
+            "aborted"
+            if result.timed_out
+            or result.cancelled
+            or result.disconnected
+            or not result.cleanup_verified
+            else "failed"
+            if result.return_code != 0
+            else "passed"
+        )
+        return (
+            str(output_identity["sha256"]),
+            str(metadata_identity["sha256"]),
+            process_outcome,
+        )
 
     def analyze(self, plan: dict[str, Any], number: int) -> tuple[str, str]:
         result = compose_acquired_replay(
@@ -1992,11 +2018,12 @@ class KeyedCapabilityProviders:
         return not observed_si5351.enabled_outputs and observed_si5351.owner is None
 
     def evidence_paths(self, number: int) -> dict[str, Path]:
+        capture_validated = number in getattr(self, "validated_captures", set())
         paths = {
             "process": self.process_outcomes.get(number, self.process_evidence.get(number)),
             "process_launch": self.process_evidence.get(number),
-            "capture": self.capture_outputs.get(number),
-            "acquisition": self.capture_metadata.get(number),
+            "capture": self.capture_outputs.get(number) if capture_validated else None,
+            "acquisition": self.capture_metadata.get(number) if capture_validated else None,
             "analysis": self.analysis_evidence.get(number),
             "capture_diagnostic": getattr(self, "capture_diagnostics", {}).get(number),
         }
@@ -2012,6 +2039,18 @@ class KeyedCapabilityProviders:
                     )
                     paths[role] = candidate
         return {role: path for role, path in paths.items() if path is not None}
+
+    def _discard_untrusted_capture(self, number: int) -> None:
+        output = self.capture_outputs.get(number)
+        metadata = self.capture_metadata.get(number)
+        for path in (
+            output,
+            Path(f"{output}.incomplete") if output is not None else None,
+            Path(f"{metadata}.incomplete") if metadata is not None else None,
+            Path(f"{metadata}.failure.json.incomplete") if metadata is not None else None,
+        ):
+            if path is not None:
+                path.unlink(missing_ok=True)
 
     def close(self) -> bool:
         okay = True

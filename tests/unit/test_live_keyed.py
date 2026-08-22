@@ -56,10 +56,16 @@ class SealedFakeLiveProviders:
 
     def capture(self, resolved, number):
         del resolved
+        if not self._perform("capture_completed", number):
+            return None
+        process_outcome = {
+            "process_exit_failed": "failed",
+            "process_wait_aborted": "aborted",
+        }.get(self.failure, "passed")
         return (
-            (f"fake-capture-{number}", f"fake-acquisition-{number}")
-            if self._perform("capture_completed", number)
-            else None
+            f"fake-capture-{number}",
+            f"fake-acquisition-{number}",
+            process_outcome,
         )
 
     def analyze(self, resolved, number):
@@ -141,6 +147,23 @@ def test_every_production_boundary_fails_closed_and_preserves_partial_output(
     assert (Path(outcome["bundle"]) / "transaction-1.json").is_file()
     assert ("cleanup_completed", 1) in providers.calls
     assert ("quiescence_verified", 1) in providers.calls
+
+
+@pytest.mark.parametrize(
+    "failure,expected,lifecycle_outcome",
+    (
+        ("process_exit_failed", "unqualified_keyed", "failed"),
+        ("process_wait_aborted", "aborted", "aborted"),
+    ),
+)
+def test_transmitter_completion_is_not_misclassified_as_fixture_blockage(
+    tmp_path: Path, failure: str, expected: str, lifecycle_outcome: str
+) -> None:
+    outcome = _run(tmp_path, SealedFakeLiveProviders(failure))
+    transaction = outcome["aggregate"]["transactions"][0]
+    assert transaction["lifecycle"][3]["outcome"] == "passed"
+    assert transaction["lifecycle"][4]["outcome"] == lifecycle_outcome
+    assert outcome["result"]["final_status"] == expected
 
 
 def test_incomplete_provider_close_overrides_measurement_success(tmp_path: Path) -> None:
@@ -536,6 +559,102 @@ def test_keyed_capture_is_ready_and_prequiet_completes_before_process_launch(
     assert providers.capture(resolved, 1) is not None
 
 
+@pytest.mark.parametrize(
+    "return_code,timed_out,cleanup_verified,expected",
+    ((7, False, True, "failed"), (None, True, True, "aborted"), (0, False, True, "passed")),
+)
+def test_valid_capture_preserves_distinct_transmitter_completion_outcome(
+    tmp_path: Path,
+    return_code: int | None,
+    timed_out: bool,
+    cleanup_verified: bool,
+    expected: str,
+) -> None:
+    directory = tmp_path / "transaction-1"
+    directory.mkdir()
+    output = directory / "capture.cf32"
+    metadata = directory / "capture-metadata.json"
+    output.write_bytes(b"capture")
+    metadata.write_text("{}", encoding="utf-8")
+    captured = [{"output": artifact(output), "capture_metadata": artifact(metadata)}]
+    worker = threading.Thread(target=lambda: None)
+    worker.start()
+    worker.join()
+
+    class FakeProcess:
+        handle_id = "process-1"
+
+        def wait(self, deadline, cancellation):
+            del deadline, cancellation
+            return SimpleNamespace(
+                handle_id=self.handle_id,
+                return_code=return_code,
+                stdout="stdout",
+                stderr="stderr",
+                timed_out=timed_out,
+                cancelled=False,
+                disconnected=False,
+                cleanup_verified=cleanup_verified,
+                stop_requested=False,
+                running_before_stop=False,
+            )
+
+    providers = object.__new__(live_adapters_module.KeyedCapabilityProviders)
+    providers.work_directory = tmp_path
+    providers.capture_tasks = {1: (worker, threading.Event(), captured, [])}
+    providers.owned = {1: FakeProcess()}
+    providers.capture_outputs = {1: output}
+    providers.capture_metadata = {1: metadata}
+    providers.process_outcomes = {}
+    providers.validated_captures = set()
+    result = providers.capture(plan(), 1)
+    assert result is not None
+    assert result[2] == expected
+    assert output.exists()
+    assert metadata.exists()
+
+
+def test_valid_capture_with_process_wait_error_is_aborted_not_fixture_blocked(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "transaction-1"
+    directory.mkdir()
+    output = directory / "capture.cf32"
+    metadata = directory / "capture-metadata.json"
+    output.write_bytes(b"capture")
+    metadata.write_text("{}", encoding="utf-8")
+    worker = threading.Thread(target=lambda: None)
+    worker.start()
+    worker.join()
+
+    class FailingWaitProcess:
+        handle_id = "process-1"
+
+        def wait(self, deadline, cancellation):
+            del deadline, cancellation
+            raise RuntimeError("helper transport failed after capture")
+
+    providers = object.__new__(live_adapters_module.KeyedCapabilityProviders)
+    providers.work_directory = tmp_path
+    providers.capture_tasks = {
+        1: (
+            worker,
+            threading.Event(),
+            [{"output": artifact(output), "capture_metadata": artifact(metadata)}],
+            [],
+        )
+    }
+    providers.owned = {1: FailingWaitProcess()}
+    providers.capture_outputs = {1: output}
+    providers.capture_metadata = {1: metadata}
+    providers.process_outcomes = {}
+    providers.validated_captures = set()
+    result = providers.capture(plan(), 1)
+    assert result is not None
+    assert result[2] == "aborted"
+    assert 1 in providers.owned
+
+
 @pytest.mark.parametrize("fail_after_ready", [False, True])
 def test_keyed_capture_failure_prevents_process_launch(
     tmp_path: Path, fail_after_ready: bool
@@ -561,6 +680,8 @@ def test_keyed_capture_failure_prevents_process_launch(
             del authorization, cancellation
             if fail_after_ready:
                 Path(str(capture_plan.output_path) + ".incomplete").write_bytes(b"")
+                capture_plan.output_path.write_bytes(b"untrusted partial IQ")
+                capture_plan.metadata_path.write_text("{}", encoding="utf-8")
             raise RuntimeError("injected capture failure")
 
     class ForbiddenLauncher:
@@ -588,4 +709,9 @@ def test_keyed_capture_failure_prevents_process_launch(
     assert failure["evidence_type"] == "capture_background_failure"
     assert failure["exception_type"] == "RuntimeError"
     assert failure["message"] == "injected capture failure"
+    evidence = providers.evidence_paths(1)
+    assert "capture" not in evidence
+    assert "acquisition" not in evidence
+    assert not providers.capture_outputs[1].exists()
+    assert not Path(f"{providers.capture_outputs[1]}.incomplete").exists()
     assert not providers.cleanup(resolved, 1)

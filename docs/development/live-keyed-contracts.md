@@ -86,6 +86,21 @@ analysis, and artifact identity. The command stops after the first unsuccessful
 transaction, but cleanup, service restoration, quiescence verification, helper
 shutdown, and partial immutable output remain mandatory.
 
+Run it only after separately resolving and authorizing the exact plan:
+
+```text
+wsprrypi-qualification run-cw-live-keyed RESOLVED_PLAN.json OUTPUT_PARENT \
+  --work-directory NEW_ABSOLUTE_WORK_DIRECTORY \
+  --ssh /absolute/path/to/ssh \
+  --operator OPERATOR \
+  --confirm-plan-sha256 EXACT_CANONICAL_PLAN_SHA256 \
+  --enable-live-keyed --enable-rf
+```
+
+The work directory and session destination under the output parent must be new.
+This synopsis documents the interface; it supplies no host identity, RF-path
+fact, authorization, or permission to execute a live run.
+
 `capability_bindings.services` is the complete host-qualified service allowlist.
 `required_receiver_services` is an explicit receiver-only subset. After cleanup
 has been installed, required receiver services are made active and other listed
@@ -129,3 +144,9 @@ state. It also retains valid native `capture_failure` metadata as
 identity semantics are removed and never appear as a capture artifact. These
 diagnostics are copied into the partial immutable bundle and covered by its
 transaction record and manifest.
+
+Conversely, a successfully authenticated capture is not relabeled as fixture
+blockage merely because WsprryPi exits unsuccessfully. A nonzero transmitter
+exit is a keyed measurement failure; a transmitter timeout, cancellation,
+disconnect, or unverified process cleanup aborts the transaction. Valid capture
+and acquisition evidence remain independently retained in those cases.
