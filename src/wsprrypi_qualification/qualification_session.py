@@ -1,4 +1,4 @@
-"""Mock-only Slice 6 composition of reviewed qualification contracts."""
+"""Mock-only composition of reviewed qualification contracts."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from wsprrypi_qualification.decoder import (
     load_decoder_evidence,
     summarize_decodes,
 )
-from wsprrypi_qualification.manifests import write_manifest
+from wsprrypi_qualification.manifests import build_manifest, render_manifest, write_manifest
 from wsprrypi_qualification.models import (
     BenchProfile,
     CleanupOutcome,
@@ -109,7 +109,7 @@ class RuntimeConfirmation:
 
 @dataclass(frozen=True)
 class OfflineEvidenceSet:
-    """Retained Slice 3 outputs consumed by the Slice 6 coordinator."""
+    """Synthetic analyzer outputs consumed by the mock coordinator."""
 
     carrier_analysis: Path
     audio_conversions: tuple[Path, Path, Path]
@@ -197,7 +197,7 @@ def validate_session_plan(plan: QualificationSessionPlan) -> None:
     except ApplicationPlanError as error:
         raise SessionError(f"application plan is invalid: {error}") from error
     if not plan.mock_only or plan.application.execution_authorized is not False:
-        raise SessionError("Slice 6 preparation accepts mock-only non-authorized plans")
+        raise SessionError("mock preparation accepts only non-authorized plans")
     if plan.application.protocol is not ProtocolMode.WSPR:
         raise SessionError("only WSPR has a prepared qualification workflow")
     if plan.application.backend != plan.test.transmitter.backend.value:
@@ -463,9 +463,11 @@ def validate_published_bundle(bundle: Path) -> None:
         index_path,
         "slice6-offline-evidence-index.schema.json",
     )
+    indexed_retained: set[str] = set()
     for record in index["artifacts"]:
         if record["disposition"] != "bundled":
             continue
+        indexed_retained.add(record["retained_path"])
         retained_path = bundle / record["retained_path"]
         retained = artifact(retained_path)
         retained["path"] = record["retained_path"]
@@ -474,16 +476,17 @@ def validate_published_bundle(bundle: Path) -> None:
     manifest = bundle / "SHA256SUMS"
     if not manifest.is_file():
         raise SessionError("published bundle lacks SHA256SUMS")
-    recorded = {
-        line.split("  ", 1)[1]: line.split("  ", 1)[0]
-        for line in manifest.read_text(encoding="utf-8").splitlines()
-        if "  " in line
+    actual_retained = {
+        path.relative_to(bundle).as_posix()
+        for path in (bundle / "retained-artifacts").rglob("*")
+        if path.is_file() and not path.is_symlink()
     }
-    for path in bundle.rglob("*"):
-        if path.is_file() and path.name != "SHA256SUMS":
-            relative = path.relative_to(bundle).as_posix()
-            if recorded.get(relative) != artifact(path)["sha256"]:
-                raise SessionError(f"manifest does not authenticate bundled artifact: {relative}")
+    if actual_retained != {
+        path for path in indexed_retained if path.startswith("retained-artifacts/")
+    }:
+        raise SessionError("retained artifact set is incomplete or unexpected")
+    if manifest.read_text(encoding="utf-8") != render_manifest(build_manifest(bundle)):
+        raise SessionError("manifest is non-canonical or does not authenticate the bundle")
 
 
 def validate_session_document(document: dict[str, Any]) -> None:
@@ -661,7 +664,7 @@ class QualificationSession:
                 event(SessionPhase.PREFLIGHT, "blocked", injection.value)
             else:
                 if self.plan.offline_evidence is None:
-                    raise SessionError("retained Slice 3 evidence is required")
+                    raise SessionError("synthetic analyzer evidence is required")
                 authenticated_carrier = _load_carrier_evidence(
                     self.plan.offline_evidence, self.plan
                 )

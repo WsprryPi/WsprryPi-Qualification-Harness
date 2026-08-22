@@ -30,7 +30,9 @@ The maintained sequence is:
 
 1. `validate-capture-metadata` authenticates exact-count capture metadata and
    its IQ artifact.
-2. `analyze-carrier` compares distinct RF-off and RF-on captures.
+2. `analyze-carrier` compares distinct RF-off and RF-on captures. Add
+   `--plot OUTPUT.png` or `--plot OUTPUT.svg` for an authenticated relative-spectrum
+   rendering using Matplotlib Agg.
 3. `make-slot-wav` creates a canonical WAV for each bounded UTC slot.
 4. `decode-wspr` runs the pinned decoder independently for each WAV.
 5. `summarize-decodes` verifies consecutive expected-identity results.
@@ -38,8 +40,13 @@ The maintained sequence is:
 Offline analysis does not prove transmitter lifecycle, cleanup, calibrated
 power, or spectral compliance.
 
-Guides: [Bounded carrier evidence](development/bounded-carrier-evidence.md) and
-[split-host WSPR lifecycle](development/live-three-frame.md). Use each command's
+Carrier plots are normalized to the strongest positive RF-on-minus-RF-off
+residual and therefore show relative dB only. Their metadata binds the plot
+bytes, media type, pixel dimensions, renderer version, normalization contract,
+and canonical source analysis. A plot is neither calibrated power nor frequency
+evidence.
+
+Guide: [Split-host WSPR lifecycle](development/live-three-frame.md). Use each command's
 current `--help` output for its exact offline arguments.
 
 ## Tone and CW-family evidence
@@ -67,7 +74,47 @@ DFCW. Resolved inputs remain explicit; this convention supplies no live-plan
 frequency, hardware identity, RF path, authorization, deadline, cleanup, or
 quiescence fact.
 
-## Preserved archive intake
+The [live keyed contracts](development/live-keyed-contracts.md) define and
+validate resolved QRSS, FSKCW, and DFCW plans, exact runtime-authorization
+bindings, three independent transaction records, aggregate sessions, derived
+results, and artifact indexes. The public Python API also provides a sealed,
+deterministic hardware-free coordinator rehearsal with boundary-specific failure
+and cancellation injection. It does not start a process, open a receiver,
+contact a host, operate a service, or enable RF.
+
+`run-cw-live-keyed` is the separate production command. It accepts only QRSS,
+FSKCW, or DFCW plans with exactly three requested transactions and requires
+`--enable-live-keyed`, `--enable-rf`, `--operator`, and an exact
+`--confirm-plan-sha256`. It stops after the first unsuccessful transaction and
+still performs cleanup, service restoration, quiescence verification, provider
+shutdown, and partial-bundle publication.
+Its helper configurations are immutable plan inputs, not authorization
+receipts: their artifact hashes are placed in the resolved plan before its
+digest is computed. The exact digest is passed separately at helper startup and
+is correlated on every request and response.
+For Raspberry Pi transmission, the plan and transmitter helper configuration
+also bind the process privilege wrapper independently. The helper authenticates
+it on every start and supplies the fixed noninteractive `sudo -n --` prefix;
+the application plan continues to contain only the exact WsprryPi executable
+and arguments.
+
+Each of the three transactions sends one keyed message. Plans bind receiver
+services that must run for capture separately from the complete service
+allowlist; they start only after cleanup installation, and all listed services
+return to their observed initial state during transaction cleanup.
+The production adapter establishes the exact-count capture and completes the
+resolved RF-off preamble before it launches WsprryPi; capture setup failure
+therefore blocks RF rather than producing a knowingly truncated observation.
+If capture fails after launch, the transaction is classified as receiver or
+fixture blockage. Its partial bundle retains authenticated native failure
+metadata and the bounded helper execution diagnostic, while incomplete or
+semantically rejected IQ is removed and is not advertised as capture evidence.
+The receiver host must have strict, plan-bound SSH access to the transmitter.
+Service elevation, when required, uses a static-configuration-bound executable
+such as `/usr/bin/sudo` in non-interactive mode; both it and `systemctl` are
+hash-checked before each allowlisted operation.
+
+## External archive intake
 
 Use `inventory-archive` and `validate-cw-multi-capture` to authenticate
 preserved artifacts and their declared relationships. These commands do not
@@ -103,17 +150,28 @@ The production live commands are deliberately fail-closed:
   three-frame WSPR lifecycle.
 - `run-cw-live-tone` coordinates carrier-only tone cadence and stops before WSPR
   decoding.
+- `run-cw-live-keyed` coordinates three independent QRSS, FSKCW, or DFCW
+  process/capture/analyze transactions.
 
-Do not run either command without current authorization for the exact resolved
+Do not run any production live command without current authorization for the exact resolved
 plan, host and device identities, RF path, level budget, stopping procedure, and
 operator window. A prior run or authorization does not carry forward.
 
 Guides: [Split-host WSPR lifecycle](development/live-three-frame.md) and
 [bounded tone loopback mediator](development/bounded-tone-loopback-mediator.md).
 
-## Evidence review
+## Result review
 
-Validate retained bundles with the command specific to their evidence type and
+Validate output bundles with the command specific to their document type and
 apply the checklist in [AGENT_OPERATIONS.md](AGENT_OPERATIONS.md). Qualification
 claims must remain exact to the recorded backend, band, hardware, source,
 receiver path, settings, time, and cleanup outcome.
+
+For live keyed blockage, inspect the transaction's `capture_diagnostic` and
+`capture_native_failure` artifacts before deciding whether to change receiver
+settings, fixture routing, or capture bounds. A successful transmitter process
+does not turn missing receiver evidence into transmitter unqualification.
+
+The harness does not keep these bundles in Git. Use a temporary or external
+output directory, then move records selected for preservation to the target
+project or another approved evidence store.

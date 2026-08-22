@@ -22,12 +22,20 @@ from wsprrypi_qualification.adapters import OperationOutcome
 from wsprrypi_qualification.application_shims import ApplicationPlan, validate_application_plan
 from wsprrypi_qualification.capability_helper import PROTOCOL_VERSION, encode_request
 from wsprrypi_qualification.capture_metadata import load_capture_metadata
-from wsprrypi_qualification.offline import artifact, validate_document
+from wsprrypi_qualification.offline import artifact, validate_document, write_json_new
 from wsprrypi_qualification.transports import CommandPlan, LocalCommandTransport
 
 
 class CapabilityError(RuntimeError):
     """A production capability cannot satisfy its safety/evidence contract."""
+
+
+class CaptureCapabilityError(CapabilityError):
+    """A capture failed while retaining a bounded execution diagnostic."""
+
+    def __init__(self, message: str, diagnostic_path: Path | None = None) -> None:
+        super().__init__(message)
+        self.diagnostic_path = diagnostic_path
 
 
 class CapabilityKind(StrEnum):
@@ -400,12 +408,18 @@ class SshOwnedProcessLauncher:
         hard_timeout_s: float,
         executable_sha256: str,
         pinned_arguments: dict[str, str] | None = None,
+        privilege_wrapper_path: str | None = None,
+        privilege_wrapper_sha256: str | None = None,
     ) -> None:
         if hard_timeout_s <= 0:
             raise CapabilityError("remote process hard deadline must be positive")
         self.client, self.hard_timeout_s = client, hard_timeout_s
         self.executable_sha256 = executable_sha256
         self.pinned_arguments = dict(pinned_arguments or {})
+        if (privilege_wrapper_path is None) is not (privilege_wrapper_sha256 is None):
+            raise CapabilityError("remote process privilege wrapper binding is incomplete")
+        self.privilege_wrapper_path = privilege_wrapper_path
+        self.privilege_wrapper_sha256 = privilege_wrapper_sha256
 
     def begin(self, arguments: tuple[str, ...]) -> OwnedProcess:
         response = self.client.request(
@@ -413,6 +427,8 @@ class SshOwnedProcessLauncher:
             {
                 "arguments": list(arguments),
                 "executable_sha256": self.executable_sha256,
+                "privilege_wrapper_path": self.privilege_wrapper_path,
+                "privilege_wrapper_sha256": self.privilege_wrapper_sha256,
                 "pinned_arguments": self.pinned_arguments,
                 "hard_timeout_s": self.hard_timeout_s,
                 "environment": {},
@@ -609,13 +625,19 @@ class SoapyCaptureCapability:
         )
         result = self._launcher.launch(arguments, plan.maximum_elapsed_s + 5, cancellation)
         if result.return_code != 0 or result.timed_out or result.cancelled:
-            _remove_capture_outputs(plan)
-            raise CapabilityError(f"capture helper failed: {_execution_outcome(result)}")
+            diagnostic = _retain_capture_failure(plan, arguments, result, "helper_execution_failed")
+            raise CaptureCapabilityError(
+                f"capture helper failed: {_execution_outcome(result)}", diagnostic
+            )
         try:
             metadata = load_capture_metadata(plan.metadata_path)
         except Exception as exc:
-            _remove_capture_outputs(plan)
-            raise CapabilityError("capture metadata is unavailable or invalid") from exc
+            diagnostic = _retain_capture_failure(
+                plan, arguments, result, "capture_metadata_unavailable_or_invalid"
+            )
+            raise CaptureCapabilityError(
+                "capture metadata is unavailable or invalid", diagnostic
+            ) from exc
         if (
             metadata.retained_sample_count != plan.sample_count
             or metadata.requested_sample_count != plan.sample_count
@@ -624,8 +646,12 @@ class SoapyCaptureCapability:
             or metadata.clipped_samples != 0
             or metadata.cleanup_outcome != "verified"
         ):
-            _remove_capture_outputs(plan)
-            raise CapabilityError("capture metadata violates the exact-count contract")
+            diagnostic = _retain_capture_failure(
+                plan, arguments, result, "exact_count_contract_violated"
+            )
+            raise CaptureCapabilityError(
+                "capture metadata violates the exact-count contract", diagnostic
+            )
         expected_device = {"driver": plan.driver, "serial": plan.serial}
         expected_settings = {
             "format": plan.sample_format,
@@ -649,27 +675,45 @@ class SoapyCaptureCapability:
                 abs_tol=5e-8,
             )
         ):
-            _remove_capture_outputs(plan)
-            raise CapabilityError("capture identity or settings contradict the resolved plan")
+            diagnostic = _retain_capture_failure(
+                plan, arguments, result, "identity_or_settings_contradict_plan"
+            )
+            raise CaptureCapabilityError(
+                "capture identity or settings contradict the resolved plan", diagnostic
+            )
         try:
             output = artifact(plan.output_path)
         except (OSError, ValueError) as exc:
-            _remove_capture_outputs(plan)
-            raise CapabilityError("capture output is unavailable or invalid") from exc
+            diagnostic = _retain_capture_failure(
+                plan, arguments, result, "capture_output_unavailable_or_invalid"
+            )
+            raise CaptureCapabilityError(
+                "capture output is unavailable or invalid", diagnostic
+            ) from exc
         if output["size_bytes"] != plan.sample_count * 8:
-            _remove_capture_outputs(plan)
-            raise CapabilityError("capture output byte size is not exact CF32")
+            diagnostic = _retain_capture_failure(
+                plan, arguments, result, "capture_output_size_not_exact"
+            )
+            raise CaptureCapabilityError("capture output byte size is not exact CF32", diagnostic)
         if (
             Path(metadata.output.path).resolve() != plan.output_path.resolve()
             or metadata.output.sha256 != output["sha256"]
             or not metadata.output.present
             or not metadata.output.complete
         ):
-            _remove_capture_outputs(plan)
-            raise CapabilityError("capture metadata does not authenticate the retained IQ")
+            diagnostic = _retain_capture_failure(
+                plan, arguments, result, "capture_metadata_does_not_authenticate_iq"
+            )
+            raise CaptureCapabilityError(
+                "capture metadata does not authenticate the retained IQ", diagnostic
+            )
         if result.disconnected or not result.cleanup_verified:
-            _remove_capture_outputs(plan)
-            raise CapabilityError("capture transport cleanup or connection failed")
+            diagnostic = _retain_capture_failure(
+                plan, arguments, result, "capture_transport_or_cleanup_failed"
+            )
+            raise CaptureCapabilityError(
+                "capture transport cleanup or connection failed", diagnostic
+            )
         document = {
             "schema_version": 1,
             "evidence_type": "soapy_capture_capability",
@@ -687,9 +731,13 @@ class SoapyCaptureCapability:
         try:
             validate_document(document, "soapy-capability.schema.json")
             validate_capability_semantics(document)
-        except Exception:
-            _remove_capture_outputs(plan)
-            raise
+        except Exception as exc:
+            diagnostic = _retain_capture_failure(
+                plan, arguments, result, "capture_capability_evidence_rejected"
+            )
+            raise CaptureCapabilityError(
+                "capture capability evidence is invalid", diagnostic
+            ) from exc
         return document
 
 
@@ -815,6 +863,8 @@ class JsonHelperClient:
             raise CapabilityError("capability helper returned invalid JSON") from exc
         if not isinstance(document, dict):
             raise CapabilityError("capability helper response must be an object")
+        if document.get("outcome") == "rejected" and isinstance(document.get("error"), str):
+            raise CapabilityError(f"capability helper rejected {operation}: {document['error']}")
         validate_document(document, "helper-response.schema.json")
         expected = {
             "protocol_version",
@@ -1230,9 +1280,58 @@ def _evidence_plan_sha256(document: dict[str, object]) -> str:
     return capability_plan_sha256(plan)
 
 
-def _remove_capture_outputs(plan: CaptureCapabilityPlan) -> None:
-    plan.output_path.unlink(missing_ok=True)
-    plan.metadata_path.unlink(missing_ok=True)
+def _remove_untrusted_capture_output(plan: CaptureCapabilityPlan) -> None:
+    for path in (
+        plan.output_path,
+        Path(f"{plan.output_path}.incomplete"),
+        Path(f"{plan.metadata_path}.incomplete"),
+        Path(f"{plan.metadata_path}.failure.json.incomplete"),
+    ):
+        path.unlink(missing_ok=True)
+
+
+def _retain_capture_failure(
+    plan: CaptureCapabilityPlan,
+    arguments: tuple[str, ...],
+    result: LaunchResult,
+    reason: str,
+) -> Path | None:
+    """Remove untrusted IQ while preserving hash-bound helper diagnostics."""
+    _remove_untrusted_capture_output(plan)
+    native_failure = Path(f"{plan.metadata_path}.failure.json")
+    rejected_metadata = plan.metadata_path
+    document: dict[str, object] = {
+        "schema_version": 1,
+        "evidence_type": "soapy_capture_failure_diagnostic",
+        "capability_plan_sha256": capability_plan_sha256(plan.document()),
+        "arguments": list(arguments),
+        "helper": artifact(plan.helper),
+        "reason": reason,
+        "execution": {
+            "return_code": result.return_code,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "timed_out": result.timed_out,
+            "cancelled": result.cancelled,
+            "disconnected": result.disconnected,
+            "cleanup_verified": result.cleanup_verified,
+        },
+        "native_failure_metadata": artifact(native_failure)
+        if native_failure.is_file() and not native_failure.is_symlink()
+        else None,
+        "rejected_capture_metadata": artifact(rejected_metadata)
+        if rejected_metadata.is_file() and not rejected_metadata.is_symlink()
+        else None,
+        "iq_retained": False,
+    }
+    path = Path(f"{plan.metadata_path}.execution.json")
+    try:
+        if path.exists():
+            return None
+        write_json_new(path, document)
+        return path
+    except (OSError, ValueError):
+        return None
 
 
 def validate_capability_semantics(document: dict[str, object]) -> None:

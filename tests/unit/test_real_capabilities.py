@@ -12,6 +12,7 @@ from wsprrypi_qualification.application_shims import (
     WsprryPiBackendConfig,
     WsprryPiShim,
 )
+from wsprrypi_qualification.offline import artifact
 from wsprrypi_qualification.real_capabilities import (
     CapabilityError,
     CaptureCapabilityPlan,
@@ -336,13 +337,52 @@ def test_soapy_adapter_rejects_overflow_and_output_collision(tmp_path: Path) -> 
             plan, authorization(plan.document())
         )
     assert not plan.output_path.exists()
-    assert not plan.metadata_path.exists()
+    assert plan.metadata_path.exists()
+    diagnostic = Path(f"{plan.metadata_path}.execution.json")
+    retained = json.loads(diagnostic.read_text(encoding="utf-8"))
+    assert retained["reason"] == "exact_count_contract_violated"
+    assert retained["rejected_capture_metadata"] == artifact(plan.metadata_path)
+    assert retained["iq_retained"] is False
     collision = capture_plan(tmp_path / "other")
     collision.output_path.write_bytes(b"preserve")
     with pytest.raises(CapabilityError, match="new"):
         SoapyCaptureCapability(SealedFakeLauncher()).execute(
             collision, authorization(collision.document())
         )
+
+
+def test_soapy_adapter_removes_partial_iq_and_preserves_failure_diagnostics(
+    tmp_path: Path,
+) -> None:
+    plan = capture_plan(tmp_path)
+
+    class CancelledCaptureLauncher:
+        def launch(self, arguments, timeout_s, cancellation):
+            del arguments, timeout_s, cancellation
+            Path(f"{plan.output_path}.incomplete").write_bytes(b"partial IQ")
+            Path(f"{plan.metadata_path}.incomplete").write_text("partial metadata")
+            Path(f"{plan.metadata_path}.failure.json").write_text("failure metadata")
+            Path(f"{plan.metadata_path}.failure.json.incomplete").write_text(
+                "partial failure metadata"
+            )
+            return LaunchResult(None, cancelled=True, cleanup_verified=True)
+
+    with pytest.raises(CapabilityError, match="capture helper failed"):
+        SoapyCaptureCapability(CancelledCaptureLauncher()).execute(
+            plan, authorization(plan.document())
+        )
+
+    assert not plan.output_path.exists()
+    assert not Path(f"{plan.output_path}.incomplete").exists()
+    assert not Path(f"{plan.metadata_path}.incomplete").exists()
+    assert not Path(f"{plan.metadata_path}.failure.json.incomplete").exists()
+    native = Path(f"{plan.metadata_path}.failure.json")
+    diagnostic = Path(f"{plan.metadata_path}.execution.json")
+    assert native.read_text() == "failure metadata"
+    retained = json.loads(diagnostic.read_text(encoding="utf-8"))
+    assert retained["native_failure_metadata"] == artifact(native)
+    assert retained["execution"]["cancelled"] is True
+    assert retained["iq_retained"] is False
 
 
 def test_semantic_validation_rejects_tampered_ssh_encoding(tmp_path: Path) -> None:

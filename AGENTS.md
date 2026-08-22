@@ -2,8 +2,17 @@
 
 These instructions apply to the entire WsprryPi Qualification Harness.
 
-For repository orientation and maintained command/evidence breadcrumbs, read
-`docs/AGENT_OPERATIONS.md` after `CONTRACT.md` and before operating the harness.
+Before operating or changing the harness, read in this order:
+
+1. `CONTRACT.md` for safety and result semantics;
+2. `docs/AGENT_OPERATIONS.md` for agent navigation and validation;
+3. `docs/CURRENT_WORKFLOWS.md` for capability routing;
+4. `docs/CAPABILITY_MATRIX.md` for source/schema/test breadcrumbs;
+5. the relevant guide under `docs/development/`, JSON Schema, CLI `--help`,
+   production module, and tests.
+
+Treat the checked-out source and CLI help as current. Do not reconstruct an
+operation from old logs or target evidence.
 
 ## Scope and preservation
 
@@ -12,8 +21,10 @@ For repository orientation and maintained command/evidence breadcrumbs, read
 - Preserve user changes. Do not reset, clean, stash, commit, push, or create a
   pull request unless explicitly requested.
 - Keep the harness separate from WsprryPi and its submodules.
-- Keep historical files unchanged unless the user explicitly requests archival
-  correction. Promote behavior by writing reviewed production code and tests.
+- Do not add target-specific run bundles, copied host archives, evidence
+  anchors, authorization receipts, or retrospective corrections to this repo.
+  Generated `runs/` content is ignored scratch output. Transfer records that
+  must be kept to the applicable target project or approved evidence store.
 
 ## Cross-platform requirement
 
@@ -44,25 +55,33 @@ Live mode must be opt-in, fail closed, install cleanup before RF enable, bound
 every process, and verify backend-specific quiescence. A cleanup failure makes
 the run unsuccessful.
 
-## Evidence and claims
+## Output and claims
 
-- Produce immutable run directories and schema-validated result documents.
+- Produce new run directories and schema-validated result documents outside
+  source control.
 - Preserve complete decoder logs, not only matching lines.
 - Distinguish transmitter failure, receiver/fixture blockage, abort, preflight
   failure, cleanup failure, and inconclusive evidence.
 - Qualification is backend-, band-, hardware-, source-, and path-specific.
 - Decode success does not establish spectral compliance or calibrated power.
-- Pin external tool paths and versions in each evidence bundle.
+- Pin external tool paths and versions in each result bundle.
 
-## Development sequence
+## Agent validation
 
-Work in reviewed slices:
+Before proposing a change, run the safe checks applicable to it:
 
-1. schemas, portable package skeleton, dependency discovery, and offline tests;
-2. capture-helper build and mocked exact-count capture contract;
-3. offline carrier and decoder pipelines using fixtures;
-4. transport/adapters and failure-injected supervisor tests;
-5. explicitly authorized live receiver validation; and
-6. explicitly authorized bounded transmitter validation.
+```text
+python -m ruff format --check .
+python -m ruff check .
+python -m mypy src
+python -m pytest
+python -m build
+cmake -S . -B build-native -DWSPQ_BUILD_SOAPY=OFF -DWSPQ_BUILD_TESTS=ON
+cmake --build build-native --config Release
+ctest --test-dir build-native -C Release --output-on-failure
+```
 
-Do not silently advance into a later hardware slice.
+Use temporary directories for test output. Never treat offline, mock, replay,
+or source inspection as hardware qualification. Do not cross into host access,
+device access, service changes, installation, or RF without the exact authority
+required by the contract and current user request.

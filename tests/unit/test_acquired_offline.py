@@ -15,6 +15,7 @@ from wsprrypi_qualification.carrier import (
     analyze_carrier_acquired,
     load_acquired_carrier_evidence,
 )
+from wsprrypi_qualification.cli import main
 from wsprrypi_qualification.decoder import (
     load_audio_evidence,
     load_decoder_evidence,
@@ -170,6 +171,83 @@ def test_acquired_carrier_uses_profiles_and_capture_contract(tmp_path: Path) -> 
         load_acquired_carrier_evidence(evidence_path)
     finally:
         os.chdir(old_cwd)
+
+
+def test_acquired_carrier_plot_is_recomputed_and_tampering_is_rejected(tmp_path: Path) -> None:
+    rate, center, frequency, count = 4096, 10_000.0, 10_500.0, 2048
+    bench, test = profiles(tmp_path, rate=rate, center=center, frequency=frequency)
+    off, on = tmp_path / "off.cf32", tmp_path / "on.cf32"
+    np.zeros(count, dtype="<c8").tofile(off)
+    samples = np.arange(count)
+    np.asarray(0.5 * np.exp(2j * np.pi * 500 * samples / rate), dtype="<c8").tofile(on)
+    analysis, plot = tmp_path / "carrier.json", tmp_path / "carrier.png"
+    analyze_carrier_acquired(
+        off,
+        on,
+        metadata(tmp_path, "off.json", off, rate=rate, center=center),
+        metadata(tmp_path, "on.json", on, rate=rate, center=center),
+        bench,
+        test,
+        analysis,
+        fft_size=1024,
+        dc_exclusion_hz=100,
+        plot_path=plot,
+    )
+    loaded = load_acquired_carrier_evidence(analysis)
+    assert loaded.document["plot"]["artifact"]["path"] == str(plot.resolve())
+
+    original = plot.read_bytes()
+    plot.write_bytes(original[:-32] + b"0" * 32)
+    with pytest.raises(OfflineAnalysisError, match="identity changed"):
+        load_acquired_carrier_evidence(analysis)
+    plot.write_bytes(original)
+
+    changed = json.loads(analysis.read_text(encoding="utf-8"))
+    changed["plot"]["normalization"]["calibrated"] = True
+    contradictory = tmp_path / "contradictory.json"
+    contradictory.write_text(json.dumps(changed), encoding="utf-8")
+    with pytest.raises(OfflineAnalysisError, match="violates schema"):
+        load_acquired_carrier_evidence(contradictory)
+
+
+def test_analyze_carrier_cli_writes_requested_plot(tmp_path: Path) -> None:
+    rate, center, frequency, count = 4096, 10_000.0, 10_500.0, 1024
+    bench, test = profiles(tmp_path, rate=rate, center=center, frequency=frequency)
+    off, on = tmp_path / "off.cf32", tmp_path / "on.cf32"
+    np.zeros(count, dtype="<c8").tofile(off)
+    samples = np.arange(count)
+    np.asarray(0.5 * np.exp(2j * np.pi * 500 * samples / rate), dtype="<c8").tofile(on)
+    off_metadata = metadata(tmp_path, "off.json", off, rate=rate, center=center)
+    on_metadata = metadata(tmp_path, "on.json", on, rate=rate, center=center)
+    analysis, plot = tmp_path / "analysis.json", tmp_path / "carrier.svg"
+    assert (
+        main(
+            [
+                "analyze-carrier",
+                str(off),
+                str(on),
+                str(analysis),
+                "--bench-profile",
+                str(bench),
+                "--test-profile",
+                str(test),
+                "--rf-off-metadata",
+                str(off_metadata),
+                "--rf-on-metadata",
+                str(on_metadata),
+                "--fft-size",
+                "1024",
+                "--dc-exclusion-hz",
+                "100",
+                "--plot",
+                str(plot),
+            ]
+        )
+        == 0
+    )
+    document = json.loads(analysis.read_text(encoding="utf-8"))
+    assert document["plot"]["media_type"] == "image/svg+xml"
+    assert plot.is_file()
 
 
 def test_capture_metadata_output_path_is_metadata_relative_and_authenticated(

@@ -1,4 +1,4 @@
-"""Portable Phase 4 acquired-IQ replay bundle composition and validation."""
+"""Portable acquired-IQ replay bundle composition and validation."""
 
 from __future__ import annotations
 
@@ -209,7 +209,7 @@ def compose_acquired_replay(
 def validate_replay_bundle(
     bundle: Path, *, source_revision: str | None = None, recompute: bool = False
 ) -> dict[str, Any]:
-    """Authenticate a complete Phase 4 replay bundle and optionally recompute IQ evidence."""
+    """Authenticate a complete replay bundle and optionally recompute IQ evidence."""
     if not bundle.is_dir() or bundle.is_symlink():
         _fail("replay bundle must be a regular directory")
     observed_files: set[str] = set()

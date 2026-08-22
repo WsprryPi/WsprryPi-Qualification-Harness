@@ -1,11 +1,11 @@
 # WsprryPi Qualification Harness Contract
 
-## 1. Purpose
+## 1. Purpose and capabilities
 
-Build a reusable, cross-platform maintainer tool that coordinates WsprryPi
+This repository provides a reusable, cross-platform maintainer harness that coordinates WsprryPi
 transmitter qualification, exact-count complex-IQ capture, carrier analysis,
-independent WSJT-X `wsprd` decoding, lifecycle verification, and durable
-evidence packaging.
+independent WSJT-X `wsprd` decoding, lifecycle verification, and portable
+result packaging.
 
 The harness is an engineering qualification tool, not an operator transmitter
 UI, production service manager, spectrum-compliance instrument, or automatic
@@ -28,26 +28,91 @@ systemd, `/tmp`, Unix path syntax, or fork semantics in its portable core.
 Platform-specific behavior must be capability-detected and isolated behind
 adapters. Unsupported live capabilities must fail before RF is enabled.
 
-## 3. Architecture
+## 3. Harness capabilities
 
 Use a Python 3.11+ package for CLI orchestration, schemas, analysis, process
 supervision, SSH coordination, manifests, and reporting. Use CMake for the
 small C++ SoapySDR capture helper so it can be built on all target platforms.
 
-Required logical components:
+The harness provides:
 
 1. profile loader and JSON Schema validation;
 2. capability and dependency discovery;
 3. local and SSH command transports;
-4. transmitter adapters for GPIO and Si5351, with future RP1 extensibility;
+4. application-plan adapters that bind the target executable, source identity,
+   backend, output, drive, mode, and structured arguments without embedding
+   target implementation details;
 5. local SoapySDR capture adapter;
 6. exact-sample-count CF32 capture helper;
-7. RF-silence and continuous-carrier analysis;
+7. RF-silence and continuous-carrier analysis with optional authenticated
+   relative-spectrum PNG or SVG plots;
 8. WSPR-slot planning and bounded three-frame orchestration;
 9. CF32 translation, per-slot WAV generation, and `wsprd` execution;
-10. optional symbol-spacing, drift, and transition analysis;
-11. cleanup supervisor and backend-specific quiescence verification;
-12. immutable evidence bundle and summary generation.
+10. tone, QRSS, FSKCW, and DFCW reference generation, symbol-spacing, drift,
+    timing, transition, replay, and mock lifecycle analysis;
+11. offline resolved-plan, authorization, three-transaction, aggregate, result,
+    and artifact-index contracts for live QRSS, FSKCW, and DFCW coordination;
+12. sealed hardware-free QRSS, FSKCW, and DFCW coordinator rehearsal through a
+    deterministic fake adapter with lifecycle failure and cancellation injection;
+13. digest-authorized live QRSS, FSKCW, and DFCW coordination through the
+    authenticated helper, exact-count capture, service, and quiescence adapters;
+14. cleanup supervisor and backend-specific quiescence verification;
+15. immutable-per-run result bundle and summary generation.
+
+The keyed schema/validator layer is validation-only: it exposes no process,
+transport, receiver, transmitter, service, or RF operation. Its three
+transactions must have independent process, capture, acquisition, analysis, and
+artifact identities. An early-stop failure aggregate contains only the
+contiguous transactions actually attempted. Qualification requires exactly
+three passing transactions; cleanup or quiescence failure has precedence over
+measurement success.
+
+The separate production live-keyed coordinator uses that contract and binds the
+application-shim argv, executable identity, parent and component target
+revisions, receiver identity and settings,
+RF path, analyzer revision, external capability artifacts, and named services.
+The public command requires both live/RF enable flags, a non-empty operator, and
+an exact typed digest confirmation before production adapters are constructed.
+Helper deployment configuration is an immutable input to that plan: the plan
+binds the helper executable and configuration artifact identities, while the
+canonical plan digest is supplied only when the authenticated helper process is
+started. The helper rechecks both artifact hashes and rejects any plan digest
+embedded in a runtime-bound configuration. A helper configuration used this
+way must therefore not embed the digest of the plan that binds it.
+
+Each live-keyed transaction represents exactly one keyed-message transmission;
+the three required observations come from three independently owned process and
+capture transactions, not repeated messages inside one transaction. Required
+receiver services must be an explicit subset of the receiver-side service
+allowlist. They may be started only after cleanup is installed and must be
+restored to their observed initial state during transaction cleanup. Other
+allowlisted services are stopped for the transaction and likewise restored.
+When service management requires elevation, the immutable helper configuration
+must bind both the service manager and a non-interactive privilege wrapper by
+absolute path and SHA-256. The helper rechecks both identities before every
+allowlisted operation; an interactive prompt, missing authorization, or changed
+wrapper fails before transmitter launch.
+Raspberry Pi transmitter processes are never launched directly as the helper
+account. The resolved keyed plan and immutable helper configuration must bind a
+non-interactive process privilege wrapper independently from WsprryPi. The
+helper authenticates the wrapper and the requested WsprryPi executable, checks
+that the request names the plan-bound wrapper digest, and constructs only
+`WRAPPER -n -- EXACT_WSPRRYPI_ARGV`. Missing privilege, an interactive prompt,
+or wrapper/executable/argument substitution fails before RF.
+The receiver capture must establish its retained output and complete the
+resolved RF-off preamble before WsprryPi is launched. Capture setup failure or
+premature capture termination must therefore prevent transmitter launch.
+After transmitter launch, a capture-helper or receiver-evidence failure is a
+receiver/fixture blockage, not transmitter unqualification. The live keyed
+bundle must retain the bounded helper execution diagnostic and any native
+failure metadata, including stdout, stderr, return code, timeout/cancellation,
+and cleanup state. Partial or rejected IQ is removed and must never be indexed
+as a valid capture artifact.
+
+Capability reporting describes only operations supplied by this harness. A
+target backend name in a plan identifies what is being tested; it does not imply
+that the harness implements the target's synthesizer, GPIO controller, kernel
+driver, or application internals.
 
 ## 4. Configuration
 
@@ -141,7 +206,7 @@ The machine-readable final status must be exactly one of:
 Gate outcomes and failure reasons must remain separate fields. Do not flatten
 all unsuccessful runs into `failed`.
 
-## 8. Evidence bundle
+## 8. Result bundle
 
 Each run creates a new, never-reused UTC-and-test-ID directory containing:
 
@@ -149,14 +214,17 @@ Each run creates a new, never-reused UTC-and-test-ID directory containing:
 - tool, OS, package, decoder, SoapySDR, source, and submodule identities;
 - preflight, session, transmitter, capture, decoder, analysis, and cleanup logs;
 - raw IQ or its durable location, byte size, format, sample count, and SHA-256;
-- RF-off/on carrier results and plots;
+- RF-off/on carrier results and any requested authenticated plot;
 - per-slot WAV files and complete `wsprd` output;
 - frame/tone/transition results when run;
 - `result.json`; and
 - a SHA-256 manifest covering retained artifacts.
 
-Raw IQ retention is policy-controlled. It may be removed only after required
-derivatives are generated and reviewed; its metadata and hash remain.
+Run directories are operational outputs, not repository content. This harness
+does not retain target qualification evidence in Git. After review, move any
+records that must be preserved to the target project or another approved
+evidence store. Raw-IQ retention is controlled by that store's policy; do not
+commit raw IQ, copied host archives, or target-specific evidence anchors here.
 
 ## 9. External tools
 
@@ -174,7 +242,7 @@ preflight result, never an implicit fallback that changes measurement meaning.
 
 ## 10. Test strategy
 
-Hardware-free validation precedes live work. Provide:
+Hardware-free validation precedes live work. The harness test suite covers:
 
 - schema and profile tests;
 - UTC slot and sample-boundary tests;
@@ -184,8 +252,8 @@ Hardware-free validation precedes live work. Provide:
 - short-read and overflow simulation;
 - cancellation, timeout, child-process, and cleanup-failure injection;
 - golden result and manifest tests; and
-- replay tests using retained historical captures supplied outside Git when
-  they are too large to commit.
+- replay validation against temporary or operator-supplied captures outside
+  the source repository.
 
 CI must cover current macOS, Ubuntu, and Windows runners. Raspberry Pi OS and
 real SDR/transmitter validation remain separately recorded hardware gates.
@@ -201,9 +269,9 @@ records when appropriate. Keep operator-facing support changes in the separate
 Wsprry_Pi_Docs repository. Treat changes across repositories as separate review,
 commit, and push boundaries.
 
-## 12. Completion standard
+## 12. Change acceptance
 
-Do not call the project complete until portable offline workflows and CI pass,
-the capture helper builds on each supported OS, failure injection proves safe
-cleanup behavior, documentation is reviewed, and explicitly authorized live
-tests validate each claimed host/receiver/transmitter combination.
+Accept changes only when applicable portable workflows and CI pass, the capture
+helper builds on each supported OS, failure injection covers cleanup behavior,
+documentation matches the checked-out capabilities, and every hardware claim is
+supported by a separately authorized live test of that exact combination.

@@ -1,4 +1,4 @@
-"""Phase 6 read-only actual-host preflight for tone and CW-family qualification."""
+"""Read-only actual-host preflight for tone and CW-family qualification."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from wsprrypi_qualification.offline import load_json_document, validate_document
 
 
 class CwHostPreflightError(RuntimeError):
-    """The Phase 6 request or retained evidence is unsafe or contradictory."""
+    """The host-preflight request or output is unsafe or contradictory."""
 
 
 SAFE_TOKEN = re.compile(r"^[A-Za-z0-9_@%+=:,./-]+$")
@@ -461,7 +461,7 @@ def run_cw_actual_host_preflight(
         "host_results": host_results,
         "blockers": sorted(set(blockers)),
         "overall_outcome": "ready" if not blockers else "blocked",
-        "next_phase_authorized": False,
+        "live_operation_authorized": False,
     }
     validate_document(result, "cw-actual-host-preflight-result.schema.json")
     write_json_new(

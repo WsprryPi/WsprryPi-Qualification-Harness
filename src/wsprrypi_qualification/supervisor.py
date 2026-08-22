@@ -1,4 +1,4 @@
-"""Bounded, ownership-aware, single-use Slice 4 supervisor."""
+"""Bounded, ownership-aware, single-use operation supervisor."""
 
 from __future__ import annotations
 
@@ -95,7 +95,7 @@ class ResolvedPlan:
 
     def validate(self) -> None:
         if not self.mock_only:
-            raise SupervisorError("Slice 4 plans must be mock-only")
+            raise SupervisorError("mock supervisor plans must be mock-only")
         if not self.plan_id or not all(
             (
                 self.receiver_adapter,
@@ -354,7 +354,7 @@ class Supervisor:
             type(self.receiver) is not MockReceiverAdapter
             or type(self.transmitter) is not MockTransmitterAdapter
         ):
-            raise SupervisorError("Slice 4 accepts only reviewed mock lifecycle adapters")
+            raise SupervisorError("mock supervision accepts only reviewed mock lifecycle adapters")
         overall_deadline = self._monotonic() + plan.deadlines.overall_s
         self._event(
             LifecyclePhase.PREPARE,

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "evidence_type", "run_id", "created_utc", "read_only", "host_connections_performed", "rf_or_hardware_operation_performed", "qualification_claim", "host_results", "blockers", "overall_outcome", "next_phase_authorized"],
+  "required": ["schema_version", "evidence_type", "run_id", "created_utc", "read_only", "host_connections_performed", "rf_or_hardware_operation_performed", "qualification_claim", "host_results", "blockers", "overall_outcome", "live_operation_authorized"],
   "properties": {
     "schema_version": {"const": 1},
     "evidence_type": {"const": "cw_actual_host_preflight_result"},
@@ -27,7 +27,7 @@
     },
     "blockers": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
     "overall_outcome": {"enum": ["ready", "blocked"]},
-    "next_phase_authorized": {"const": false}
+    "live_operation_authorized": {"const": false}
   },
   "$defs": {
     "check": {

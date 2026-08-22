@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -94,12 +95,25 @@ class SystemctlServiceBackend:
         executable_sha256: str,
         allowed_names: frozenset[str],
         timeout_s: float,
+        privilege_wrapper: Path | None = None,
+        privilege_wrapper_sha256: str | None = None,
     ) -> None:
         if not executable.is_absolute() or not executable.is_file() or timeout_s <= 0:
             raise HelperProtocolError("systemctl provider is not safely configured")
         if _sha256(executable) != executable_sha256:
             raise HelperProtocolError("systemctl executable hash does not match configuration")
+        if (privilege_wrapper is None) is not (privilege_wrapper_sha256 is None):
+            raise HelperProtocolError("service privilege wrapper binding is incomplete")
+        if privilege_wrapper is not None:
+            if not privilege_wrapper.is_absolute() or not privilege_wrapper.is_file():
+                raise HelperProtocolError("service privilege wrapper is not safely configured")
+            if _sha256(privilege_wrapper) != privilege_wrapper_sha256:
+                raise HelperProtocolError(
+                    "service privilege wrapper hash does not match configuration"
+                )
         self.executable, self.executable_sha256 = executable, executable_sha256
+        self.privilege_wrapper = privilege_wrapper
+        self.privilege_wrapper_sha256 = privilege_wrapper_sha256
         self.allowed, self.timeout_s = allowed_names, timeout_s
 
     def inspect(self, name: str, manager: str) -> bool:
@@ -119,7 +133,7 @@ class SystemctlServiceBackend:
         self._check(name, manager)
         action = "start" if running else "stop"
         result = subprocess.run(
-            [str(self.executable), action, "--", name],
+            [*self._prefix(), str(self.executable), action, "--", name],
             shell=False,
             check=False,
             timeout=self.timeout_s,
@@ -132,8 +146,17 @@ class SystemctlServiceBackend:
     def _check(self, name: str, manager: str) -> None:
         if _sha256(self.executable) != self.executable_sha256:
             raise HelperProtocolError("systemctl executable identity changed")
+        if self.privilege_wrapper is not None and (
+            _sha256(self.privilege_wrapper) != self.privilege_wrapper_sha256
+        ):
+            raise HelperProtocolError("service privilege wrapper identity changed")
         if manager != "systemd" or name not in self.allowed:
             raise HelperProtocolError("service is outside the configured provider scope")
+
+    def _prefix(self) -> list[str]:
+        if self.privilege_wrapper is None:
+            return []
+        return [str(self.privilege_wrapper), "-n", "--"]
 
 
 class JsonInspectionBackend:
@@ -204,7 +227,22 @@ class OwnedChild:
 class OwnedProcessRegistry:
     """Own children by opaque handle and clean them with bounded escalation."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        privilege_wrapper: Path | None = None,
+        privilege_wrapper_sha256: str | None = None,
+    ) -> None:
+        if (privilege_wrapper is None) is not (privilege_wrapper_sha256 is None):
+            raise HelperProtocolError("process privilege wrapper binding is incomplete")
+        if privilege_wrapper is not None:
+            if not privilege_wrapper.is_absolute() or not privilege_wrapper.is_file():
+                raise HelperProtocolError("process privilege wrapper is not safely configured")
+            if _sha256(privilege_wrapper) != privilege_wrapper_sha256:
+                raise HelperProtocolError(
+                    "process privilege wrapper hash does not match configuration"
+                )
+        self.privilege_wrapper = privilege_wrapper
+        self.privilege_wrapper_sha256 = privilege_wrapper_sha256
         self._children: dict[str, OwnedChild] = {}
         self._lock = threading.RLock()
         self._closed = threading.Event()
@@ -213,6 +251,16 @@ class OwnedProcessRegistry:
 
     def start(self, payload: dict[str, object]) -> dict[str, object]:
         arguments = _string_list(payload, "arguments")
+        expected_wrapper_path = payload["privilege_wrapper_path"]
+        expected_wrapper_hash = payload["privilege_wrapper_sha256"]
+        configured_wrapper_path = (
+            str(self.privilege_wrapper) if self.privilege_wrapper is not None else None
+        )
+        if (
+            expected_wrapper_path != configured_wrapper_path
+            or expected_wrapper_hash != self.privilege_wrapper_sha256
+        ):
+            raise HelperProtocolError("process privilege wrapper does not match resolved plan")
         executable = Path(arguments[0])
         expected_hash = _string(payload, "executable_sha256")
         timeout = _positive_number(payload, "hard_timeout_s")
@@ -220,6 +268,10 @@ class OwnedProcessRegistry:
             raise HelperProtocolError("executable must be an existing absolute file")
         if _sha256(executable) != expected_hash:
             raise HelperProtocolError("executable SHA-256 does not match resolved plan")
+        if self.privilege_wrapper is not None and (
+            _sha256(self.privilege_wrapper) != self.privilege_wrapper_sha256
+        ):
+            raise HelperProtocolError("process privilege wrapper identity changed")
         pinned_arguments = payload.get("pinned_arguments")
         if not isinstance(pinned_arguments, dict):
             raise HelperProtocolError("pinned process arguments must be an object")
@@ -236,8 +288,11 @@ class OwnedProcessRegistry:
         environment = _environment(payload.get("environment", {}))
         out = tempfile.TemporaryFile(mode="w+b")  # noqa: SIM115
         err = tempfile.TemporaryFile(mode="w+b")  # noqa: SIM115
+        launch_arguments = arguments
+        if self.privilege_wrapper is not None:
+            launch_arguments = [str(self.privilege_wrapper), "-n", "--", *arguments]
         process = subprocess.Popen(
-            arguments,
+            launch_arguments,
             shell=False,
             env=environment,
             stdout=out,
@@ -433,6 +488,8 @@ def _validate_envelope(request: dict[str, object]) -> None:
         "process-start": {
             "arguments",
             "executable_sha256",
+            "privilege_wrapper_path",
+            "privilege_wrapper_sha256",
             "pinned_arguments",
             "hard_timeout_s",
             "environment",
@@ -467,15 +524,22 @@ def decode_request(value: str) -> dict[str, object]:
     return cast(dict[str, object], result)
 
 
-def load_server_config(path: Path) -> CapabilityHelperServer:
+def load_server_config(
+    path: Path, runtime_plan_sha256: str | None = None
+) -> CapabilityHelperServer:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise HelperProtocolError("helper configuration cannot be loaded") from exc
-    required = {"protocol_version", "helper_identity", "plan_sha256", "allowed_services"}
+    required = {"protocol_version", "helper_identity", "allowed_services"}
     optional = {
+        "plan_sha256",
         "systemctl_path",
         "systemctl_sha256",
+        "service_privilege_wrapper_path",
+        "service_privilege_wrapper_sha256",
+        "process_privilege_wrapper_path",
+        "process_privilege_wrapper_sha256",
         "service_timeout_s",
         "gpio_helper_path",
         "gpio_helper_sha256",
@@ -490,18 +554,33 @@ def load_server_config(path: Path) -> CapabilityHelperServer:
     validate_document(document, "helper-config.schema.json")
     if document["protocol_version"] != PROTOCOL_VERSION:
         raise HelperProtocolError("helper configuration protocol version is unsupported")
-    identity, digest = document["helper_identity"], document["plan_sha256"]
+    identity = document["helper_identity"]
+    configured_digest = document.get("plan_sha256")
+    if runtime_plan_sha256 is not None and configured_digest is not None:
+        raise HelperProtocolError(
+            "runtime-bound helper configuration must not contain a plan digest"
+        )
+    digest = runtime_plan_sha256 or configured_digest
     services = document["allowed_services"]
     if (
         not isinstance(identity, str)
         or not identity
         or not isinstance(digest, str)
-        or len(digest) != 64
+        or re.fullmatch(r"[0-9a-f]{64}", digest) is None
         or not isinstance(services, list)
         or not all(isinstance(item, str) and item for item in services)
     ):
         raise HelperProtocolError("helper configuration values are invalid")
     allowed = frozenset(cast(list[str], services))
+    process_wrapper = (
+        Path(cast(str, document["process_privilege_wrapper_path"]))
+        if "process_privilege_wrapper_path" in document
+        else None
+    )
+    process_registry = OwnedProcessRegistry(
+        process_wrapper,
+        cast(str | None, document.get("process_privilege_wrapper_sha256")),
+    )
     service_backend: ServiceBackend | None = None
     if "systemctl_path" in document:
         if "systemctl_sha256" not in document:
@@ -511,6 +590,12 @@ def load_server_config(path: Path) -> CapabilityHelperServer:
             cast(str, document["systemctl_sha256"]),
             allowed,
             float(document.get("service_timeout_s", 5.0)),
+            (
+                Path(cast(str, document["service_privilege_wrapper_path"]))
+                if "service_privilege_wrapper_path" in document
+                else None
+            ),
+            cast(str | None, document.get("service_privilege_wrapper_sha256")),
         )
     inspection_timeout = float(document.get("inspection_timeout_s", 5.0))
     gpio_backend: GpioBackend | None = None
@@ -555,6 +640,7 @@ def load_server_config(path: Path) -> CapabilityHelperServer:
         identity,
         digest,
         allowed,
+        processes=process_registry,
         services=service_backend,
         gpio=gpio_backend,
         si5351=si5351_backend,
@@ -589,8 +675,24 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--serve", action="store_true", required=True)
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument(
+        "--plan-sha256", help="runtime authorized plan digest; never write it into this config"
+    )
+    parser.add_argument("--helper-sha256", help="expected SHA-256 of this helper executable")
+    parser.add_argument("--config-sha256", help="expected SHA-256 of the immutable configuration")
     options = parser.parse_args(argv)
-    return serve(load_server_config(options.config))
+    runtime_identity = (options.helper_sha256, options.config_sha256)
+    if options.plan_sha256 is not None:
+        if any(value is None for value in runtime_identity):
+            parser.error("runtime plan binding requires helper and configuration SHA-256")
+        executable = Path(sys.argv[0]).resolve()
+        if not executable.is_file() or _sha256(executable) != options.helper_sha256:
+            raise HelperProtocolError("helper executable SHA-256 does not match runtime binding")
+        if not options.config.is_file() or _sha256(options.config) != options.config_sha256:
+            raise HelperProtocolError("helper configuration SHA-256 does not match runtime binding")
+    elif any(value is not None for value in runtime_identity):
+        parser.error("helper identity bindings require a runtime plan digest")
+    return serve(load_server_config(options.config, options.plan_sha256))
 
 
 def _sha256(path: Path) -> str:

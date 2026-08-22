@@ -1,4 +1,4 @@
-# Hardware-free receiver integration preparation
+# Hardware-free receiver lifecycle validation
 
 `ReceiverIntegrationSession` is a receiver-only lifecycle distinct from the
 transmitter-oriented `RealQualificationSession`. It is currently fixed to
@@ -28,7 +28,7 @@ covers capability, identity, ownership, RF path, exact count, overflow,
 timeout, cancellation, disconnect, clipping, helper exit, partial cleanup
 registration, stop/shutdown/coordination cleanup, and independent release.
 Bundle validation requires the exact lifecycle appropriate to the failure
-point; omitting a helper, capture, cleanup, or release phase is invalid. It
+point; omitting a required helper, capture, cleanup, or release step is invalid. It
 also derives cleanup truth from the component details, parses the strict
 capture-metadata document, and independently scans the retained interleaved
 little-endian CF32 bytes for exact sample count, finite values, and
@@ -61,13 +61,12 @@ physical-device activity.
 The bundle retains one authoritative `chronology.started_utc`, identical to
 the UTC timestamp encoded in the run ID. Runtime authorization may be recorded
 from exactly that instant through the inclusive `overall_s` interval before
-it; future or older evidence is invalid. Durable validation compares parsed
+it; evidence outside that interval is invalid. Durable validation compares parsed
 aware UTC datetimes and the plan-bound freshness interval, not the reviewer's
 current clock. The standalone and embedded authorization documents must remain
 identical.
 
-The next gate is not automatic. The complete macOS, Ubuntu, and native Windows
-CI matrix must pass. Then the operator must separately authorize the exact
-read-only SSH command contract before either `wspr4` or `wspr5` is contacted.
-Physical SDR discovery, opening, configuration, capture, and each failure test
-remain later separately authorized boundaries.
+This capability remains hardware-free. The macOS, Ubuntu, and native Windows CI
+matrix validates its portable contract. Contacting `wspr4` or `wspr5` requires
+separate authorization for the exact read-only SSH contract; physical SDR
+discovery, opening, configuration, and capture require their own authorization.

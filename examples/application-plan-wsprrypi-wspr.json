@@ -12,7 +12,7 @@
     "144489000"
   ],
   "backend": "si5351",
-  "cleanup_contract": "future backend-specific disable and verified quiescence",
+  "cleanup_contract": "backend-specific disable and verified quiescence",
   "evidence_type": "application_plan",
   "execution_authorized": false,
   "identity": {
@@ -35,6 +35,6 @@
   "random_offset_enabled": false,
   "schema_version": 1,
   "self_terminating_request": true,
-  "stopping_contract": "future supervisor deadline and application termination",
+  "stopping_contract": "supervisor deadline and application termination",
   "supervisor_required": true
 }

@@ -48,7 +48,12 @@ def load_deployment_config(
     services = document["allowed_services"]
     if not services or len(services) > 16 or any("*" in item for item in services):
         raise DeploymentError("service allowlist must be narrow, explicit, and nonempty")
-    for name in ("python", "helper", "systemctl", "gpio", "si5351"):
+    executable_names = ["python", "helper", "systemctl", "gpio", "si5351"]
+    if "service_privilege_wrapper" in document["executables"]:
+        executable_names.append("service_privilege_wrapper")
+    if "process_privilege_wrapper" in document["executables"]:
+        executable_names.append("process_privilege_wrapper")
+    for name in executable_names:
         configured = document["executables"][name]
         executable = Path(configured["path"])
         if not executable.is_absolute() or not executable.is_file():
@@ -63,13 +68,14 @@ def load_deployment_config(
     return cast(dict[str, Any], document)
 
 
-def runtime_helper_config(document: dict[str, Any]) -> dict[str, object]:
+def runtime_helper_config(
+    document: dict[str, Any], *, plan_digest_at_startup: bool = False
+) -> dict[str, object]:
     """Translate deployment facts to the capability helper's runtime schema."""
     executables = document["executables"]
     result: dict[str, object] = {
         "protocol_version": document["protocol_version"],
         "helper_identity": document["helper_identity"],
-        "plan_sha256": document["plan_sha256"],
         "allowed_services": document["allowed_services"],
         "systemctl_path": executables["systemctl"]["path"],
         "systemctl_sha256": executables["systemctl"]["sha256"],
@@ -80,6 +86,16 @@ def runtime_helper_config(document: dict[str, Any]) -> dict[str, object]:
         "si5351_helper_sha256": executables["si5351"]["sha256"],
         "inspection_timeout_s": 5.0,
     }
+    if not plan_digest_at_startup:
+        result["plan_sha256"] = document["plan_sha256"]
+    if "service_privilege_wrapper" in executables:
+        wrapper = executables["service_privilege_wrapper"]
+        result["service_privilege_wrapper_path"] = wrapper["path"]
+        result["service_privilege_wrapper_sha256"] = wrapper["sha256"]
+    if "process_privilege_wrapper" in executables:
+        wrapper = executables["process_privilege_wrapper"]
+        result["process_privilege_wrapper_path"] = wrapper["path"]
+        result["process_privilege_wrapper_sha256"] = wrapper["sha256"]
     for field in ("bounded_tone_endpoint", "wsprrypi_revision"):
         if field in document:
             result[field] = deepcopy(document[field])

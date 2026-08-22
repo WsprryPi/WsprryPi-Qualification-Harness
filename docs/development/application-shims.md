@@ -1,7 +1,7 @@
 # Application shims and protocol plans
 
-Status: maintained hardware-free architecture. This is preparation for, not
-execution of, bounded transmitter validation.
+Application shims build and validate target-specific structured argument plans
+without executing the target.
 
 The harness owns safety preflight, receiver coordination, deadlines, cleanup,
 classification, and immutable evidence. An application shim has the smaller job
@@ -32,7 +32,7 @@ hard-bounded process.
 - QRSS carries message, carrier frequency, and dot duration.
 - FSKCW carries message, mark and space frequencies, and dot duration.
 - DFCW carries message, dot and dash frequencies, and dot duration.
-- Hellschreiber is a named future mode and is explicitly unsupported.
+- Hellschreiber is named but explicitly unsupported.
 
 QRSS, FSKCW, and DFCW use WsprryPi's transient startup interfaces. They are not
 silently treated as WSPR, and one mode's evidence cannot qualify another mode.
@@ -40,10 +40,13 @@ FSKCW requires mark above space; DFCW requires two distinct tones.
 Application support likewise does not establish backend, band, RF-path, power,
 filtering, or spectral qualification.
 
-## Future live integration gate
+## Live integration boundary
 
-A separately authorized transmitter workflow may pass a validated plan to
-the existing transport and supervisor. Before that can happen it must also bind
+The public live carrier command accepts TONE only. The harness has offline live
+QRSS, FSKCW, and DFCW plan/transaction/result contracts, but no process-capable
+public coordinator yet; the contracts, application shims, and offline analyzers
+do not authorize or execute hardware. Any separately
+authorized transmitter workflow that uses a validated keyed-mode plan must bind
 the per-run RF path and operator confirmation, install cleanup, verify idle
 hardware, enforce receiver/transmitter deadlines, and retain application stdout,
 stderr, return code, identity, arguments, and quiescence evidence. No universal

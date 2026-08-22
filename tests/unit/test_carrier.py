@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from wsprrypi_qualification.carrier import CarrierParameters, analyze_carrier
+from wsprrypi_qualification.carrier_plot import inspect_carrier_plot
 from wsprrypi_qualification.cf32 import inspect_cf32
 from wsprrypi_qualification.offline import OfflineAnalysisError
 
@@ -59,6 +60,76 @@ def test_carrier_gate_pass_fail_full_span_and_determinism(tmp_path: Path) -> Non
     )
     assert failed["gate_outcome"] == "failed"
     assert failed["metrics"]["strongest_features"]
+
+
+@pytest.mark.parametrize(
+    ("suffix", "media_type"), ((".png", "image/png"), (".svg", "image/svg+xml"))
+)
+def test_carrier_plot_is_rendered_bound_and_portable(
+    tmp_path: Path, suffix: str, media_type: str
+) -> None:
+    rate, size, center = 4096, 1024, 10_000.0
+    off = write_cf32(tmp_path / "rf off.cf32", np.zeros(size * 2))
+    on = write_cf32(tmp_path / "rf on.cf32", tone(size * 2, rate, 500))
+    plot = tmp_path / f"carrier plot{suffix}"
+    result = analyze_carrier(
+        off,
+        on,
+        CarrierParameters(rate, center, center + 500, fft_size=size, dc_exclusion_hz=100),
+        tmp_path / f"analysis-{suffix[1:]}.json",
+        plot_path=plot,
+    )
+    assert inspect_carrier_plot(result) == plot.resolve()
+    assert result["plot"]["media_type"] == media_type
+    assert result["plot"]["width_px"] == 1200
+    assert result["plot"]["height_px"] == 600
+    assert result["plot"]["renderer"]["name"] == "matplotlib-agg"
+    assert result["plot"]["normalization"]["calibrated"] is False
+    assert "relative captured-span measurement" in result["limitations"][0]
+    if suffix == ".png":
+        from matplotlib.image import imread
+
+        pixels = imread(plot)
+        assert pixels.shape[:2] == (600, 1200)
+        assert float(np.std(pixels)) > 0.01
+        assert np.count_nonzero(np.any(pixels[..., :3] < 0.95, axis=2)) > 1_000
+    else:
+        assert "RF-on minus RF-off residual spectrum" in plot.read_text(encoding="utf-8")
+
+
+def test_carrier_plot_rejects_invalid_format_and_tampering(tmp_path: Path) -> None:
+    rate, size, center = 4096, 1024, 10_000.0
+    off = write_cf32(tmp_path / "off.cf32", np.zeros(size))
+    on = write_cf32(tmp_path / "on.cf32", tone(size, rate, 500))
+    parameters = CarrierParameters(rate, center, center + 500, fft_size=size, dc_exclusion_hz=100)
+    with pytest.raises(OfflineAnalysisError, match=r"\.png or \.svg"):
+        analyze_carrier(off, on, parameters, tmp_path / "bad.json", plot_path=tmp_path / "bad.pdf")
+
+    plot = tmp_path / "carrier.png"
+    document = analyze_carrier(off, on, parameters, tmp_path / "analysis.json", plot_path=plot)
+    plot.write_bytes(plot.read_bytes() + b"tampered")
+    with pytest.raises(OfflineAnalysisError, match="identity changed"):
+        inspect_carrier_plot(document)
+
+    plot.unlink()
+    with pytest.raises(OfflineAnalysisError, match="missing or unreadable"):
+        inspect_carrier_plot(document)
+
+
+def test_carrier_plot_source_binding_rejects_contradictory_analysis(tmp_path: Path) -> None:
+    rate, size, center = 4096, 1024, 10_000.0
+    off = write_cf32(tmp_path / "off.cf32", np.zeros(size))
+    on = write_cf32(tmp_path / "on.cf32", tone(size, rate, 500))
+    document = analyze_carrier(
+        off,
+        on,
+        CarrierParameters(rate, center, center + 500, fft_size=size, dc_exclusion_hz=100),
+        tmp_path / "analysis.json",
+        plot_path=tmp_path / "carrier.svg",
+    )
+    document["metrics"]["strongest_offset_hz"] += 1
+    with pytest.raises(OfflineAnalysisError, match="source analysis binding"):
+        inspect_carrier_plot(document)
 
 
 def test_relative_acquisition_accepts_plausible_uncalibrated_receiver_offset(

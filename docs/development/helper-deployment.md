@@ -1,4 +1,4 @@
-# Hardware-free Raspberry Pi OS helper deployment preparation
+# Raspberry Pi OS helper deployment validation
 
 This document specifies a deployment procedure; it does not install, enable,
 start, or contact a helper. Actual-host validation remains separate.
@@ -31,9 +31,16 @@ Portable consumers invoke the packaged resource with the selected Python
 interpreter; they do not rely on a Unix executable mode surviving a Windows
 wheel installation.
 Validate it offline with the maintained Python loader before startup. The
-helper identity, protocol version, complete resolved-plan digest, exact service
-allowlist, provider selection, GPIO line contract, and Si5351 bus/address/output
-contract must be deployment-specific. A universal receiver authorization never
+helper identity, protocol version, exact service allowlist, provider selection,
+GPIO line contract, and Si5351 bus/address/output contract must be
+deployment-specific. For live keyed coordination, generate the immutable helper
+configuration with
+`runtime_helper_config(document, plan_digest_at_startup=True)`; this intentionally
+omits `plan_sha256` from the translated helper document while retaining it in
+the deployment record. The resolved plan binds the generated configuration
+artifact; the launcher then supplies the separately authorized plan digest and
+expected helper/configuration hashes at startup. A runtime-bound configuration
+containing a plan digest is rejected. A universal receiver authorization never
 imports these facts or authorizes transmission.
 
 The deployment document is not passed directly to the persistent helper. After
@@ -41,6 +48,23 @@ validation, the maintained `runtime_helper_config()` translator emits the
 helper's smaller runtime schema; write that generated document to the configured
 runtime path. Deployment-only facts therefore cannot be mistaken for helper
 protocol inputs.
+
+When the helper account needs elevation for service changes, add the optional
+`executables.service_privilege_wrapper` binding. The translator places its
+absolute path and SHA-256 in the runtime helper configuration. The service
+backend rechecks it and the pinned `systemctl` executable before every request
+and invokes the wrapper with non-interactive arguments only. For `/usr/bin/sudo`,
+provision narrow passwordless policy for the exact allowlisted service actions
+and verify it with `sudo -n -l`; never grant shell or wildcard service access.
+
+For Raspberry Pi transmitter helpers, also add
+`executables.process_privilege_wrapper`. The translator binds it separately as
+`process_privilege_wrapper_path` and `process_privilege_wrapper_sha256`. A keyed
+resolved plan must independently bind that same wrapper artifact. Process-start
+requests name its digest, while the helper constructs the fixed
+`/usr/bin/sudo -n -- EXACT_EXECUTABLE EXACT_ARGUMENTS` invocation. Do not place
+`sudo` in application argv, permit an interactive prompt, or allow an arbitrary
+shell command through sudo policy.
 
 GPIO and Si5351 operations remain read-only. Each provider is a directly pinned
 executable. If a Python interpreter launches a fixture or provider script, that
@@ -71,9 +95,10 @@ create a new immutable virtual environment, validate it, then atomically select
 the reviewed version. Rollback selects the retained prior environment and its
 matching configuration. Removal first verifies no owned child remains, then
 removes only the explicit unit/configuration/environment/state paths. These
-steps are future operator procedures, not commands executed by this phase.
+steps are operator procedures, not commands executed by the validator.
 
-Future topology: `wspr5` hosts the SDR and `wspr4` can transmit. Before any
+The supported split-host topology can use `wspr5` for the SDR and `wspr4` for
+transmission. Before any
 connection, read-only inspection, service action, SDR opening, or RF, the
 operator must establish that neither host has ongoing work that could be
 interrupted. Uncertainty fails closed.

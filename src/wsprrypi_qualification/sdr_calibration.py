@@ -222,7 +222,7 @@ def load_profile(path: Path, *, verify_integrity: bool = True) -> dict[str, Any]
             raise SdrCalibrationError("profile SHA-256 does not match its canonical payload")
         if "signature" in profile["integrity"]:
             raise SdrCalibrationError(
-                "signed profiles require an Ed25519 verifier, which this slice does not provide"
+                "signed profiles require a configured Ed25519 verifier and trust-store policy"
             )
     return profile
 

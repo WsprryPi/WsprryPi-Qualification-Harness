@@ -9,9 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PROVIDER = ROOT / "deployment" / "raspberry-pi-os" / "wspq-gpio-inspect"
-ANCHOR = ROOT / "evidence-anchors" / "bounded-carrier-original-anchors.json"
 WHEEL_PROVIDER = "wsprrypi_qualification/deployment_assets/wspq-gpio-inspect"
-WHEEL_ANCHOR = "wsprrypi_qualification/evidence_anchors/bounded-carrier-original-anchors.json"
 
 
 def digest(value: bytes) -> str:
@@ -34,20 +32,12 @@ def test_sdist_and_wheel_retain_exact_reviewed_assets(tmp_path: Path) -> None:
     sdists = list(output.glob("*.tar.gz"))
     assert len(wheels) == len(sdists) == 1
     provider_bytes = PROVIDER.read_bytes()
-    anchor_bytes = ANCHOR.read_bytes()
     with zipfile.ZipFile(wheels[0]) as archive:
         names = archive.namelist()
         assert names.count(WHEEL_PROVIDER) == 1
-        assert names.count(WHEEL_ANCHOR) == 1
         packaged_provider = archive.read(WHEEL_PROVIDER)
         assert packaged_provider == provider_bytes
         assert digest(packaged_provider) == digest(provider_bytes)
-        assert archive.read(WHEEL_ANCHOR) == anchor_bytes
-        assert names.count("wsprrypi_qualification/schemas/carrier-run-correction.schema.json") == 1
-        assert (
-            names.count("wsprrypi_qualification/schemas/carrier-runtime-authorization.schema.json")
-            == 1
-        )
         # Portable invocation is explicit through Python; Windows need not preserve a Unix mode.
         assert packaged_provider.splitlines()[0] == b"#!/usr/bin/env python3"
     with tarfile.open(sdists[0], "r:gz") as archive:

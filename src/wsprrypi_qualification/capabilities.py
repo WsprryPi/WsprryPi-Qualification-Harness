@@ -32,46 +32,45 @@ def _tool_capability(name: str) -> CapabilityResult:
 
 def capability_report() -> dict[str, Any]:
     tools = [_tool_capability(name).to_dict() for name in EXTERNAL_TOOLS]
-    mock_only = {
-        "ssh_command",
-        "local_soapy_capture",
-        "service_inspection",
-        "gpio_quiescence",
-        "si5351_quiescence",
+    descriptions = {
+        "local_command": "bounded local child execution",
+        "ssh_command": "structured bounded OpenSSH transport",
+        "local_soapy_capture": "exact-count local SoapySDR capture through the native helper",
+        "service_inspection": (
+            "allowlisted service inspection, restoration, and transaction recording"
+        ),
+        "gpio_quiescence": "backend-specific GPIO idle-state verification",
+        "si5351_quiescence": "backend-specific Si5351 output-disable verification",
+        "carrier_analysis": (
+            "RF-off-subtracted continuous-carrier analysis with authenticated "
+            "Matplotlib Agg PNG/SVG plotting"
+        ),
+        "wspr_decode": "UTC-slot WAV generation, independent wsprd execution, and decode summary",
+        "cw_analysis": "tone, QRSS, FSKCW, and DFCW reference, IQ, replay, and mode analysis",
+        "live_keyed_contracts": (
+            "offline-only QRSS, FSKCW, and DFCW three-transaction plan, authorization, "
+            "aggregate, result, and artifact-index validation"
+        ),
+        "hardware_free_keyed_coordination": (
+            "sealed deterministic QRSS, FSKCW, and DFCW three-transaction lifecycle "
+            "rehearsal with failure and cancellation injection"
+        ),
+        "live_keyed_coordination": (
+            "digest-authorized three-transaction QRSS, FSKCW, and DFCW coordination "
+            "through authenticated helper, capture, service, and quiescence adapters"
+        ),
+        "live_wspr_coordination": (
+            "digest-authorized split-host carrier gate and three-frame WSPR lifecycle"
+        ),
+        "live_tone_coordination": "digest-authorized bounded live TONE lifecycle",
     }
     adapters = [
         CapabilityResult(
             name,
-            CapabilityState.AVAILABLE
-            if name == "local_command"
-            else CapabilityState.UNSUPPORTED
-            if name in mock_only
-            else CapabilityState.NOT_IMPLEMENTED,
-            "bounded local child execution is implemented"
-            if name == "local_command"
-            else (
-                "native capture helper is implemented and wspr5-validated; "
-                "production adapter contract exists but no live provider is configured, so "
-                "orchestration remains unsupported"
-            )
-            if name == "local_soapy_capture"
-            else (
-                "production adapter contract exists; provider configuration and live "
-                "validation remain unsupported"
-            )
-            if name in mock_only
-            else "adapter is outside Slice 4",
+            CapabilityState.AVAILABLE,
+            description,
         ).to_dict()
-        for name in (
-            "local_command",
-            "ssh_command",
-            "local_soapy_capture",
-            "remote_capture",
-            "service_inspection",
-            "gpio_quiescence",
-            "si5351_quiescence",
-            "rp1_gpclk",
-        )
+        for name, description in descriptions.items()
     ]
     return {
         "schema_version": 1,

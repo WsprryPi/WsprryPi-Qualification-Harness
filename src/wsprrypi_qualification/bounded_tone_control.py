@@ -17,6 +17,41 @@ class BoundedToneControlError(RuntimeError):
     """The bounded Tone transaction failed closed."""
 
 
+MAX_INTERLEAVED_RESPONSES = 64
+
+
+def _response_text(response: dict[str, Any]) -> str:
+    return json.dumps(response, sort_keys=True, separators=(",", ":"))
+
+
+def _receive_correlated(
+    websocket: LoopbackWebSocket,
+    *,
+    request_id: str,
+    phase: str,
+    observed: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Ignore bounded unrelated broadcasts while retaining a strict frame bound."""
+    for _ in range(MAX_INTERLEAVED_RESPONSES):
+        response = websocket.receive_json()
+        observed.append(response)
+        if response.get("command") != "bounded_tone":
+            continue
+        if response.get("request_id") != request_id:
+            continue
+        if phase == "start" and response.get("event") is None:
+            return response
+        if phase == "terminal" and response.get("event") == "completed":
+            return response
+        raise BoundedToneControlError(
+            f"bounded Tone {phase} received an unexpected correlated response: "
+            + _response_text(response)
+        )
+    raise BoundedToneControlError(
+        f"bounded Tone {phase} response exceeded the interleaved frame bound"
+    )
+
+
 @dataclass(frozen=True)
 class BoundedToneEndpoint:
     host: str
@@ -186,6 +221,7 @@ def run_bounded_tone_transaction(
     request_sent = False
     start_response: dict[str, Any] | None = None
     terminal_response: dict[str, Any] | None = None
+    observed_responses: list[dict[str, Any]] = []
     try:
         with LoopbackWebSocket(endpoint, transaction_deadline) as websocket:
             websocket.send_json(
@@ -198,7 +234,12 @@ def run_bounded_tone_transaction(
                 }
             )
             request_sent = True
-            start_response = websocket.receive_json()
+            start_response = _receive_correlated(
+                websocket,
+                request_id=request_id,
+                phase="start",
+                observed=observed_responses,
+            )
             if (
                 start_response.get("command") != "bounded_tone"
                 or start_response.get("request_id") != request_id
@@ -206,8 +247,15 @@ def run_bounded_tone_transaction(
                 or start_response.get("started") is not True
                 or start_response.get("duration_ms") != duration_ms
             ):
-                raise BoundedToneControlError("bounded Tone start was not acknowledged")
-            terminal_response = websocket.receive_json()
+                raise BoundedToneControlError(
+                    "bounded Tone start was not acknowledged: " + _response_text(start_response)
+                )
+            terminal_response = _receive_correlated(
+                websocket,
+                request_id=request_id,
+                phase="terminal",
+                observed=observed_responses,
+            )
             if (
                 terminal_response.get("command") != "bounded_tone"
                 or terminal_response.get("event") != "completed"
@@ -216,7 +264,10 @@ def run_bounded_tone_transaction(
                 or terminal_response.get("stopped") is not True
                 or terminal_response.get("scheduler_restored") is not True
             ):
-                raise BoundedToneControlError("bounded Tone terminal evidence is invalid")
+                raise BoundedToneControlError(
+                    "bounded Tone terminal evidence is invalid: "
+                    + _response_text(terminal_response)
+                )
     except Exception:
         if request_sent:
             cleanup_attempted = True
@@ -240,6 +291,7 @@ def run_bounded_tone_transaction(
         "maximum_frame_bytes": endpoint.maximum_frame_bytes,
         "start_response": start_response,
         "terminal_response": terminal_response,
+        "observed_responses": observed_responses,
         "cleanup_attempted": cleanup_attempted,
         "completed": True,
         "qualification_claim": False,

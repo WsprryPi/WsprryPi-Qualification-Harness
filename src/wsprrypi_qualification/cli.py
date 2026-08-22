@@ -1,4 +1,4 @@
-"""Portable command-line interface through Slice 5."""
+"""Portable command-line interface for qualification-harness capabilities."""
 
 from __future__ import annotations
 
@@ -47,6 +47,13 @@ from wsprrypi_qualification.cw_replay import (
 )
 from wsprrypi_qualification.decoder import run_wsprd_acquired, summarize_decodes
 from wsprrypi_qualification.deployment import DeploymentError, load_deployment_config
+from wsprrypi_qualification.keyed_session_contracts import (
+    KeyedSessionContractError,
+    compose_keyed_runtime_authorization,
+    resolved_keyed_plan_sha256,
+    validate_resolved_keyed_plan,
+)
+from wsprrypi_qualification.live_keyed import LiveKeyedError, run_live_keyed_session
 from wsprrypi_qualification.offline import OfflineAnalysisError, write_offline_failure
 from wsprrypi_qualification.profiles import ProfileError, load_profile
 from wsprrypi_qualification.real_session import (
@@ -101,7 +108,7 @@ def _parser() -> argparse.ArgumentParser:
     cw_evidence.add_argument("path", type=Path)
     cw_contract = subparsers.add_parser(
         "validate-cw-contract-chain",
-        help="validate the Phase 1 tone/CW-family evidence contract chain",
+        help="validate the tone/CW-family document chain",
     )
     cw_contract.add_argument("plan", type=Path)
     cw_contract.add_argument("expected_events", type=Path)
@@ -110,14 +117,14 @@ def _parser() -> argparse.ArgumentParser:
     cw_contract.add_argument("session", type=Path)
     cw_reference = subparsers.add_parser(
         "generate-cw-expected-events",
-        help="generate a Phase 2 reference timeline without hardware access",
+        help="generate a reference timeline without hardware access",
     )
     cw_reference.add_argument("plan", type=Path)
     cw_reference.add_argument("output", type=Path)
     cw_reference.add_argument("--source-revision", required=True)
     cw_fixture = subparsers.add_parser(
         "generate-cw-synthetic-iq",
-        help="generate deterministic Phase 3 synthetic CF32LE without hardware",
+        help="generate deterministic synthetic CF32LE without hardware",
     )
     cw_fixture.add_argument("plan", type=Path)
     cw_fixture.add_argument("expected_events", type=Path)
@@ -126,7 +133,7 @@ def _parser() -> argparse.ArgumentParser:
     cw_fixture.add_argument("--seed", type=int, required=True)
     cw_analyzer = subparsers.add_parser(
         "analyze-cw-synthetic-iq",
-        help="analyze Phase 3 synthetic IQ; output can never qualify hardware",
+        help="analyze synthetic IQ; output can never qualify hardware",
     )
     cw_analyzer.add_argument("plan", type=Path)
     cw_analyzer.add_argument("expected_events", type=Path)
@@ -136,7 +143,7 @@ def _parser() -> argparse.ArgumentParser:
     cw_analyzer.add_argument("--source-revision", required=True)
     cw_replay = subparsers.add_parser(
         "compose-cw-acquired-replay",
-        help="compose a Phase 4 acquired-IQ replay bundle; never qualifies hardware",
+        help="compose an acquired-IQ replay bundle; never qualifies hardware",
     )
     cw_replay.add_argument("plan", type=Path)
     cw_replay.add_argument("expected_events", type=Path)
@@ -145,12 +152,12 @@ def _parser() -> argparse.ArgumentParser:
     cw_replay.add_argument("--source-revision", required=True)
     cw_replay_validate = subparsers.add_parser(
         "validate-cw-acquired-replay",
-        help="authenticate and recompute a non-qualifying Phase 4 replay bundle",
+        help="authenticate and recompute a non-qualifying replay bundle",
     )
     cw_replay_validate.add_argument("bundle", type=Path)
     cw_lifecycle = subparsers.add_parser(
         "run-cw-mock-lifecycle",
-        help="run a bounded Phase 5 mock-only lifecycle; never qualifies hardware",
+        help="run a bounded mock-only lifecycle; never qualifies hardware",
     )
     cw_lifecycle.add_argument("plan", type=Path)
     cw_lifecycle.add_argument("expected_events", type=Path)
@@ -160,12 +167,12 @@ def _parser() -> argparse.ArgumentParser:
     cw_lifecycle.add_argument("--injection", choices=tuple(sorted(INJECTIONS)), default="none")
     cw_lifecycle_validate = subparsers.add_parser(
         "validate-cw-mock-lifecycle",
-        help="authenticate Phase 5 mock-only lifecycle evidence",
+        help="authenticate mock-only lifecycle evidence",
     )
     cw_lifecycle_validate.add_argument("path", type=Path)
     host_preflight = subparsers.add_parser(
         "run-cw-actual-host-preflight",
-        help="run the Phase 6 read-only actual-host preflight; never transmits or qualifies",
+        help="run the read-only actual-host preflight; never transmits or qualifies",
     )
     host_preflight.add_argument("plan", type=Path)
     host_preflight.add_argument("output_parent", type=Path)
@@ -176,7 +183,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     host_preflight_validate = subparsers.add_parser(
         "validate-cw-actual-host-preflight",
-        help="authenticate a retained Phase 6 preflight bundle",
+        help="authenticate a read-only host-preflight bundle",
     )
     host_preflight_validate.add_argument("bundle", type=Path)
     deployment = subparsers.add_parser(
@@ -208,6 +215,28 @@ def _parser() -> argparse.ArgumentParser:
     live_tone.add_argument("--operator", required=True)
     live_tone.add_argument("--enable-live-tone", action="store_true", required=True)
     live_tone.add_argument("--enable-rf", action="store_true", required=True)
+    live_keyed = subparsers.add_parser(
+        "run-cw-live-keyed",
+        help=(
+            "run the digest-bound three-transaction QRSS/FSKCW/DFCW lifecycle; "
+            "Raspberry Pi transmitters require a plan-bound noninteractive privilege wrapper"
+        ),
+    )
+    live_keyed.add_argument("plan", type=Path)
+    live_keyed.add_argument("output_parent", type=Path)
+    live_keyed.add_argument("--work-directory", type=Path, required=True)
+    live_keyed.add_argument("--ssh", type=Path, required=True)
+    live_keyed.add_argument("--operator", required=True)
+    live_keyed.add_argument(
+        "--confirm-plan-sha256",
+        required=True,
+        help=(
+            "exact canonical digest of the resolved plan, supplied separately "
+            "from helper configuration"
+        ),
+    )
+    live_keyed.add_argument("--enable-live-keyed", action="store_true", required=True)
+    live_keyed.add_argument("--enable-rf", action="store_true", required=True)
     simulator = subparsers.add_parser(
         "simulate-qualification", help="run the bounded hardware-free lifecycle simulator"
     )
@@ -245,6 +274,11 @@ def _parser() -> argparse.ArgumentParser:
     carrier.add_argument("--rf-off-metadata", type=Path, required=True)
     carrier.add_argument("--rf-on-metadata", type=Path, required=True)
     carrier.add_argument("--relocation-bundle", type=Path)
+    carrier.add_argument(
+        "--plot",
+        type=Path,
+        help="write an authenticated relative-spectrum plot (.png or .svg)",
+    )
     audio = subparsers.add_parser("make-slot-wav", help="translate offline CF32 to a UTC-slot WAV")
     audio.add_argument("iq", type=Path)
     audio.add_argument("capture_metadata", type=Path)
@@ -272,6 +306,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if (LIVE_COMMANDS.intersection(arguments) or "--enable-rf" in arguments) and not {
         "run-live-session",
         "run-cw-live-tone",
+        "run-cw-live-keyed",
     }.intersection(arguments):
         print("live RF and hardware actions are unavailable in the portable CLI", file=sys.stderr)
         return 2
@@ -609,6 +644,42 @@ def main(argv: Sequence[str] | None = None) -> int:
                 else 1
             )
         return 0 if result["final_status"] == "qualified" else 1
+    if args.command == "run-cw-live-keyed":
+        try:
+            document = json.loads(args.plan.read_text(encoding="utf-8"))
+            if not isinstance(document, dict):
+                raise LiveKeyedError("live keyed plan must be a JSON object")
+            resolved = validate_resolved_keyed_plan(document)
+            digest = resolved_keyed_plan_sha256(resolved)
+            if args.confirm_plan_sha256 != digest:
+                raise LiveKeyedError("typed plan digest confirmation did not match")
+            if not args.operator.strip():
+                raise LiveKeyedError("operator identity must not be empty")
+            confirmed_at = datetime.now(UTC)
+            authorization = compose_keyed_runtime_authorization(
+                resolved,
+                operator=args.operator,
+                authorized_utc=confirmed_at.isoformat().replace("+00:00", "Z"),
+            )
+            from wsprrypi_qualification.live_keyed import build_production_keyed_adapter
+
+            adapter = build_production_keyed_adapter(
+                resolved,
+                ssh_executable=args.ssh.resolve(),
+                work_directory=args.work_directory.resolve(),
+            )
+            result = run_live_keyed_session(resolved, authorization, args.output_parent, adapter)
+        except (
+            OSError,
+            json.JSONDecodeError,
+            KeyedSessionContractError,
+            LiveKeyedError,
+            OfflineAnalysisError,
+        ) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["result"]["final_status"] == "qualified" else 1
     if args.command == "simulate-qualification":
         try:
             result = run_simulation(
@@ -638,6 +709,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fft_size=args.fft_size,
                 dc_exclusion_hz=args.dc_exclusion_hz,
                 relocation_bundle=args.relocation_bundle,
+                plot_path=args.plot,
             )
         elif args.command == "make-slot-wav":
             document = create_slot_wav_acquired(

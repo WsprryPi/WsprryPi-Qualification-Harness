@@ -2,7 +2,7 @@
 
 Cross-platform tooling for bounded WsprryPi transmitter qualification,
 exact-count SDR capture, offline signal analysis, independent WSPR decoding,
-lifecycle verification, and immutable evidence packaging.
+and lifecycle verification.
 
 The harness is an engineering qualification tool. It is not an operator
 transmitter interface, a spectrum-compliance instrument, or authorization to
@@ -16,19 +16,29 @@ The maintained package provides:
   plans;
 - read-only dependency and capability discovery;
 - a portable C++ exact-count CF32 capture helper with mock-source tests;
-- offline carrier analysis, UTC-slot WAV generation, `wsprd` execution, and
-  consecutive-decode validation;
+- offline carrier analysis with optional authenticated PNG/SVG relative-spectrum
+  plots, UTC-slot WAV generation, `wsprd` execution, and consecutive-decode validation;
 - deterministic tone and CW-family reference generation, synthetic-IQ analysis,
   acquired-IQ replay, and mock lifecycle rehearsal;
+- offline live-keyed plan, authorization, transaction, aggregate, result, and
+  artifact-index contracts plus a sealed deterministic hardware-free coordinator
+  rehearsal for QRSS, FSKCW, and DFCW;
+- fail-closed `run-cw-live-keyed` production coordination for three independent
+  QRSS, FSKCW, or DFCW process/capture transactions;
 - authenticated archive and multi-capture evidence intake;
 - digest-bound, read-only actual-host preflight;
 - fail-closed split-host WSPR and carrier-only live coordinators; and
-- immutable evidence bundles with explicit cleanup and qualification states.
+- schema-validated result bundles with explicit cleanup and qualification states.
 
 Hardware-free results, replays, mock lifecycles, and host preflights cannot
 qualify hardware. A positive qualification claim requires an explicitly
-authorized live run whose retained evidence satisfies the exact backend, band,
-hardware, source, receiver-path, and cleanup contracts.
+authorized live run whose output satisfies the exact backend, band, hardware,
+source, receiver-path, and cleanup contracts.
+
+This repository does not retain target qualification evidence. Commands write
+new result directories for operator review and transfer; keep target-specific
+records with the target project or another approved evidence store. `runs/` is
+ignored temporary output, not a repository archive.
 
 ## Start here
 
@@ -36,6 +46,8 @@ hardware, source, receiver-path, and cleanup contracts.
   correct guide for each task.
 - [Agent operating guide](docs/AGENT_OPERATIONS.md) — required orientation,
   authority order, validation, and evidence review.
+- [Contract capability matrix](docs/CAPABILITY_MATRIX.md) — source, schema, and
+  test breadcrumbs for each governed capability.
 - [Contract](CONTRACT.md) — governing safety, measurement, evidence, and result
   semantics.
 - [Contributing](CONTRIBUTING.md) — development workflow.
@@ -72,7 +84,7 @@ wsprrypi-qualification real-session RESOLVED_PLAN.json --plan-only
 
 Example profiles are non-executable starting points. Device-specific gain,
 frequency correction, attenuation, safe-input limits, identity, and RF-path
-facts must be resolved for the actual run and retained in its evidence.
+facts must be resolved for the actual run and recorded in its output bundle.
 
 ## Development validation
 
@@ -102,9 +114,8 @@ separate, explicitly authorized evidence gate.
   installation.
 - `examples/` — non-executable example inputs.
 - `tests/` — hardware-free and failure-injected validation.
-- `docs/development/` — named implementation and evidence guides.
-- `runs/` and `evidence-anchors/` — retained evidence and source identity
-  records.
+- `docs/development/` — capability-specific operating and implementation guides.
+- `runs/` — ignored scratch location for generated output; never a source archive.
 
 The review-time schemas under `schemas/` and their runtime copies under
 `src/wsprrypi_qualification/schemas/` must remain synchronized when a packaged
@@ -125,5 +136,4 @@ of another configuration.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE). Retained third-party
-or predecessor material keeps its recorded provenance and licensing terms.
+This project is licensed under the [MIT License](LICENSE).

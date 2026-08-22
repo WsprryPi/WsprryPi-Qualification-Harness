@@ -1,4 +1,4 @@
-"""Portable bounded-operation contracts and deterministic Slice 4 mocks."""
+"""Portable bounded-operation contracts and deterministic adapter mocks."""
 
 from __future__ import annotations
 

@@ -68,6 +68,7 @@ def _send_json(connection: socket.socket, document: dict, *, masked: bool = Fals
 class FakeServer:
     def __init__(self, behavior: str = "success") -> None:
         self.listener = socket.socket()
+        self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         for candidate in range(39000, 40000):
             try:
                 self.listener.bind(("127.0.0.1", candidate))
@@ -117,7 +118,21 @@ class FakeServer:
                         "started": False,
                     },
                 )
+            elif self.behavior == "wrong_phase":
+                _send_json(
+                    connection,
+                    {
+                        "command": "bounded_tone",
+                        "event": "completed",
+                        "request_id": request["request_id"],
+                        "status": "ok",
+                        "stopped": True,
+                        "scheduler_restored": True,
+                    },
+                )
             else:
+                if self.behavior == "interleaved":
+                    _send_json(connection, {"command": "log", "message": "tone requested"})
                 _send_json(
                     connection,
                     {
@@ -129,6 +144,8 @@ class FakeServer:
                     },
                 )
                 terminal_id = "wrong" if self.behavior == "wrong_id" else request["request_id"]
+                if self.behavior == "interleaved":
+                    _send_json(connection, {"command": "status", "transmitting": True})
                 _send_json(
                     connection,
                     {
@@ -141,7 +158,14 @@ class FakeServer:
                     },
                     masked=self.behavior == "masked",
                 )
-        if self.behavior in {"wrong_id", "masked", "malformed", "oversized", "rejected"}:
+        if self.behavior in {
+            "wrong_id",
+            "wrong_phase",
+            "masked",
+            "malformed",
+            "oversized",
+            "rejected",
+        }:
             cleanup, _ = self.listener.accept()
             with cleanup:
                 _upgrade(cleanup)
@@ -163,11 +187,30 @@ def test_success_is_correlated_and_non_qualifying() -> None:
     with FakeServer() as server:
         evidence = _run(server)
     assert evidence["completed"] is True
+    assert evidence["observed_responses"] == [
+        evidence["start_response"],
+        evidence["terminal_response"],
+    ]
     assert evidence["qualification_claim"] is False
     assert server.requests[0]["command"] == "bounded_tone"
 
 
-@pytest.mark.parametrize("behavior", ["wrong_id", "masked", "malformed", "oversized", "rejected"])
+def test_interleaved_broadcasts_are_retained_and_do_not_break_correlation() -> None:
+    with FakeServer("interleaved") as server:
+        evidence = _run(server)
+    assert [response["command"] for response in evidence["observed_responses"]] == [
+        "log",
+        "bounded_tone",
+        "status",
+        "bounded_tone",
+    ]
+    assert evidence["start_response"]["started"] is True
+    assert evidence["terminal_response"]["event"] == "completed"
+
+
+@pytest.mark.parametrize(
+    "behavior", ["wrong_id", "wrong_phase", "masked", "malformed", "oversized", "rejected"]
+)
 def test_invalid_terminal_fails_closed_and_attempts_cleanup(behavior: str) -> None:
     with FakeServer(behavior) as server, pytest.raises(BoundedToneControlError):
         _run(server)

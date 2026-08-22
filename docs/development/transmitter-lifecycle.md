@@ -1,4 +1,4 @@
-# Hardware-free transmitter lifecycle preparation
+# Hardware-free transmitter lifecycle validation
 
 `TransmitterLifecycleSession` is a sealed no-qualification transaction. It
 accepts only `hardware_free_validation`, a fake adapter that cannot launch a
