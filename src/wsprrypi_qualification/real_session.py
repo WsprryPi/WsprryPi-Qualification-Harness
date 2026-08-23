@@ -19,6 +19,8 @@ from wsprrypi_qualification.offline import artifact, validate_document, write_js
 from wsprrypi_qualification.real_capabilities import RuntimeAuthorization
 from wsprrypi_qualification.receiver_calibration import (
     ReceiverCalibrationError,
+    interpret_frequency,
+    validate_live_binding,
 )
 from wsprrypi_qualification.receiver_calibration import (
     validate_binding as validate_receiver_calibration,
@@ -171,6 +173,15 @@ class RealQualificationSession:
 
             if type(self.adapters) is not ProductionRealSessionAdapters:
                 raise RealSessionError("live execution requires the sealed production adapter")
+            try:
+                validate_live_binding(
+                    plan["receiver_calibration"],
+                    receiver=plan["receiver"],
+                    indicated_frequencies_hz=[float(plan["frequency_hz"])],
+                    execution_time=self.now,
+                )
+            except ReceiverCalibrationError as error:
+                raise RealSessionError(str(error)) from error
             self.adapters.begin_session(plan)
         run_id = cast(str, plan["run_id"])
         parent = output_parent.resolve()
@@ -576,6 +587,10 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         raise RealSessionError(str(error)) from error
     if document["execution_mode"] == "live" and document["receiver_calibration"]["synthetic"]:
         raise RealSessionError("synthetic receiver calibration cannot enter live execution")
+    try:
+        interpret_frequency(document["receiver_calibration"], float(document["frequency_hz"]))
+    except ReceiverCalibrationError as error:
+        raise RealSessionError(str(error)) from error
     session_kind = document.get("session_kind", "wspr_qualification")
     if session_kind == "wspr_qualification":
         if document["mode"] != "WSPR" or document["frame_count"] != 3:

@@ -18,6 +18,6 @@
     "termination_ohms": 50,
     "attenuation_db": 30,
     "filter_description": "Example historical value only. Replace with the installed band-appropriate filter and verify the complete RF path at runtime.",
-    "safe_input_description": "Example only. Calculate and verify worst-case receiver input against the installed attenuation before any future live run."
+    "safe_input_description": "Example only. Calculate and verify worst-case receiver input against the installed attenuation before any live run."
   }
 }

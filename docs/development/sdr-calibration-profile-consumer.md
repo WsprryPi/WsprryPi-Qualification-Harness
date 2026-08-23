@@ -21,8 +21,9 @@ request, and applies the upstream version-1 evaluation semantics. It records
 the indicated error, estimated true frequency, expanded uncertainty, target
 offset, reliability quotient, selected segment, and qualification usability.
 
-The application request separately records the observed receiver identity and
-effective binding configuration. Exact object equality prevents a profile for
+The application request separately records the observed receiver identity,
+effective binding configuration, and a bounded maximum application age. Exact
+object equality prevents a profile for
 another device, clock, sample rate, bandwidth, driver-applied frequency
 correction, firmware, antenna port, tuner path, or binding extension from being
 silently reused.
@@ -44,7 +45,16 @@ This consumer deliberately does not:
 - make a hardware, transmitter, power, or spectral-compliance claim.
 
 Signed profiles fail closed until a reviewed Ed25519 verifier and trust-store
-policy exist. Unsigned profiles still require a matching canonical SHA-256.
+policy exist. Unsigned profiles still require a matching canonical SHA-256 and
+are usable for recorded, replay, and plan-composition work, but cannot enter
+live execution without an authenticated trust policy.
+Before live capability construction, the harness also rejects stale application
+facts, expired profiles, and every planned indicated frequency outside the
+bound calibration domain.
+
+Bindings retain and authenticate the exact profile and request JSON bytes, so
+their identities remain verifiable after the original source paths are moved or
+removed.
 
 ## Offline command
 

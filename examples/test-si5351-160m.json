@@ -30,8 +30,8 @@
     "required_consecutive_decodes": 3
   },
   "stopping_procedure": {
-    "transmitter_termination": "Use the future bounded transmitter process limit and preserve its return code.",
-    "receiver_termination": "Use the future exact-count receiver limit and preserve its return code.",
+    "transmitter_termination": "Use the bounded transmitter process limit and preserve its return code.",
+    "receiver_termination": "Use the exact-count receiver limit and preserve its return code.",
     "operator_abort": "Request bounded supervisor cancellation; do not bypass cleanup.",
     "cleanup_expectation": "Stop children, disable Si5351 outputs, restore intentionally changed services, and verify quiescence.",
     "emergency_stop_note": "If bounded cleanup fails, use the separately reviewed bench emergency-stop procedure and classify cleanup_failed."

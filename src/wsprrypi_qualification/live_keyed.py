@@ -21,10 +21,29 @@ from wsprrypi_qualification.keyed_session_contracts import (
 )
 from wsprrypi_qualification.manifests import validate_manifest_name
 from wsprrypi_qualification.offline import artifact
+from wsprrypi_qualification.receiver_calibration import (
+    ReceiverCalibrationError,
+    validate_live_binding,
+)
 
 
 class LiveKeyedError(RuntimeError):
     """A live keyed production invariant failed closed."""
+
+
+def _validate_live_receiver_calibration(plan: dict[str, Any]) -> None:
+    protocol = plan["application_plan"]["protocol_contract"]
+    frequencies = [float(protocol["primary_frequency_hz"])]
+    if protocol.get("secondary_frequency_hz") is not None:
+        frequencies.append(float(protocol["secondary_frequency_hz"]))
+    try:
+        validate_live_binding(
+            plan["receiver_calibration"],
+            receiver=plan["receiver"],
+            indicated_frequencies_hz=frequencies,
+        )
+    except ReceiverCalibrationError as error:
+        raise LiveKeyedError(str(error)) from error
 
 
 class LiveKeyedProviders(Protocol):
@@ -207,8 +226,7 @@ def run_live_keyed_session(
     if type(adapter) is not ProductionKeyedAdapter:
         raise TypeError("live keyed execution requires the sealed production adapter")
     resolved = validate_resolved_keyed_plan(plan)
-    if resolved["receiver_calibration"]["synthetic"]:
-        raise LiveKeyedError("synthetic receiver calibration cannot enter live execution")
+    _validate_live_receiver_calibration(resolved)
     auth = validate_keyed_runtime_authorization(resolved, authorization)
     try:
         validate_manifest_name(str(resolved["session_id"]))
@@ -247,8 +265,7 @@ def build_production_keyed_adapter(
 ) -> ProductionKeyedAdapter:
     """Construct the existing-capability provider composition for a live keyed plan."""
     resolved = validate_resolved_keyed_plan(plan)
-    if resolved["receiver_calibration"]["synthetic"]:
-        raise LiveKeyedError("synthetic receiver calibration cannot enter live execution")
+    _validate_live_receiver_calibration(resolved)
     ssh_binding = resolved["capability_bindings"]["ssh"]
     if (
         not ssh_executable.is_absolute()

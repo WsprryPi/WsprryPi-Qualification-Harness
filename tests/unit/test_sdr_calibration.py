@@ -121,6 +121,7 @@ def request_document(profile: dict[str, object]) -> dict[str, object]:
         "temperature_c": 20.0,
         "warmup_seconds": 1200,
         "evaluated_at": "2026-08-20T13:00:00Z",
+        "maximum_application_age_seconds": 300,
         "required_reliability_quotient": 90,
         "maximum_expanded_uncertainty_hz": 2.0,
     }
