@@ -133,7 +133,7 @@ class QualificationSessionPlan:
     def resolved_document(self) -> dict[str, Any]:
         return {
             "schema_version": 1,
-            "evidence_type": "slice6_session_plan",
+            "evidence_type": "qualification_session_plan",
             "run_id": self.run_id,
             "mock_only": self.mock_only,
             "bench": _jsonable(asdict(self.bench)),
@@ -444,10 +444,10 @@ def _publish_offline_evidence(
         bundle / "offline-evidence-index.json",
         {
             "schema_version": 1,
-            "evidence_type": "slice6_offline_evidence_index",
+            "evidence_type": "offline_evidence_index",
             "artifacts": records,
         },
-        schema_name="slice6-offline-evidence-index.schema.json",
+        schema_name="offline-evidence-index.schema.json",
     )
     if injection is Injection.INDEX_FAILED:
         raise SessionError("injected evidence-index publication failure")
@@ -461,7 +461,7 @@ def validate_published_bundle(bundle: Path) -> None:
         return
     index = load_json_document(
         index_path,
-        "slice6-offline-evidence-index.schema.json",
+        "offline-evidence-index.schema.json",
     )
     indexed_retained: set[str] = set()
     for record in index["artifacts"]:
@@ -490,7 +490,7 @@ def validate_published_bundle(bundle: Path) -> None:
 
 
 def validate_session_document(document: dict[str, Any]) -> None:
-    validate_document(document, "slice6-session.schema.json")
+    validate_document(document, "qualification-session.schema.json")
     if document["final_status"] == "qualified":
         raise SessionError("mock session evidence cannot be qualified")
     events = document["events"]
@@ -807,7 +807,7 @@ class QualificationSession:
         event(SessionPhase.PUBLISHED, "started", "new-file-only evidence publication")
         session_document = {
             "schema_version": 1,
-            "evidence_type": "slice6_mock_session",
+            "evidence_type": "qualification_session",
             "run_id": self.plan.run_id,
             "mock_only": True,
             "injection": injection.value,
@@ -829,7 +829,7 @@ class QualificationSession:
             write_json_new(
                 bundle / "resolved-session-plan.json",
                 plan_document,
-                schema_name="slice6-session-plan.schema.json",
+                schema_name="qualification-session-plan.schema.json",
             )
             write_json_new(
                 bundle / "runtime-confirmation.json", {"confirmation": confirmation_document}
@@ -837,7 +837,7 @@ class QualificationSession:
             write_json_new(
                 bundle / "session.json",
                 session_document,
-                schema_name="slice6-session.schema.json",
+                schema_name="qualification-session.schema.json",
             )
             write_json_new(
                 bundle / "result.json", result_document, schema_name="result.schema.json"

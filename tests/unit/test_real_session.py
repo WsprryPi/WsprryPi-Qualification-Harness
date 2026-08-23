@@ -215,9 +215,13 @@ def tone_plan_document(*, execution_mode: str = "hardware_free_validation") -> d
                 "maximum_rf_on_seconds": 6,
             },
             "cw_contract": {
-                "plan": {"path": "/phase7/tone-plan.json", "size_bytes": 1, "sha256": "a" * 64},
+                "plan": {
+                    "path": "/carrier-session/tone-plan.json",
+                    "size_bytes": 1,
+                    "sha256": "a" * 64,
+                },
                 "expected_events": {
-                    "path": "/phase7/tone-events.json",
+                    "path": "/carrier-session/tone-events.json",
                     "size_bytes": 1,
                     "sha256": "b" * 64,
                 },
@@ -225,14 +229,14 @@ def tone_plan_document(*, execution_mode: str = "hardware_free_validation") -> d
             },
             "tone_server": {
                 "configuration": {
-                    "path": "/phase7/wsprrypi-tone.ini",
+                    "path": "/carrier-session/wsprrypi-tone.ini",
                     "size_bytes": 1,
                     "sha256": "c" * 64,
                 },
                 "arguments": [
                     document["wsprrypi"]["path"],
                     "-i",
-                    "/phase7/wsprrypi-tone.ini",
+                    "/carrier-session/wsprrypi-tone.ini",
                     "--socket-port",
                     "31416",
                     "--socket-loopback-only",
@@ -596,7 +600,7 @@ def test_failed_carrier_suppresses_frames(tmp_path: Path):
     assert "frames" not in adapters.calls and "decode" not in adapters.calls
 
 
-def test_carrier_only_phase7_never_advances_to_wspr_frames(tmp_path: Path):
+def test_carrier_only_session_never_advances_to_wspr_frames(tmp_path: Path):
     plan = ResolvedRealSessionPlan(tone_plan_document())
     adapters = FakeAdapters()
     external, rf = authorizations(plan)

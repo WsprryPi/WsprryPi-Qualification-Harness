@@ -1,14 +1,13 @@
 # Current workflows
 
 This page maps supported tasks to the checked-out production CLI and maintained
-guides. Confirm command arguments with `COMMAND --help` at the current revision;
-old run logs and implementation prompts may describe earlier interfaces.
+guides. Confirm command arguments with `COMMAND --help` at the current revision.
 
 ## Orientation and plan review
 
 Use `version`, `capabilities`, `validate-profile`,
 `validate-application-plan`, and `real-session --plan-only` to establish the
-current local capability and validate inputs without opening devices or
+current local capabilities and validate inputs without opening devices or
 contacting another host.
 
 Profiles are schema-valid only after both JSON Schema and maintained semantic
@@ -25,15 +24,6 @@ live-keyed production coordinator. That coordinator remains authoritative for
 runtime safety, cleanup, evidence, and status.
 
 Guide: [Turnkey campaign orchestration](development/turnkey-campaign.md).
-
-## Hardware-free qualification rehearsal
-
-Use `simulate-qualification` for a bounded end-to-end rehearsal with local
-synthetic children. It exercises deadlines, carrier analysis, decoder
-invocation, cleanup precedence, and immutable bundle creation. Its result is
-always non-qualifying.
-
-Guide: [Bounded simulator](development/bounded-simulator.md).
 
 ## Offline WSPR analysis
 

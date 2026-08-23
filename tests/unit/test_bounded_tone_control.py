@@ -176,7 +176,7 @@ class FakeServer:
 def _run(server: FakeServer, timeout: float = 1.0) -> dict:
     return run_bounded_tone_transaction(
         BoundedToneEndpoint("127.0.0.1", server.port),
-        request_id="phase7-001",
+        request_id="tone-001",
         frequency_hz=14_097_100,
         duration_ms=20,
         outer_timeout_s=timeout,

@@ -5,7 +5,7 @@
   "required": ["schema_version","evidence_type","plan","outcome","cleanup_outcome","final_status","failure_causes","cleanup_installed_utc","events","ownership","cleanup_actions","service_delta","leak_verification","quiescence"],
   "properties": {
     "schema_version": {"const": 1},
-    "evidence_type": {"const": "slice4_supervisor"},
+    "evidence_type": {"const": "supervisor_result"},
     "plan": {"type": "object"},
     "outcome": {"enum": ["completed","aborted","failed"]},
     "cleanup_outcome": {"enum": ["verified","failed"]},

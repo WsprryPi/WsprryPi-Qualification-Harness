@@ -571,7 +571,7 @@ def test_supervisor_evidence_schema() -> None:
     document = Supervisor(MockReceiverAdapter("r"), MockTransmitterAdapter("t")).run().to_document()
     schema = json.loads(
         files("wsprrypi_qualification.schemas")
-        .joinpath("slice4-supervisor.schema.json")
+        .joinpath("supervisor-result.schema.json")
         .read_text(encoding="utf-8")
     )
     Draft202012Validator(schema).validate(document)

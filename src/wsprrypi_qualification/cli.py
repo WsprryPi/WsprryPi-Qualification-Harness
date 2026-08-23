@@ -77,7 +77,6 @@ from wsprrypi_qualification.receiver_calibration import (
 from wsprrypi_qualification.receiver_calibration import (
     disabled_binding as disabled_receiver_calibration,
 )
-from wsprrypi_qualification.simulator import SimulationError, SimulatorPlan, run_simulation
 from wsprrypi_qualification.turnkey_campaign import (
     TurnkeyCampaignError,
     compose_resolved_campaign_plan,
@@ -276,32 +275,6 @@ def _parser() -> argparse.ArgumentParser:
     )
     live_keyed.add_argument("--enable-live-keyed", action="store_true", required=True)
     live_keyed.add_argument("--enable-rf", action="store_true", required=True)
-    simulator = subparsers.add_parser(
-        "simulate-qualification", help="run the bounded hardware-free lifecycle simulator"
-    )
-    simulator.add_argument("output_parent", type=Path)
-    simulator.add_argument("--run-id", required=True)
-    simulator.add_argument(
-        "--injection",
-        choices=(
-            "none",
-            "carrier_fail",
-            "cleanup_fail",
-            "rf_off_timeout",
-            "rf_off_nonzero",
-            "carrier_timeout",
-            "carrier_nonzero",
-            "frame_timeout",
-            "frame_nonzero",
-            "carrier_analysis_hang",
-            "wav_hang",
-            "decoder_hang",
-            "publication_hang",
-        ),
-        default="none",
-    )
-    simulator.add_argument("--child-timeout", type=float, default=1.0)
-    simulator.add_argument("--overall-timeout", type=float, default=15.0)
     carrier = subparsers.add_parser("analyze-carrier", help="analyze offline RF-off/RF-on CF32")
     carrier.add_argument("rf_off", type=Path)
     carrier.add_argument("rf_on", type=Path)
@@ -854,22 +827,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["result"]["final_status"] == "qualified" else 1
-    if args.command == "simulate-qualification":
-        try:
-            result = run_simulation(
-                SimulatorPlan(
-                    args.run_id,
-                    args.output_parent,
-                    child_timeout_s=args.child_timeout,
-                    overall_timeout_s=args.overall_timeout,
-                    injection=args.injection,
-                )
-            )
-        except (SimulationError, OfflineAnalysisError, OSError, ValueError) as error:
-            print(str(error), file=sys.stderr)
-            return 2
-        print(json.dumps(result, indent=2, sort_keys=True))
-        return 0 if result["session"]["final_status"] == "inconclusive" else 1
     try:
         if args.command == "analyze-carrier":
             if args.receiver_calibration_binding is not None and any(

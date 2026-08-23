@@ -188,7 +188,7 @@ class SupervisorResult:
         plan["cleanup_order"] = list(self.plan.cleanup_order)
         return {
             "schema_version": 1,
-            "evidence_type": "slice4_supervisor",
+            "evidence_type": "supervisor_result",
             "plan": plan,
             "outcome": self.outcome,
             "cleanup_outcome": self.cleanup_outcome,
@@ -348,7 +348,7 @@ class Supervisor:
         if self._used:
             raise SupervisorError("Supervisor instances are single-use")
         self._used = True
-        plan = plan or ResolvedPlan("slice4-mock")
+        plan = plan or ResolvedPlan("supervisor-fixture")
         plan.validate()
         if (
             type(self.receiver) is not MockReceiverAdapter
@@ -635,7 +635,7 @@ class Supervisor:
 def validate_supervisor_document(document: dict[str, object]) -> None:
     schema = json.loads(
         files("wsprrypi_qualification.schemas")
-        .joinpath("slice4-supervisor.schema.json")
+        .joinpath("supervisor-result.schema.json")
         .read_text(encoding="utf-8")
     )
     errors = list(
@@ -644,13 +644,13 @@ def validate_supervisor_document(document: dict[str, object]) -> None:
     if errors:
         raise ValueError(errors[0].message)
     for schema_name, field_name in (
-        ("slice4-plan.schema.json", "plan"),
-        ("slice4-ownership.schema.json", "ownership"),
-        ("slice4-cleanup.schema.json", "cleanup_actions"),
-        ("slice4-quiescence.schema.json", "quiescence"),
-        ("slice4-service.schema.json", "service_delta"),
-        ("slice4-leak.schema.json", "leak_verification"),
-        ("slice4-events.schema.json", "events"),
+        ("supervisor-plan.schema.json", "plan"),
+        ("supervisor-ownership.schema.json", "ownership"),
+        ("supervisor-cleanup.schema.json", "cleanup_actions"),
+        ("supervisor-quiescence.schema.json", "quiescence"),
+        ("supervisor-service.schema.json", "service_delta"),
+        ("supervisor-leak.schema.json", "leak_verification"),
+        ("supervisor-events.schema.json", "events"),
     ):
         fragment = json.loads(
             files("wsprrypi_qualification.schemas")

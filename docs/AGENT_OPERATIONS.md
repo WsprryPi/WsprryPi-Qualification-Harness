@@ -28,6 +28,26 @@ For task-oriented navigation, begin with
 [`CURRENT_WORKFLOWS.md`](CURRENT_WORKFLOWS.md). Use the checked-out CLI and
 named workflow guides as the current operating model.
 
+## External-project insertion points
+
+Use the harness as a separate tool around a target project:
+
+1. Orient in this repository with the current contract, capabilities, and CLI.
+2. Inspect the target project read-only and create requested plans and run
+   output outside both source trees.
+3. Use validation, synthetic data, replay, and rehearsal before requesting any
+   host or device authority.
+4. Treat read-only host preflight, live execution, and target modification as
+   separate authorization boundaries.
+5. Bind a live confirmation to the exact resolved plan, then let the production
+   coordinator own bounded execution, cleanup, and result classification.
+6. Review the result bundle and transfer retained evidence to the target
+   project or approved evidence store; do not archive it in the harness.
+
+These are workflow boundaries, not reusable prompts. An agent must derive exact
+commands from the installed CLI and must not modify a target merely to make it
+fit the harness.
+
 ## Establish current truth first
 
 From the repository root, perform these read-only checks before planning:
@@ -60,7 +80,6 @@ environment:
 ```text
 python -m venv .venv
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
 python -m pip install -e ".[dev]"
 ```
 
@@ -93,21 +112,6 @@ Schema validity is necessary but not sufficient. Semantic validators bind
 digests, artifact identities, lifecycle ordering, result precedence, and
 cross-document facts. Use the maintained loader or validator for the evidence
 type rather than calling `jsonschema` alone.
-
-### Hardware-free qualification simulation
-
-The bounded simulator is the normal end-to-end rehearsal. It launches only
-local synthetic children and can never qualify hardware:
-
-```text
-python -m wsprrypi_qualification simulate-qualification RUN_PARENT \
-  --run-id 20260813T230000Z-example \
-  --child-timeout 1 \
-  --overall-timeout 15
-```
-
-See [`bounded-simulator.md`](development/bounded-simulator.md) for injection
-cases and bundle validation.
 
 For one complete multi-mode operator workflow, use `turnkey-campaign plan`,
 `validate`, and `rehearse` as described in
@@ -320,9 +324,11 @@ Treat a status as trustworthy only when all applicable checks pass:
 If raw IQ has been moved, accept it only through the maintained authenticated
 relocation/index mechanism. A matching hash alone is not path provenance.
 
-## Validation before proposing a commit
+## Development and acceptance validation
 
-Run all safe applicable gates:
+Use static checks and tests directly affected by a change for the development
+loop. Run the complete set below once for cross-cutting changes, releases, or
+when CI is unavailable:
 
 ```text
 python -m ruff format --check .
@@ -336,10 +342,11 @@ ctest --test-dir build-native -C Release --output-on-failure
 ```
 
 Also verify schema source/package synchronization and `git diff --check`. CI
-runs the Python 3.11/3.13 matrix on macOS, Ubuntu, and native Windows runners.
+runs the complete product checks on Ubuntu and focused portability plus native
+checks on macOS and Windows.
 
 Warnings, skipped checks, unavailable hardware, and hosts not actually tested
-must be reported separately from passes. Never convert a simulator, replay, or
+must be reported separately from passes. Never convert a rehearsal, replay, or
 hosted-CI result into a hardware qualification claim.
 
 ## Maintained workflow guides
@@ -353,11 +360,7 @@ hosted-CI result into a hardware qualification claim.
 - Transmitter lifecycle: [`transmitter-lifecycle.md`](development/transmitter-lifecycle.md)
 - Split-host live sequence: [`live-three-frame.md`](development/live-three-frame.md)
 - Preserved archive intake: [`archive-normalization.md`](development/archive-normalization.md)
-- Receiver calibration operation and prompts:
+- Receiver calibration operation:
   [`receiver-calibration-operator.md`](development/receiver-calibration-operator.md)
 - Thin multi-mode campaign routing:
   [`turnkey-campaign.md`](development/turnkey-campaign.md)
-
-For the newest state, prefer the current Git revision, CLI help, schemas, CI,
-and newest immutable evidence bundle over numbered implementation records or
-prose tied to an older revision.

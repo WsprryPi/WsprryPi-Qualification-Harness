@@ -66,7 +66,6 @@ Python 3.11 or newer is required.
 ```text
 python -m venv .venv
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
 python -m pip install -e ".[dev]"
 ```
 
@@ -96,7 +95,8 @@ facts must be resolved for the actual run and recorded in its output bundle.
 
 ## Development validation
 
-Run safe applicable gates from an activated development environment:
+Use targeted tests while developing. Before merging a cross-cutting change or
+release, run the complete local acceptance set (CI runs the same product gates):
 
 ```text
 python -m ruff format --check .

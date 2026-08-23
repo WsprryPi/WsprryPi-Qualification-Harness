@@ -25,57 +25,6 @@ def test_packaged_schemas_match_review_facing_copies() -> None:
         assert packaged_root.joinpath(name).read_bytes() == (ROOT / "schemas" / name).read_bytes()
 
 
-def test_packaged_cw_schemas_are_byte_identical() -> None:
-    for name in (
-        "cw-qualification-analysis.schema.json",
-        "cw-mode-plan.schema.json",
-        "cw-expected-events.schema.json",
-        "cw-generated-observations.schema.json",
-        "cw-mode-gate.schema.json",
-        "cw-final-session.schema.json",
-        "cw-mock-lifecycle.schema.json",
-    ):
-        review_facing = ROOT / "schemas" / name
-        packaged = files("wsprrypi_qualification.schemas").joinpath(name)
-        assert packaged.read_bytes() == review_facing.read_bytes()
-
-
-def test_packaged_keyed_session_schemas_are_byte_identical() -> None:
-    for name in (
-        "resolved-keyed-session-plan.schema.json",
-        "keyed-runtime-authorization.schema.json",
-        "keyed-transaction.schema.json",
-        "keyed-aggregate-session.schema.json",
-        "keyed-result.schema.json",
-        "keyed-artifact-index.schema.json",
-    ):
-        review_facing = ROOT / "schemas" / name
-        packaged = files("wsprrypi_qualification.schemas").joinpath(name)
-        assert packaged.read_bytes() == review_facing.read_bytes()
-
-
-def test_packaged_sdr_calibration_schemas_are_byte_identical() -> None:
-    for name in (
-        "sdr-calibration-profile.schema.json",
-        "sdr-calibration-application-request.schema.json",
-        "receiver-calibration-binding.schema.json",
-    ):
-        review_facing = ROOT / "schemas" / name
-        packaged = files("wsprrypi_qualification.schemas").joinpath(name)
-        assert packaged.read_bytes() == review_facing.read_bytes()
-
-
-def test_packaged_turnkey_schemas_are_byte_identical() -> None:
-    for name in (
-        "turnkey-campaign-request.schema.json",
-        "resolved-turnkey-campaign-plan.schema.json",
-        "turnkey-campaign-result.schema.json",
-    ):
-        review_facing = ROOT / "schemas" / name
-        packaged = files("wsprrypi_qualification.schemas").joinpath(name)
-        assert packaged.read_bytes() == review_facing.read_bytes()
-
-
 def test_sdr_calibration_upstream_pin_matches_consumer_constants() -> None:
     pin = json.loads((ROOT / "schemas" / "SDR_CALIBRATION_UPSTREAM.json").read_text())
     assert pin["revision"] == UPSTREAM_REVISION
