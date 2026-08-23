@@ -21,4 +21,4 @@ def test_ci_forces_hardware_free_native_configuration() -> None:
     assert "-DWSPQ_BUILD_SOAPY=OFF" in workflow
     assert "SoapySDRUtil" not in workflow
     assert "wspq-capture-soapy" not in workflow
-    assert "pip install -r requirements.txt" in workflow
+    assert 'pip install -e ".[dev]"' in workflow

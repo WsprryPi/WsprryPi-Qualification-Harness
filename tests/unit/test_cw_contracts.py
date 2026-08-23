@@ -202,7 +202,7 @@ def _chain(tmp_path: Path, mode: str) -> tuple[Path, Path, Path, Path, Path]:
             for index in range(event_count)
         ],
         "analysis_outcome": "inconclusive",
-        "failure_causes": ["phase_2_analyzer_unavailable"],
+        "failure_causes": ["analyzer_unavailable"],
     }
     _write(observations_path, observations)
     gate = {
@@ -215,7 +215,7 @@ def _chain(tmp_path: Path, mode: str) -> tuple[Path, Path, Path, Path, Path]:
         "observations": _artifact(observations_path),
         "carrier_gate": "inconclusive",
         "mode_gate": "not_applicable" if tone else "inconclusive",
-        "failure_causes": ["phase_2_analyzer_unavailable"],
+        "failure_causes": ["analyzer_unavailable"],
     }
     _write(gate_path, gate)
     session = {
@@ -237,7 +237,7 @@ def _chain(tmp_path: Path, mode: str) -> tuple[Path, Path, Path, Path, Path]:
             "quiescence_verified": False,
             "quiescence_evidence": None,
         },
-        "failure_causes": ["phase_2_analyzer_unavailable"],
+        "failure_causes": ["analyzer_unavailable"],
         "final_status": "inconclusive",
         "qualification_claim": False,
     }
@@ -288,7 +288,7 @@ def _acquired_inputs(tmp_path: Path, mode: str) -> tuple[Path, Path, Path]:
 
 
 @pytest.mark.parametrize("mode", ["tone", "cw", "qrss", "fskcw", "dfcw"])
-def test_phase4_acquired_replay_passes_measurement_but_stays_inconclusive(
+def test_acquired_replay_passes_measurement_but_stays_inconclusive(
     tmp_path: Path, mode: str
 ) -> None:
     source = tmp_path / "source"
@@ -309,7 +309,7 @@ def test_phase4_acquired_replay_passes_measurement_but_stays_inconclusive(
     assert validate_replay_bundle(bundle, recompute=True)["valid"] is True
 
 
-def test_phase4_replay_is_byte_deterministic_and_portable(tmp_path: Path) -> None:
+def test_acquired_replay_is_byte_deterministic_and_portable(tmp_path: Path) -> None:
     source = tmp_path / "source with spaces"
     source.mkdir()
     plan, expected, metadata = _acquired_inputs(source, "cw")
@@ -329,7 +329,9 @@ def test_phase4_replay_is_byte_deterministic_and_portable(tmp_path: Path) -> Non
     )
 
 
-def test_phase4_rejects_acquisition_contract_conflict_and_existing_output(tmp_path: Path) -> None:
+def test_acquired_replay_rejects_acquisition_contract_conflict_and_existing_output(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "source"
     source.mkdir()
     plan, expected, metadata = _acquired_inputs(source, "tone")
@@ -346,7 +348,7 @@ def test_phase4_rejects_acquisition_contract_conflict_and_existing_output(tmp_pa
         compose_acquired_replay(plan, expected, metadata, existing, source_revision="e" * 40)
 
 
-def test_phase4_rejects_result_index_and_manifest_tampering(tmp_path: Path) -> None:
+def test_acquired_replay_rejects_result_index_and_manifest_tampering(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
     plan, expected, metadata = _acquired_inputs(source, "qrss")
@@ -362,7 +364,7 @@ def test_phase4_rejects_result_index_and_manifest_tampering(tmp_path: Path) -> N
         validate_replay_bundle(bundle)
 
 
-def test_phase4_rejects_unexpected_file_and_capture_tampering(tmp_path: Path) -> None:
+def test_acquired_replay_rejects_unexpected_file_and_capture_tampering(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
     plan, expected, metadata = _acquired_inputs(source, "fskcw")
@@ -378,7 +380,9 @@ def test_phase4_rejects_unexpected_file_and_capture_tampering(tmp_path: Path) ->
         validate_replay_bundle(bundle)
 
 
-def test_phase4_rejects_absolute_internal_reference_even_when_rehashed(tmp_path: Path) -> None:
+def test_acquired_replay_rejects_absolute_internal_reference_even_when_rehashed(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "source"
     source.mkdir()
     plan, expected, metadata = _acquired_inputs(source, "cw")
@@ -393,7 +397,7 @@ def test_phase4_rejects_absolute_internal_reference_even_when_rehashed(tmp_path:
         validate_replay_bundle(bundle)
 
 
-def test_phase4_requires_canonical_utc_but_allows_capture_after_plan_resolution(
+def test_acquired_replay_requires_canonical_utc_but_allows_capture_after_plan_resolution(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "source"
@@ -427,7 +431,7 @@ def test_phase4_requires_canonical_utc_but_allows_capture_after_plan_resolution(
         )
 
 
-def test_phase4_accepts_hash_identical_local_copies_with_stale_origin_paths(
+def test_acquired_replay_accepts_hash_identical_local_copies_with_stale_origin_paths(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "source"
@@ -447,7 +451,7 @@ def test_phase4_accepts_hash_identical_local_copies_with_stale_origin_paths(
     assert result["qualification_claim"] is False
 
 
-def test_phase4_rejects_semantically_rewritten_result_causes(tmp_path: Path) -> None:
+def test_acquired_replay_rejects_semantically_rewritten_result_causes(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
     plan, expected, metadata = _acquired_inputs(source, "qrss")
@@ -462,7 +466,7 @@ def test_phase4_rejects_semantically_rewritten_result_causes(tmp_path: Path) -> 
         validate_replay_bundle(bundle)
 
 
-def test_phase4_final_validation_failure_does_not_publish_bundle(
+def test_acquired_replay_final_validation_failure_does_not_publish_bundle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "source"
@@ -480,7 +484,7 @@ def test_phase4_final_validation_failure_does_not_publish_bundle(
     assert not list(tmp_path.glob(".bundle.incomplete-*"))
 
 
-def test_phase4_detects_iq_shifted_event_boundaries(tmp_path: Path) -> None:
+def test_acquired_replay_detects_iq_shifted_event_boundaries(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
     plan, expected, metadata = _acquired_inputs(source, "cw")
@@ -507,7 +511,7 @@ def test_phase4_detects_iq_shifted_event_boundaries(tmp_path: Path) -> None:
     )
 
 
-def test_phase4_aligns_one_bounded_common_acquired_tone_latency(tmp_path: Path) -> None:
+def test_acquired_replay_aligns_one_bounded_common_acquired_tone_latency(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
     plan, expected, metadata = _acquired_inputs(source, "tone")
@@ -528,7 +532,7 @@ def test_phase4_aligns_one_bounded_common_acquired_tone_latency(tmp_path: Path) 
     assert observations["failure_causes"] == []
 
 
-def test_phase4_cli_composes_and_validates_non_qualifying_replay(
+def test_acquired_replay_cli_composes_and_validates_non_qualifying_replay(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     source = tmp_path / "source"
@@ -581,14 +585,14 @@ def test_phase4_cli_composes_and_validates_non_qualifying_replay(
 
 
 @pytest.mark.parametrize("mode", ["tone", "cw", "qrss", "fskcw", "dfcw"])
-def test_phase3_deterministic_iq_passes_measurement_gate_but_never_qualifies(
+def test_synthetic_iq_deterministic_passes_measurement_gate_but_never_qualifies(
     tmp_path: Path, mode: str
 ) -> None:
     plan, expected, *_ = _chain(tmp_path, mode)
     capture = tmp_path / "synthetic.cf32"
     metadata = tmp_path / "synthetic.json"
-    observations = tmp_path / "phase3-observations.json"
-    gate = tmp_path / "phase3-gate.json"
+    observations = tmp_path / "synthetic-iq-observations.json"
+    gate = tmp_path / "synthetic-iq-gate.json"
     first = generate_synthetic_iq(plan, expected, capture, metadata, seed=7)
     measured, derived_gate = analyze_synthetic_iq(
         plan,
@@ -608,7 +612,7 @@ def test_phase3_deterministic_iq_passes_measurement_gate_but_never_qualifies(
     assert "qualification_claim" not in measured
 
 
-def test_phase3_fixture_is_byte_deterministic_and_refuses_overwrite(tmp_path: Path) -> None:
+def test_synthetic_iq_fixture_is_byte_deterministic_and_refuses_overwrite(tmp_path: Path) -> None:
     plan, expected, *_ = _chain(tmp_path, "cw")
     left = tmp_path / "left.cf32"
     right = tmp_path / "right.cf32"
@@ -619,7 +623,7 @@ def test_phase3_fixture_is_byte_deterministic_and_refuses_overwrite(tmp_path: Pa
         generate_synthetic_iq(plan, expected, left, tmp_path / "other.json", seed=42)
 
 
-def test_phase3_capture_tampering_and_clipping_fail_closed(tmp_path: Path) -> None:
+def test_synthetic_iq_capture_tampering_and_clipping_fail_closed(tmp_path: Path) -> None:
     plan, expected, *_ = _chain(tmp_path, "cw")
     capture = tmp_path / "synthetic.cf32"
     metadata = tmp_path / "synthetic.json"
@@ -630,13 +634,13 @@ def test_phase3_capture_tampering_and_clipping_fail_closed(tmp_path: Path) -> No
             plan,
             expected,
             metadata,
-            tmp_path / "phase3-observations.json",
-            tmp_path / "phase3-gate.json",
+            tmp_path / "synthetic-iq-observations.json",
+            tmp_path / "synthetic-iq-gate.json",
             source_revision="d" * 40,
         )
 
 
-def test_phase3_clipping_is_fixture_blockage_not_a_pass(tmp_path: Path) -> None:
+def test_synthetic_iq_clipping_is_fixture_blockage_not_a_pass(tmp_path: Path) -> None:
     plan, expected, *_ = _chain(tmp_path, "tone")
     capture = tmp_path / "synthetic.cf32"
     metadata = tmp_path / "synthetic.json"
@@ -649,8 +653,8 @@ def test_phase3_clipping_is_fixture_blockage_not_a_pass(tmp_path: Path) -> None:
         plan,
         expected,
         metadata,
-        tmp_path / "phase3-observations.json",
-        tmp_path / "phase3-gate.json",
+        tmp_path / "synthetic-iq-observations.json",
+        tmp_path / "synthetic-iq-gate.json",
         source_revision="d" * 40,
     )
     assert measured["analysis_outcome"] == "blocked"
@@ -658,7 +662,7 @@ def test_phase3_clipping_is_fixture_blockage_not_a_pass(tmp_path: Path) -> None:
     assert gate["carrier_gate"] == "blocked"
 
 
-def test_phase3_rejects_thresholds_tighter_than_resolution(tmp_path: Path) -> None:
+def test_synthetic_iq_rejects_thresholds_tighter_than_resolution(tmp_path: Path) -> None:
     plan, expected, *_ = _chain(tmp_path, "cw")
     plan_document = json.loads(plan.read_text(encoding="utf-8"))
     plan_document["thresholds"]["frequency_tolerance_hz"] = 0.1
@@ -674,13 +678,13 @@ def test_phase3_rejects_thresholds_tighter_than_resolution(tmp_path: Path) -> No
             plan,
             expected,
             metadata,
-            tmp_path / "phase3-observations.json",
-            tmp_path / "phase3-gate.json",
+            tmp_path / "synthetic-iq-observations.json",
+            tmp_path / "synthetic-iq-gate.json",
             source_revision="d" * 40,
         )
 
 
-def test_phase3_conjugate_image_is_detected_from_iq(tmp_path: Path) -> None:
+def test_synthetic_iq_conjugate_image_is_detected_from_iq(tmp_path: Path) -> None:
     plan, expected, *_ = _chain(tmp_path, "fskcw")
     capture = tmp_path / "synthetic.cf32"
     metadata = tmp_path / "synthetic.json"
@@ -694,8 +698,8 @@ def test_phase3_conjugate_image_is_detected_from_iq(tmp_path: Path) -> None:
         plan,
         expected,
         metadata,
-        tmp_path / "phase3-observations.json",
-        tmp_path / "phase3-gate.json",
+        tmp_path / "synthetic-iq-observations.json",
+        tmp_path / "synthetic-iq-gate.json",
         source_revision="d" * 40,
     )
     assert measured["analysis_outcome"] == "failed"
@@ -828,7 +832,7 @@ def test_acquired_tone_timing_alignment_fails_closed(case: str, tmp_path: Path) 
     assert _acquired_tone_timing_alignment(plan, expected, states, rate) is None
 
 
-def test_phase3_shifted_iq_with_bounded_common_drift_passes(tmp_path: Path) -> None:
+def test_synthetic_iq_shifted_iq_with_bounded_common_drift_passes(tmp_path: Path) -> None:
     plan, expected, *_ = _chain(tmp_path, "fskcw")
     capture = tmp_path / "synthetic.cf32"
     metadata = tmp_path / "synthetic.json"
@@ -894,7 +898,7 @@ def test_shifted_frequency_model_fails_closed_without_both_states(tmp_path: Path
         ("correct_transition_count", 100000, "transition counts contradict"),
     ],
 )
-def test_phase1_rejects_tampered_shifted_frequency_summary(
+def test_contract_chain_rejects_tampered_shifted_frequency_summary(
     tmp_path: Path, field: str, replacement: float | int, message: str
 ) -> None:
     paths = _chain(tmp_path, "fskcw")
@@ -921,7 +925,7 @@ def test_phase1_rejects_tampered_shifted_frequency_summary(
         load_cw_contract_chain(*paths)
 
 
-def test_phase3_interrupted_required_carrier_is_detected(tmp_path: Path) -> None:
+def test_synthetic_iq_interrupted_required_carrier_is_detected(tmp_path: Path) -> None:
     plan, expected, *_ = _chain(tmp_path, "tone")
     capture = tmp_path / "synthetic.cf32"
     metadata = tmp_path / "synthetic.json"
@@ -936,15 +940,15 @@ def test_phase3_interrupted_required_carrier_is_detected(tmp_path: Path) -> None
         plan,
         expected,
         metadata,
-        tmp_path / "phase3-observations.json",
-        tmp_path / "phase3-gate.json",
+        tmp_path / "synthetic-iq-observations.json",
+        tmp_path / "synthetic-iq-gate.json",
         source_revision="d" * 40,
     )
     assert measured["analysis_outcome"] == "failed"
     assert "missing_carrier" in measured["failure_causes"]
 
 
-def test_phase4_enforces_transition_limit_independently_of_timing_tolerance(
+def test_acquired_replay_enforces_transition_limit_independently_of_timing_tolerance(
     tmp_path: Path,
 ) -> None:
     plan, expected, *_ = _chain(tmp_path, "fskcw")
@@ -987,7 +991,7 @@ def test_phase4_enforces_transition_limit_independently_of_timing_tolerance(
     assert any(item["carrier_continuous"] is False for item in observations["observations"])
 
 
-def test_phase4_clipping_blockage_precedes_transition_failure(tmp_path: Path) -> None:
+def test_acquired_replay_clipping_blockage_precedes_transition_failure(tmp_path: Path) -> None:
     plan, expected, *_ = _chain(tmp_path, "fskcw")
     plan_document = json.loads(plan.read_text(encoding="utf-8"))
     plan_document["thresholds"]["timing_tolerance_s"] = 0.5
@@ -1019,7 +1023,7 @@ def test_phase4_clipping_blockage_precedes_transition_failure(tmp_path: Path) ->
 
 
 @pytest.mark.parametrize("mode", ["tone", "cw", "qrss", "fskcw", "dfcw"])
-def test_phase1_chain_models_every_first_class_mode_without_qualifying(
+def test_contract_chain_models_every_first_class_mode_without_qualifying(
     tmp_path: Path, mode: str
 ) -> None:
     result = load_cw_contract_chain(*_chain(tmp_path, mode))
@@ -1033,9 +1037,7 @@ def test_phase1_chain_models_every_first_class_mode_without_qualifying(
 
 
 @pytest.mark.parametrize("mode", ["tone", "cw", "qrss", "fskcw", "dfcw"])
-def test_phase5_mock_lifecycle_models_every_mode_without_qualifying(
-    tmp_path: Path, mode: str
-) -> None:
+def test_mock_lifecycle_models_every_mode_without_qualifying(tmp_path: Path, mode: str) -> None:
     paths = _chain(tmp_path, mode)
     output = tmp_path / "lifecycle.json"
     result = run_mock_lifecycle(*paths[:4], output)
@@ -1047,7 +1049,7 @@ def test_phase5_mock_lifecycle_models_every_mode_without_qualifying(
 
 
 @pytest.mark.parametrize("injection", sorted(INJECTIONS - {"none"}))
-def test_phase5_every_lifecycle_boundary_is_failure_injected(
+def test_mock_lifecycle_every_lifecycle_boundary_is_failure_injected(
     tmp_path: Path, injection: str
 ) -> None:
     paths = _chain(tmp_path, "cw")
@@ -1064,7 +1066,7 @@ def test_phase5_every_lifecycle_boundary_is_failure_injected(
         assert result["final_status"] == "fixture_blocked"
 
 
-def test_phase5_cleanup_failure_overrides_passing_measurement(tmp_path: Path) -> None:
+def test_mock_lifecycle_cleanup_failure_overrides_passing_measurement(tmp_path: Path) -> None:
     paths = _chain(tmp_path, "cw")
     gate = json.loads(paths[3].read_text(encoding="utf-8"))
     gate["carrier_gate"] = gate["mode_gate"] = "passed"
@@ -1076,7 +1078,9 @@ def test_phase5_cleanup_failure_overrides_passing_measurement(tmp_path: Path) ->
     assert result["final_status"] == "cleanup_failed"
 
 
-def test_phase5_rejects_tampering_positive_claim_and_unknown_injection(tmp_path: Path) -> None:
+def test_mock_lifecycle_rejects_tampering_positive_claim_and_unknown_injection(
+    tmp_path: Path,
+) -> None:
     paths = _chain(tmp_path, "cw")
     output = tmp_path / "lifecycle.json"
     run_mock_lifecycle(*paths[:4], output)
@@ -1090,7 +1094,9 @@ def test_phase5_rejects_tampering_positive_claim_and_unknown_injection(tmp_path:
         run_mock_lifecycle(*paths[:4], output, injection="execute-anything")
 
 
-def test_phase5_rejects_relabelled_injection_and_broken_upstream_chain(tmp_path: Path) -> None:
+def test_mock_lifecycle_rejects_relabelled_injection_and_broken_upstream_chain(
+    tmp_path: Path,
+) -> None:
     paths = _chain(tmp_path, "cw")
     output = tmp_path / "lifecycle.json"
     run_mock_lifecycle(*paths[:4], output, injection="monitor_fail")
@@ -1108,7 +1114,9 @@ def test_phase5_rejects_relabelled_injection_and_broken_upstream_chain(tmp_path:
         run_mock_lifecycle(*paths[:4], output)
 
 
-def test_phase5_cli_create_and_validate(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_mock_lifecycle_cli_create_and_validate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     paths = _chain(tmp_path, "tone")
     output = tmp_path / "lifecycle.json"
     assert main(["run-cw-mock-lifecycle", *(str(path) for path in paths[:4]), str(output)]) == 0

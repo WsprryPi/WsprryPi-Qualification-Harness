@@ -21,6 +21,8 @@ operation from old logs or target evidence.
 - Preserve user changes. Do not reset, clean, stash, commit, push, or create a
   pull request unless explicitly requested.
 - Keep the harness separate from WsprryPi and its submodules.
+- Treat a target repository as read-only unless the user separately authorizes
+  changes there. Do not require a target project to adopt harness internals.
 - Do not add target-specific run bundles, copied host archives, evidence
   anchors, authorization receipts, or retrospective corrections to this repo.
   Generated `runs/` content is ignored scratch output. Transfer records that
@@ -68,7 +70,9 @@ the run unsuccessful.
 
 ## Agent validation
 
-Before proposing a change, run the safe checks applicable to it:
+During development, run the static checks and tests directly affected by the
+change. Run the complete acceptance set below for cross-cutting changes,
+releases, or when CI is unavailable; do not repeatedly run it after every edit.
 
 ```text
 python -m ruff format --check .

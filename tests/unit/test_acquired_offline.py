@@ -307,6 +307,20 @@ def test_recorded_output_preserves_foreign_absolute_path_flavor(tmp_path: Path) 
 def test_acquired_audio_uses_capture_utc_and_canonical_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # DSP fidelity and deterministic resampling are covered in test_audio.py.
+    # This integration test exercises acquired-evidence, timestamp, decoder,
+    # and tamper contracts without rendering three full 120-second signals.
+    from wsprrypi_qualification import audio as audio_module
+    from wsprrypi_qualification import decoder as decoder_module
+
+    def stub_pcm(_path, _start, _count, parameters):
+        return (
+            bytes(parameters.output_rate_hz * parameters.frame_duration_s * 2),
+            1.0,
+        )
+
+    monkeypatch.setattr(audio_module, "render_slot_pcm", stub_pcm)
+    monkeypatch.setattr(decoder_module, "render_slot_pcm", stub_pcm)
     rate, center, frequency = 1000, 10_000.0, 10_100.0
     bench, test = profiles(tmp_path, rate=rate, center=center, frequency=frequency)
     iq = tmp_path / "coherent.cf32"
@@ -342,8 +356,6 @@ def test_acquired_audio_uses_capture_utc_and_canonical_name(
                 return subprocess.CompletedProcess(arguments, 0, stdout, "")
 
             with monkeypatch.context() as context:
-                from wsprrypi_qualification import decoder as decoder_module
-
                 context.setattr(decoder_module.subprocess, "run", conjugate_decoder)
                 conjugate = run_wsprd_acquired(
                     output / "20260811T120200Z.wav",

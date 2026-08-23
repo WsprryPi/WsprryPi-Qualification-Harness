@@ -5,7 +5,7 @@
   "required": ["schema_version", "evidence_type", "artifacts"],
   "properties": {
     "schema_version": {"const": 1},
-    "evidence_type": {"const": "slice6_offline_evidence_index"},
+    "evidence_type": {"const": "offline_evidence_index"},
     "artifacts": {
       "type": "array", "minItems": 1,
       "items": {

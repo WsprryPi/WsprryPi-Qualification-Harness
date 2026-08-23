@@ -5,7 +5,7 @@
   "required": ["schema_version", "evidence_type", "run_id", "mock_only", "bench", "test", "receiver_run", "application", "first_slot_utc", "slots_utc", "coherent_capture", "deadlines", "offline_evidence"],
   "properties": {
     "schema_version": {"const": 1},
-    "evidence_type": {"const": "slice6_session_plan"},
+    "evidence_type": {"const": "qualification_session_plan"},
     "run_id": {"type": "string", "minLength": 1},
     "mock_only": {"const": true},
     "bench": {"$ref": "bench-profile.schema.json"},

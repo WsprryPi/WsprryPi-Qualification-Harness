@@ -338,7 +338,7 @@ class RealQualificationSession:
             event(RealPhase.CARRIER_GATE, carrier_gate, "authenticated carrier analysis")
             if carrier_gate == "passed" and plan.get("session_kind") == "cw_live_tone":
                 final_status = "inconclusive"
-                failure_causes.append("phase7_live_tone_only")
+                failure_causes.append("carrier_only_session")
             elif carrier_gate == "passed":
                 coherent = self.adapters.transmit_frames_and_capture(plan, runtime_rf)
                 _validate_capture(
@@ -1016,7 +1016,7 @@ def validate_real_session_document(document: dict[str, Any]) -> None:
         plan.get("session_kind") == "cw_live_tone"
         and document["carrier_gate"] == "passed"
         and document["decode_gate"] == "not_run"
-        and "phase7_live_tone_only" in causes
+        and "carrier_only_session" in causes
     )
     if status == "inconclusive" and not (hardware_free_complete or carrier_only_complete):
         raise RealSessionError("inconclusive status lacks its required bounded evidence")

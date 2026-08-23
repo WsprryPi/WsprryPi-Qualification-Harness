@@ -24,6 +24,11 @@ SCHEMAS = (
     "resolved-turnkey-campaign-plan.schema.json",
     "turnkey-campaign-result.schema.json",
 )
+ASSETS = (
+    "deployment_assets/helper-config.example.json",
+    "deployment_assets/wspq-capability-helper.service.in",
+    "deployment_assets/wspq-gpio-inspect",
+)
 
 
 def main() -> int:
@@ -34,6 +39,10 @@ def main() -> int:
         Draft202012Validator.check_schema(
             json.loads(root.joinpath(name).read_text(encoding="utf-8"))
         )
+    package_root = files("wsprrypi_qualification")
+    for name in ASSETS:
+        if not package_root.joinpath(name).is_file():
+            raise FileNotFoundError(name)
     return 0
 
 

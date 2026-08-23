@@ -183,7 +183,7 @@ def session_plan(executable: Path = Path("/opt/Wsprry Pi/wsprrypi")) -> Qualific
     )
     test = QualificationTestProfile(
         1,
-        "slice6-mock",
+        "qualification-fixture",
         transmitter,
         "160m",
         10_100,
@@ -199,7 +199,7 @@ def session_plan(executable: Path = Path("/opt/Wsprry Pi/wsprrypi")) -> Qualific
     )
     receiver_run = ReceiverRunProfile(
         1,
-        "20260812T160000Z-slice6-mock",
+        "20260812T160000Z-qualification-fixture",
         bench.bench_id,
         receiver,
         10_000,
@@ -221,7 +221,7 @@ def session_plan(executable: Path = Path("/opt/Wsprry Pi/wsprrypi")) -> Qualific
             reference_frequency_hz=27_000_000,
             drive_or_power_level=1,
         ),
-    ).resolve_plan("slice6-mock", WsprProtocol("Q0QQQ", "JJ00", 0, 10_100, 3, 1500))
+    ).resolve_plan("qualification-fixture", WsprProtocol("Q0QQQ", "JJ00", 0, 10_100, 3, 1500))
     return QualificationSessionPlan(
         receiver_run.run_id, bench, test, receiver_run, application, NOW, 120, 380
     )
@@ -235,7 +235,7 @@ def retained_evidence(
     correct_decode: bool = True,
     carrier_plot: bool = False,
 ) -> OfflineEvidenceSet:
-    root = tmp_path / "retained slice3 evidence"
+    root = tmp_path / "retained qualification evidence"
     root.mkdir(parents=True)
     resolved = plan.resolved_document()
     bench_path, test_path = root / "bench.json", root / "test.json"
@@ -447,7 +447,7 @@ def test_integral_and_fractional_ppm_reconcile(tmp_path: Path, ppm: float) -> No
             reference_frequency_hz=27_000_000,
             drive_or_power_level=1,
         ),
-    ).resolve_plan("slice6-mock", WsprProtocol("Q0QQQ", "JJ00", 0, 10_100, 3, 1500))
+    ).resolve_plan("qualification-fixture", WsprProtocol("Q0QQQ", "JJ00", 0, 10_100, 3, 1500))
     plan = replace(base, test=test, application=application)
     validate_session_plan(plan)
 
@@ -510,7 +510,7 @@ def test_index_rejects_bundled_record_without_retained_hash() -> None:
         validate_document(
             {
                 "schema_version": 1,
-                "evidence_type": "slice6_offline_evidence_index",
+                "evidence_type": "offline_evidence_index",
                 "artifacts": [
                     {
                         "role": "x",
@@ -520,7 +520,7 @@ def test_index_rejects_bundled_record_without_retained_hash() -> None:
                     }
                 ],
             },
-            "slice6-offline-evidence-index.schema.json",
+            "offline-evidence-index.schema.json",
         )
 
 

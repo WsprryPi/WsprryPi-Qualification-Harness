@@ -27,7 +27,7 @@ def write_json(path: Path, value: dict[str, Any]) -> Path:
 def receiver_run_document() -> dict[str, Any]:
     return {
         "schema_version": 1,
-        "run_id": "20260812T122910Z-slice5-rsp1b-receiver",
+        "run_id": "20260812T122910Z-rsp1b-receiver",
         "bench_id": "wspr5-rsp1b",
         "receiver": {
             "transport": "ssh",
