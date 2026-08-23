@@ -13,12 +13,16 @@ MODULES = (
     "wsprrypi_qualification.live_adapters",
     "wsprrypi_qualification.real_session",
     "wsprrypi_qualification.receiver_calibration",
+    "wsprrypi_qualification.turnkey_campaign",
 )
 SCHEMAS = (
     "application-plan.schema.json",
     "real-session-stage-evidence.schema.json",
     "resolved-real-session-plan.schema.json",
     "receiver-calibration-binding.schema.json",
+    "turnkey-campaign-request.schema.json",
+    "resolved-turnkey-campaign-plan.schema.json",
+    "turnkey-campaign-result.schema.json",
 )
 
 

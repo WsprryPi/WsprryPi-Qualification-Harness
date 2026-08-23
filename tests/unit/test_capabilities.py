@@ -27,6 +27,7 @@ def test_capability_report_is_read_only_and_truthful() -> None:
     assert states["hardware_free_keyed_coordination"] == "available"
     assert states["live_keyed_coordination"] == "available"
     assert states["receiver_calibration"] == "available"
+    assert states["turnkey_campaign_orchestration"] == "available"
     keyed = next(
         adapter for adapter in report["adapters"] if adapter["name"] == "live_keyed_contracts"
     )

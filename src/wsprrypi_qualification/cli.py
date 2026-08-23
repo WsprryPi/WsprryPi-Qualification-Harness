@@ -78,6 +78,14 @@ from wsprrypi_qualification.receiver_calibration import (
     disabled_binding as disabled_receiver_calibration,
 )
 from wsprrypi_qualification.simulator import SimulationError, SimulatorPlan, run_simulation
+from wsprrypi_qualification.turnkey_campaign import (
+    TurnkeyCampaignError,
+    compose_resolved_campaign_plan,
+    resolved_campaign_sha256,
+    run_hardware_free_campaign,
+    run_live_campaign,
+    validate_resolved_campaign_plan,
+)
 
 LIVE_COMMANDS = {"run", "capture", "transmit", "tone", "enable-rf"}
 
@@ -337,6 +345,37 @@ def _parser() -> argparse.ArgumentParser:
     )
     summary.add_argument("evidence", type=Path)
     summary.add_argument("slot_documents", nargs="+", type=Path)
+    turnkey = subparsers.add_parser(
+        "turnkey-campaign",
+        help="plan, rehearse, or dispatch one typed campaign through maintained coordinators",
+    )
+    turnkey_subcommands = turnkey.add_subparsers(dest="turnkey_action", required=True)
+    turnkey_plan = turnkey_subcommands.add_parser(
+        "plan", help="compose one hardware-free route plan"
+    )
+    turnkey_plan.add_argument("request", type=Path)
+    turnkey_plan.add_argument("mode_plan", type=Path)
+    turnkey_plan.add_argument("output", type=Path)
+    turnkey_validate = turnkey_subcommands.add_parser(
+        "validate", help="validate and digest a resolved campaign without external access"
+    )
+    turnkey_validate.add_argument("plan", type=Path)
+    turnkey_rehearse = turnkey_subcommands.add_parser(
+        "rehearse", help="verify campaign routing in a deterministic hardware-free bundle"
+    )
+    turnkey_rehearse.add_argument("plan", type=Path)
+    turnkey_rehearse.add_argument("output_parent", type=Path)
+    turnkey_execute = turnkey_subcommands.add_parser(
+        "execute", help="dispatch an exactly confirmed live plan to its production coordinator"
+    )
+    turnkey_execute.add_argument("plan", type=Path)
+    turnkey_execute.add_argument("output_parent", type=Path)
+    turnkey_execute.add_argument("--operator", required=True)
+    turnkey_execute.add_argument("--work-directory", type=Path, required=True)
+    turnkey_execute.add_argument("--ssh", type=Path, required=True)
+    turnkey_execute.add_argument("--confirm-plan-sha256", required=True)
+    turnkey_execute.add_argument("--enable-turnkey-live", action="store_true", required=True)
+    turnkey_execute.add_argument("--enable-rf", action="store_true", required=True)
     return parser
 
 
@@ -346,6 +385,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "run-live-session",
         "run-cw-live-tone",
         "run-cw-live-keyed",
+        "turnkey-campaign",
     }.intersection(arguments):
         print("live RF and hardware actions are unavailable in the portable CLI", file=sys.stderr)
         return 2
@@ -355,6 +395,65 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "capabilities":
         print(json.dumps(capability_report(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "turnkey-campaign":
+        try:
+            if args.turnkey_action == "plan":
+                document = compose_resolved_campaign_plan(
+                    args.request,
+                    args.mode_plan,
+                    args.output,
+                )
+                turnkey_result: dict[str, object] = {
+                    "plan_only": True,
+                    "external_calls": 0,
+                    "production_adapters_constructed": False,
+                    "resolved_plan_sha256": resolved_campaign_sha256(document),
+                    "path": str(args.output),
+                }
+            elif args.turnkey_action == "validate":
+                document = load_json_document(
+                    args.plan, "resolved-turnkey-campaign-plan.schema.json"
+                )
+                validate_resolved_campaign_plan(document)
+                turnkey_result = {
+                    "valid": True,
+                    "external_calls": 0,
+                    "resolved_plan_sha256": resolved_campaign_sha256(document),
+                }
+            elif args.turnkey_action == "rehearse":
+                document = load_json_document(
+                    args.plan, "resolved-turnkey-campaign-plan.schema.json"
+                )
+                turnkey_result = run_hardware_free_campaign(document, args.output_parent)
+            elif args.turnkey_action == "execute":
+                document = load_json_document(
+                    args.plan, "resolved-turnkey-campaign-plan.schema.json"
+                )
+                digest = resolved_campaign_sha256(document)
+                if args.confirm_plan_sha256 != digest:
+                    raise TurnkeyCampaignError("typed campaign digest confirmation did not match")
+                turnkey_result = run_live_campaign(
+                    document,
+                    args.output_parent,
+                    operator=args.operator,
+                    confirmed_plan_sha256=digest,
+                    ssh_executable=args.ssh,
+                    work_directory=args.work_directory,
+                )
+            else:
+                raise AssertionError("unreachable turnkey campaign action")
+        except (
+            TurnkeyCampaignError,
+            RealSessionError,
+            LiveKeyedError,
+            OfflineAnalysisError,
+            OSError,
+            ValueError,
+        ) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(turnkey_result, indent=2, sort_keys=True))
         return 0
     if args.command == "inventory-archive":
         try:

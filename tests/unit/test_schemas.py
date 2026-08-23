@@ -65,6 +65,17 @@ def test_packaged_sdr_calibration_schemas_are_byte_identical() -> None:
         assert packaged.read_bytes() == review_facing.read_bytes()
 
 
+def test_packaged_turnkey_schemas_are_byte_identical() -> None:
+    for name in (
+        "turnkey-campaign-request.schema.json",
+        "resolved-turnkey-campaign-plan.schema.json",
+        "turnkey-campaign-result.schema.json",
+    ):
+        review_facing = ROOT / "schemas" / name
+        packaged = files("wsprrypi_qualification.schemas").joinpath(name)
+        assert packaged.read_bytes() == review_facing.read_bytes()
+
+
 def test_sdr_calibration_upstream_pin_matches_consumer_constants() -> None:
     pin = json.loads((ROOT / "schemas" / "SDR_CALIBRATION_UPSTREAM.json").read_text())
     assert pin["revision"] == UPSTREAM_REVISION

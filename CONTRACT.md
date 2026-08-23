@@ -60,6 +60,9 @@ The harness provides:
 15. immutable-per-run result bundle and summary generation;
 16. frozen SDR Calibration Profile 1.0.0 bindings and receiver-only calibrated
     frequency interpretation for recorded IQ and every maintained live mode.
+17. thin typed turnkey route planning, exact-digest confirmation, deterministic
+    hardware-free rehearsal, and dispatch to the existing production coordinator
+    for every maintained mode.
 
 The keyed schema/validator layer is validation-only: it exposes no process,
 transport, receiver, transmitter, service, or RF operation. Its three
