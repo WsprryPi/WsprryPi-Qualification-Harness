@@ -67,6 +67,10 @@ def capability_report() -> dict[str, Any]:
             "digest-authorized split-host carrier gate and three-frame WSPR lifecycle"
         ),
         "live_tone_coordination": "digest-authorized bounded live TONE lifecycle",
+        "turnkey_campaign_orchestration": (
+            "typed route planning, exact-digest confirmation, deterministic hardware-free "
+            "rehearsal, and dispatch to the maintained real-session or live-keyed coordinator"
+        ),
     }
     adapters = [
         CapabilityResult(

@@ -109,6 +109,13 @@ python -m wsprrypi_qualification simulate-qualification RUN_PARENT \
 See [`bounded-simulator.md`](development/bounded-simulator.md) for injection
 cases and bundle validation.
 
+For one complete multi-mode operator workflow, use `turnkey-campaign plan`,
+`validate`, and `rehearse` as described in
+[`turnkey-campaign.md`](development/turnkey-campaign.md). These operations do
+not contact hosts or construct production adapters. Live `execute` remains a
+separate exact-plan confirmation boundary and delegates safety and evidence to
+the selected maintained coordinator.
+
 ### Offline capture analysis
 
 The maintained offline sequence is:
@@ -348,6 +355,8 @@ hosted-CI result into a hardware qualification claim.
 - Preserved archive intake: [`archive-normalization.md`](development/archive-normalization.md)
 - Receiver calibration operation and prompts:
   [`receiver-calibration-operator.md`](development/receiver-calibration-operator.md)
+- Thin multi-mode campaign routing:
+  [`turnkey-campaign.md`](development/turnkey-campaign.md)
 
 For the newest state, prefer the current Git revision, CLI help, schemas, CI,
 and newest immutable evidence bundle over numbered implementation records or

@@ -29,7 +29,9 @@ The maintained package provides:
   QRSS, FSKCW, or DFCW process/capture transactions;
 - authenticated archive and multi-capture evidence intake;
 - digest-bound, read-only actual-host preflight;
-- fail-closed split-host WSPR and carrier-only live coordinators; and
+- fail-closed split-host WSPR and carrier-only live coordinators;
+- thin typed `turnkey-campaign` planning, deterministic rehearsal, exact-digest
+  confirmation, and routing to the existing production coordinators; and
 - schema-validated result bundles with explicit cleanup and qualification states.
 
 Hardware-free results, replays, mock lifecycles, and host preflights cannot
@@ -46,6 +48,8 @@ ignored temporary output, not a repository archive.
 
 - [Current workflows](docs/CURRENT_WORKFLOWS.md) — supported commands and the
   correct guide for each task.
+- [Turnkey campaign guide](docs/development/turnkey-campaign.md) — one thin
+  multi-mode routing workflow.
 - [Agent operating guide](docs/AGENT_OPERATIONS.md) — required orientation,
   authority order, validation, and evidence review.
 - [Contract capability matrix](docs/CAPABILITY_MATRIX.md) — source, schema, and

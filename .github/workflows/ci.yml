@@ -34,6 +34,8 @@ jobs:
       - name: Bounded hardware-free simulator
         timeout-minutes: 2
         run: wsprrypi-qualification simulate-qualification simulator-ci-runs --run-id 20260812T120000Z-ci-${{ matrix.os }}-${{ matrix.python-version }}
+      - name: Turnkey campaign contract smoke
+        run: wsprrypi-qualification turnkey-campaign --help
       - name: Configure hardware-free native capture tests
         run: cmake -S . -B build-native -DWSPQ_BUILD_SOAPY=OFF -DWSPQ_BUILD_TESTS=ON
       - name: Build hardware-free native capture tests

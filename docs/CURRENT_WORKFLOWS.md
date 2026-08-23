@@ -15,6 +15,17 @@ Profiles are schema-valid only after both JSON Schema and maintained semantic
 validation pass. Runtime authorization and current RF-path facts cannot be
 supplied by a committed example.
 
+## Turnkey campaign orchestration
+
+Use `turnkey-campaign plan`, `validate`, and `rehearse` for one typed workflow
+covering Tone, WSPR, QRSS, FSKCW, and DFCW. Planning and rehearsal are
+hardware-free and construct no production adapters. `execute` requires exact
+digest confirmation and routes only through the existing real-session or
+live-keyed production coordinator. That coordinator remains authoritative for
+runtime safety, cleanup, evidence, and status.
+
+Guide: [Turnkey campaign orchestration](development/turnkey-campaign.md).
+
 ## Hardware-free qualification rehearsal
 
 Use `simulate-qualification` for a bounded end-to-end rehearsal with local
