@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from copy import deepcopy
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +35,38 @@ def _file_artifact(path: Path) -> dict[str, Any]:
     value = artifact(path.resolve(strict=True))
     value["path"] = str(path)
     return value
+
+
+def _document_sha256(document: dict[str, Any]) -> str:
+    return hashlib.sha256(canonicalize(document)).hexdigest()
+
+
+def _is_synthetic_profile(profile: dict[str, Any]) -> bool:
+    """Recognize every conspicuous marker emitted by the maintained fixture."""
+    device = profile["device"]
+    configuration = profile["configuration"]
+    provenance = profile["provenance"]
+    return any(
+        (
+            profile["profile_id"].startswith("SYNTHETIC-NON-HARDWARE-"),
+            device["manufacturer"] == "SYNTHETIC",
+            str(device["model"]).startswith("NON-HARDWARE-"),
+            str(device["identifier"]).startswith("SYNTHETIC-"),
+            configuration.get("binding_extension", {}).get("synthetic_non_hardware") is True,
+            str(provenance["calibration_run_id"]).startswith("SYNTHETIC-NON-HARDWARE-"),
+            provenance["software"]["name"] == "WsprryPi Qualification Harness synthetic fixture",
+        )
+    )
+
+
+def _bound_document(path: Path, document: dict[str, Any]) -> dict[str, Any]:
+    payload = path.read_bytes()
+    return {
+        "artifact": _file_artifact(path),
+        "artifact_bytes_base64": base64.b64encode(payload).decode("ascii"),
+        "document_sha256": _document_sha256(document),
+        "document": document,
+    }
 
 
 def disabled_binding(policy: str = "disabled") -> dict[str, Any]:
@@ -86,9 +120,9 @@ def compose_binding(
         "evidence_type": "receiver_calibration_binding",
         "policy": policy,
         "applied": True,
-        "synthetic": profile["profile_id"].startswith("SYNTHETIC-NON-HARDWARE-"),
-        "profile": {"artifact": _file_artifact(profile_path), "document": profile},
-        "application_request": {"artifact": _file_artifact(request_path), "document": request},
+        "synthetic": _is_synthetic_profile(profile),
+        "profile": _bound_document(profile_path, profile),
+        "application_request": _bound_document(request_path, request),
         "application_result": result,
         "frozen_contract": {
             "schema_name": PROFILE_SCHEMA_NAME,
@@ -134,7 +168,7 @@ def validate_binding(
     profile = profile_binding["document"]
     request = request_binding["document"]
     validate_profile_document(profile)
-    expected_synthetic = profile["profile_id"].startswith("SYNTHETIC-NON-HARDWARE-")
+    expected_synthetic = _is_synthetic_profile(profile)
     if document["synthetic"] is not expected_synthetic:
         raise ReceiverCalibrationError("receiver calibration synthetic marker is inconsistent")
     validate_application_request_document(request)
@@ -158,6 +192,30 @@ def validate_binding(
                 "receiver calibration binding_extension lacks required channel"
             )
     for binding, label in ((profile_binding, "profile"), (request_binding, "application request")):
+        try:
+            retained_payload = base64.b64decode(binding["artifact_bytes_base64"], validate=True)
+            retained_document = json.loads(
+                retained_payload.decode("utf-8"),
+                parse_constant=lambda value: (_ for _ in ()).throw(
+                    ValueError(f"non-standard JSON numeric constant: {value}")
+                ),
+            )
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ReceiverCalibrationError(
+                f"receiver calibration {label} retained artifact is invalid"
+            ) from error
+        if (
+            len(retained_payload) != binding["artifact"]["size_bytes"]
+            or hashlib.sha256(retained_payload).hexdigest() != binding["artifact"]["sha256"]
+            or retained_document != binding["document"]
+        ):
+            raise ReceiverCalibrationError(
+                f"receiver calibration {label} retained artifact differs from its binding"
+            )
+        if binding["document_sha256"] != _document_sha256(binding["document"]):
+            raise ReceiverCalibrationError(
+                f"receiver calibration {label} embedded document changed"
+            )
         path = Path(binding["artifact"]["path"])
         if path.exists():
             payload = path.read_bytes()
@@ -190,6 +248,41 @@ def validate_binding(
             if receiver.get(field) != expected_value:
                 raise ReceiverCalibrationError(f"receiver calibration {field} differs")
     return deepcopy(document)
+
+
+def validate_live_binding(
+    document: dict[str, Any],
+    *,
+    receiver: dict[str, Any],
+    indicated_frequencies_hz: list[float],
+    execution_time: datetime | None = None,
+) -> dict[str, Any]:
+    """Fail before live adapter construction if run facts are stale or inapplicable."""
+    binding = validate_binding(document, receiver=receiver)
+    if binding["synthetic"]:
+        raise ReceiverCalibrationError("synthetic receiver calibration cannot enter live execution")
+    if not binding["applied"]:
+        return binding
+    now = execution_time or datetime.now(UTC)
+    request = binding["application_request"]["document"]
+    evaluated_at = datetime.fromisoformat(request["evaluated_at"].replace("Z", "+00:00"))
+    age_seconds = (now - evaluated_at).total_seconds()
+    if age_seconds < 0 or age_seconds > request["maximum_application_age_seconds"]:
+        raise ReceiverCalibrationError("receiver calibration application facts are stale")
+    expires_at = datetime.fromisoformat(
+        binding["profile"]["document"]["validity"]["not_valid_after"].replace("Z", "+00:00")
+    )
+    if now >= expires_at:
+        raise ReceiverCalibrationError(
+            "receiver calibration profile has expired before live access"
+        )
+    for frequency_hz in indicated_frequencies_hz:
+        interpret_frequency(binding, frequency_hz)
+    if "signature" not in binding["profile"]["document"]["integrity"]:
+        raise ReceiverCalibrationError(
+            "unsigned receiver calibration cannot enter live execution without a trust policy"
+        )
+    return binding
 
 
 def interpret_frequency(document: dict[str, Any], indicated_frequency_hz: float) -> dict[str, Any]:
@@ -333,6 +426,7 @@ def synthetic_request(profile: dict[str, Any]) -> dict[str, Any]:
         "temperature_c": 20.0,
         "warmup_seconds": 0,
         "evaluated_at": "2026-08-23T00:00:00Z",
+        "maximum_application_age_seconds": 300,
         "required_reliability_quotient": 90,
         "maximum_expanded_uncertainty_hz": 3.0,
     }

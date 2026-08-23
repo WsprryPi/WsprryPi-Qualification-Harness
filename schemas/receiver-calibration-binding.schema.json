@@ -37,8 +37,13 @@
     },
     "bound_document": {
       "type": "object", "additionalProperties": false,
-      "required": ["artifact", "document"],
-      "properties": {"artifact": {"$ref": "#/$defs/artifact"}, "document": {"type": "object"}}
+      "required": ["artifact", "artifact_bytes_base64", "document_sha256", "document"],
+      "properties": {
+        "artifact": {"$ref": "#/$defs/artifact"},
+        "artifact_bytes_base64": {"type": "string", "minLength": 1, "contentEncoding": "base64"},
+        "document_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "document": {"type": "object"}
+      }
     }
   }
 }

@@ -17,6 +17,10 @@ contact a host, authorize RF, or modify transmitter PPM.
 
 Validate a real profile and run-specific application request, then bind them:
 
+The request must bound `maximum_application_age_seconds` to at most 3600. Live
+validation rejects stale observed temperature, warm-up, and configuration facts
+before constructing receiver or RF capabilities.
+
 ```text
 wsprrypi-qualification evaluate-sdr-calibration PROFILE.json REQUEST.json
 wsprrypi-qualification compose-receiver-calibration \
@@ -35,6 +39,10 @@ wsprrypi-qualification compose-receiver-calibration \
 
 The fixture uses synthetic identity and provenance, is unsigned, and exists
 only to exercise the frozen contract. It cannot qualify hardware.
+
+Applied unsigned profiles are likewise rejected at live execution entry until
+a reviewed signature verifier and trust-store policy are available. They remain
+valid for hardware-free composition and recorded/replay interpretation.
 
 Recorded carrier accepts `--receiver-calibration-binding`. Acquired CW replay
 accepts the same option. Resolved Tone, WSPR, QRSS, FSKCW, and DFCW plans carry

@@ -103,6 +103,14 @@ def validate_resolved_keyed_plan(document: dict[str, Any]) -> dict[str, Any]:
         _fail("receiver identity hash does not bind the resolved device")
     try:
         validate_receiver_calibration(document["receiver_calibration"], receiver=receiver)
+        protocol = application["protocol_contract"]
+        interpret_frequency(
+            document["receiver_calibration"], float(protocol["primary_frequency_hz"])
+        )
+        if protocol.get("secondary_frequency_hz") is not None:
+            interpret_frequency(
+                document["receiver_calibration"], float(protocol["secondary_frequency_hz"])
+            )
     except ReceiverCalibrationError as error:
         _fail(str(error))
     bound_artifacts = [

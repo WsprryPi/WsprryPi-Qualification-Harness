@@ -12,6 +12,7 @@
     "temperature_c",
     "warmup_seconds",
     "evaluated_at",
+    "maximum_application_age_seconds",
     "required_reliability_quotient"
   ],
   "properties": {
@@ -51,6 +52,7 @@
     "temperature_c": {"type": "number"},
     "warmup_seconds": {"type": "integer", "minimum": 0},
     "evaluated_at": {"type": "string", "format": "date-time"},
+    "maximum_application_age_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
     "required_reliability_quotient": {"type": "integer", "minimum": 0, "maximum": 100},
     "maximum_expanded_uncertainty_hz": {"type": "number", "minimum": 0}
   }

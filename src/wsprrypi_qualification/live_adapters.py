@@ -62,6 +62,10 @@ from wsprrypi_qualification.real_session import (
     helper_verification_deadline,
     resolved_real_plan_sha256,
 )
+from wsprrypi_qualification.receiver_calibration import (
+    ReceiverCalibrationError,
+    validate_live_binding,
+)
 
 _COHERENT_CAPTURE_STARTUP_GUARD_S = 2.0
 _T = TypeVar("_T")
@@ -1529,6 +1533,14 @@ def build_production_adapters(
     """Build the one reviewed topology: local wspr5 receiver, SSH wspr4 transmitter."""
     if plan["transport"] != "ssh" or plan["execution_mode"] != "live":
         raise RealSessionError("production composition requires an SSH live plan")
+    try:
+        validate_live_binding(
+            plan["receiver_calibration"],
+            receiver=plan["receiver"],
+            indicated_frequencies_hz=[float(plan["frequency_hz"])],
+        )
+    except ReceiverCalibrationError as error:
+        raise RealSessionError(str(error)) from error
     if not ssh_executable.is_absolute() or not ssh_executable.is_file():
         raise RealSessionError("OpenSSH executable must be an existing absolute file")
     if artifact(ssh_executable)["sha256"] != plan["capability_bindings"]["transmitter_ssh"]:

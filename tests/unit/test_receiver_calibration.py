@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from copy import deepcopy
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from tests.unit.test_keyed_session_contracts import plan as keyed_plan
 from tests.unit.test_real_session import plan_document
+from tests.unit.test_sdr_calibration import profile_document, request_document
 from wsprrypi_qualification.keyed_coordinator import _receiver_interpretations
 from wsprrypi_qualification.keyed_session_contracts import resolved_keyed_plan_sha256
+from wsprrypi_qualification.live_adapters import build_production_adapters
 from wsprrypi_qualification.real_session import (
     RealSessionError,
     resolved_real_plan_sha256,
@@ -23,8 +27,10 @@ from wsprrypi_qualification.receiver_calibration import (
     synthetic_profile,
     synthetic_request,
     validate_binding,
+    validate_live_binding,
     write_synthetic_fixture,
 )
+from wsprrypi_qualification.sdr_calibration import canonicalize
 
 
 def _write(path: Path, value: dict) -> None:
@@ -115,6 +121,86 @@ def test_binding_rechecks_receiver_and_artifact_identity(tmp_path: Path) -> None
     Path(binding["profile"]["artifact"]["path"]).write_text("tampered", encoding="utf-8")
     with pytest.raises(ReceiverCalibrationError, match="artifact changed"):
         validate_binding(binding)
+
+
+def test_binding_authenticates_embedded_document_when_source_is_absent(tmp_path: Path) -> None:
+    binding = _binding(tmp_path)
+    Path(binding["application_request"]["artifact"]["path"]).unlink()
+    Path(binding["profile"]["artifact"]["path"]).unlink()
+    validate_binding(binding)
+    binding["application_request"]["document"]["temperature_c"] = 21.0
+    with pytest.raises(ReceiverCalibrationError, match="retained artifact differs"):
+        validate_binding(binding)
+
+
+def test_renaming_synthetic_profile_id_does_not_bypass_marker(tmp_path: Path) -> None:
+    paths = write_synthetic_fixture(tmp_path / "fixture")
+    profile = json.loads(paths["profile"].read_text(encoding="utf-8"))
+    profile["profile_id"] = "real-looking-profile"
+    payload = deepcopy(profile)
+    del payload["integrity"]
+    profile["integrity"]["sha256"] = hashlib.sha256(canonicalize(payload)).hexdigest()
+    _write(paths["profile"], profile)
+    request = json.loads(paths["request"].read_text(encoding="utf-8"))
+    request["device"] = deepcopy(profile["device"])
+    request["configuration"] = deepcopy(profile["configuration"])
+    _write(paths["request"], request)
+    assert compose_binding(paths["profile"], paths["request"])["synthetic"] is True
+
+
+def test_live_binding_rejects_stale_facts_and_out_of_domain_frequency(tmp_path: Path) -> None:
+    profile = profile_document()
+    profile["configuration"]["binding_extension"] = {"channel": 0}
+    payload = deepcopy(profile)
+    del payload["integrity"]
+    profile["integrity"]["sha256"] = hashlib.sha256(canonicalize(payload)).hexdigest()
+    request = request_document(profile)
+    evaluated = datetime.now(UTC).replace(microsecond=0)
+    request["evaluated_at"] = evaluated.isoformat().replace("+00:00", "Z")
+    profile_path = tmp_path / "real-profile.json"
+    request_path = tmp_path / "real-request.json"
+    _write(profile_path, profile)
+    _write(request_path, request)
+    binding = compose_binding(profile_path, request_path)
+    config = request["configuration"]
+    receiver = {
+        "driver": request["device"]["driver"],
+        "serial": request["device"]["identifier"],
+        "channel": 0,
+        **config,
+    }
+    with pytest.raises(ReceiverCalibrationError, match="stale"):
+        validate_live_binding(
+            binding,
+            receiver=receiver,
+            indicated_frequencies_hz=[14_097_100.0],
+            execution_time=evaluated + timedelta(seconds=301),
+        )
+    with pytest.raises(ReceiverCalibrationError, match="outside the bound calibration"):
+        validate_live_binding(
+            binding,
+            receiver=receiver,
+            indicated_frequencies_hz=[15_000_000.0],
+            execution_time=evaluated,
+        )
+    with pytest.raises(ReceiverCalibrationError, match="unsigned"):
+        validate_live_binding(
+            binding,
+            receiver=receiver,
+            indicated_frequencies_hz=[14_097_100.0],
+            execution_time=evaluated,
+        )
+    live_plan = plan_document(execution_mode="live")
+    live_plan["receiver"].update(receiver)
+    live_plan["frequency_hz"] = 14_097_100.0
+    live_plan["receiver_calibration"] = binding
+    with pytest.raises(RealSessionError, match="unsigned"):
+        build_production_adapters(
+            live_plan,
+            ssh_executable=tmp_path / "must-not-be-inspected",
+            work_directory=tmp_path / "must-not-be-created",
+        )
+    assert not (tmp_path / "must-not-be-created").exists()
 
 
 def test_interpretation_preserves_indicated_value_and_receiver_only_scope(tmp_path: Path) -> None:
