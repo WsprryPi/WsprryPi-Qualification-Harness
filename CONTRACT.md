@@ -63,6 +63,11 @@ The harness provides:
 17. thin typed turnkey route planning, exact-digest confirmation, deterministic
     hardware-free rehearsal, and dispatch to the existing production coordinator
     for every maintained mode.
+18. one first-class `complete-test` campaign that accepts transmitter host,
+    receiver host, and an exact SDR selector, resolves canonical defaults and
+    explicit overrides, prepares all five bounded mode executions,
+    and routes TONE, WSPR, QRSS, FSKCW, and DFCW in order through those same
+    coordinators with one invocation authorization and one authenticated aggregate.
 
 The keyed schema/validator layer is validation-only: it exposes no process,
 transport, receiver, transmitter, service, or RF operation. Its three
@@ -144,6 +149,13 @@ transmitter PPM.
 
 Operator confirmation is runtime evidence and must never be satisfied by a
 committed `confirmed: true` or similar profile value.
+
+For `complete-test` only, deliberate invocation with `--enable-rf`, two exact
+host names, and one exact SDR selector is the positive confirmation for the
+bounded five-mode campaign. The command resolves installed deployment facts
+internally and does not require an operator identity. Internal evidence binding
+is automatic and is not part of the user interface. Advanced explicit-plan
+commands retain their existing confirmation interfaces.
 
 Receiver authorization and RF-path resolution are separate. An operator may
 record either single-run or universal authorization for receiver-only access,

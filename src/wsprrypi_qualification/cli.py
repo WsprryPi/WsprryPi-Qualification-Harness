@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import sys
 from collections.abc import Sequence
@@ -25,6 +26,17 @@ from wsprrypi_qualification.audio import create_slot_wav_acquired
 from wsprrypi_qualification.capabilities import capability_report
 from wsprrypi_qualification.capture_metadata import CaptureMetadataError, load_capture_metadata
 from wsprrypi_qualification.carrier import analyze_carrier_acquired
+from wsprrypi_qualification.complete_test import (
+    CompleteTestError,
+    CompleteTestOverrides,
+    compose_complete_test_plan,
+    delegate_complete_test,
+    receiver_is_local,
+    rehearse_complete_test,
+    resolve_local_sdr,
+    run_complete_test,
+    validate_complete_test_bundle,
+)
 from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contract_chain
 from wsprrypi_qualification.cw_host_preflight import (
     CwHostPreflightError,
@@ -56,6 +68,7 @@ from wsprrypi_qualification.keyed_session_contracts import (
 from wsprrypi_qualification.live_keyed import LiveKeyedError, run_live_keyed_session
 from wsprrypi_qualification.offline import (
     OfflineAnalysisError,
+    artifact,
     load_json_document,
     write_json_new,
     write_offline_failure,
@@ -89,9 +102,23 @@ from wsprrypi_qualification.turnkey_campaign import (
 LIVE_COMMANDS = {"run", "capture", "transmit", "tone", "enable-rf"}
 
 
+def _complete_test_summary(outcome: dict[str, object]) -> dict[str, object]:
+    result = outcome["result"]
+    if not isinstance(result, dict):
+        raise CompleteTestError("complete-test returned an invalid result")
+    return {
+        "status": result["final_status"],
+        "transmitter": result["transmitter_host"],
+        "receiver": result["receiver_host"],
+        "sdr": result["sdr_selector"],
+        "bundle": outcome["bundle"],
+    }
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="wsprrypi-qualification")
     subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("runtime-identity", help=argparse.SUPPRESS)
     subparsers.add_parser("version", help="print the package version")
     subparsers.add_parser("capabilities", help="emit a read-only capability report")
     validate = subparsers.add_parser(
@@ -349,6 +376,41 @@ def _parser() -> argparse.ArgumentParser:
     turnkey_execute.add_argument("--confirm-plan-sha256", required=True)
     turnkey_execute.add_argument("--enable-turnkey-live", action="store_true", required=True)
     turnkey_execute.add_argument("--enable-rf", action="store_true", required=True)
+    complete = subparsers.add_parser(
+        "complete-test",
+        help="run the bounded TONE/WSPR/QRSS/FSKCW/DFCW campaign",
+    )
+    complete.add_argument("transmitter_host", metavar="TRANSMITTER_HOST")
+    complete.add_argument("receiver_host", metavar="RECEIVER_HOST")
+    complete.add_argument(
+        "--sdr",
+        required=True,
+        help="exact SoapySDR device selector to resolve on the receiver host",
+    )
+    complete.add_argument("--enable-rf", action="store_true")
+    complete.add_argument("--receiver-local", action="store_true", help=argparse.SUPPRESS)
+    complete.add_argument("--delegated-output", action="store_true", help=argparse.SUPPRESS)
+    complete.add_argument("--delegation-receipt-base64", help=argparse.SUPPRESS)
+    complete.add_argument(
+        "--rehearse", action="store_true", help="hardware-free plan and routing rehearsal"
+    )
+    complete.add_argument("--configuration", type=Path)
+    complete.add_argument("--band", default="20m")
+    complete.add_argument("--frequency-hz", type=int, default=14_097_100)
+    complete.add_argument("--callsign", default="Q0QQQ")
+    complete.add_argument("--grid", default="JJ00")
+    complete.add_argument("--power-dbm", type=int, default=0)
+    complete.add_argument("--message", default="ET")
+    complete.add_argument("--qrss-dot-seconds", type=float, default=0.7)
+    complete.add_argument("--fskcw-dot-seconds", type=float, default=0.7)
+    complete.add_argument("--dfcw-dot-seconds", type=float, default=0.7)
+    complete.add_argument("--fskcw-separation-hz", type=float, default=5.0)
+    complete.add_argument("--dfcw-separation-hz", type=float, default=5.0)
+    validate_complete = subparsers.add_parser(
+        "validate-complete-test",
+        help="semantically validate an authenticated complete-test aggregate bundle",
+    )
+    validate_complete.add_argument("bundle", type=Path)
     return parser
 
 
@@ -359,16 +421,175 @@ def main(argv: Sequence[str] | None = None) -> int:
         "run-cw-live-tone",
         "run-cw-live-keyed",
         "turnkey-campaign",
+        "complete-test",
     }.intersection(arguments):
         print("live RF and hardware actions are unavailable in the portable CLI", file=sys.stderr)
         return 2
     args = _parser().parse_args(arguments)
+    if args.command == "runtime-identity":
+        print(
+            json.dumps(
+                {
+                    "launcher": artifact(Path(sys.argv[0]).resolve()),
+                    "module": artifact(Path(__file__).resolve()),
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
     if args.command == "version":
         print(__version__)
         return 0
     if args.command == "capabilities":
         print(json.dumps(capability_report(), indent=2, sort_keys=True))
         return 0
+    if args.command == "validate-complete-test":
+        try:
+            validated_complete = validate_complete_test_bundle(args.bundle)
+        except (CompleteTestError, OfflineAnalysisError, OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(validated_complete, indent=2, sort_keys=True))
+        return 0
+    if args.command == "complete-test":
+        try:
+            if args.rehearse and args.enable_rf:
+                raise CompleteTestError("--rehearse conflicts with --enable-rf")
+            if not args.rehearse and not args.enable_rf:
+                raise CompleteTestError("live complete-test requires explicit --enable-rf")
+            receiver_local = receiver_is_local(args.receiver_host)
+            if args.receiver_local and not receiver_local:
+                raise CompleteTestError(
+                    "remote receiver delegation landed on a host with the wrong identity"
+                )
+            if args.delegation_receipt_base64 is not None and not args.receiver_local:
+                raise CompleteTestError("delegation evidence is accepted only on the receiver")
+            delegation_receipt = None
+            if args.delegation_receipt_base64 is not None:
+                try:
+                    delegation_receipt = json.loads(
+                        base64.urlsafe_b64decode(
+                            args.delegation_receipt_base64
+                            + "=" * (-len(args.delegation_receipt_base64) % 4)
+                        ).decode("utf-8")
+                    )
+                except (ValueError, UnicodeError, json.JSONDecodeError) as error:
+                    raise CompleteTestError("delegation evidence is invalid") from error
+                if not isinstance(delegation_receipt, dict):
+                    raise CompleteTestError("delegation evidence must be an object")
+            if not args.rehearse and not args.receiver_local and not receiver_local:
+                forwarded = ["--enable-rf"]
+                if args.configuration is not None:
+                    forwarded.extend(("--configuration", str(args.configuration)))
+                forwarded.extend(
+                    (
+                        "--band",
+                        args.band,
+                        "--frequency-hz",
+                        str(args.frequency_hz),
+                        "--callsign",
+                        args.callsign,
+                        "--grid",
+                        args.grid,
+                        "--power-dbm",
+                        str(args.power_dbm),
+                        "--message",
+                        args.message,
+                        "--qrss-dot-seconds",
+                        str(args.qrss_dot_seconds),
+                        "--fskcw-dot-seconds",
+                        str(args.fskcw_dot_seconds),
+                        "--dfcw-dot-seconds",
+                        str(args.dfcw_dot_seconds),
+                        "--fskcw-separation-hz",
+                        str(args.fskcw_separation_hz),
+                        "--dfcw-separation-hz",
+                        str(args.dfcw_separation_hz),
+                    )
+                )
+                delegated = delegate_complete_test(
+                    args.transmitter_host,
+                    args.receiver_host,
+                    args.sdr,
+                    forwarded,
+                    configuration=args.configuration,
+                )
+                print(json.dumps(_complete_test_summary(delegated), indent=2, sort_keys=True))
+                status = delegated["result"]["final_status"]
+                return {
+                    "qualified": 0,
+                    "fixture_blocked": 3,
+                    "preflight_failed": 3,
+                    "inconclusive": 3,
+                    "unqualified_carrier": 4,
+                    "unqualified_decode": 4,
+                    "unqualified_keyed": 4,
+                    "aborted": 5,
+                    "cleanup_failed": 6,
+                }[status]
+            discovered_sdr = None if args.rehearse else resolve_local_sdr(args.sdr)
+            overrides = CompleteTestOverrides(
+                band=args.band,
+                frequency_hz=args.frequency_hz,
+                callsign=args.callsign,
+                grid=args.grid,
+                power_dbm=args.power_dbm,
+                message=args.message,
+                qrss_dot_seconds=args.qrss_dot_seconds,
+                fskcw_dot_seconds=args.fskcw_dot_seconds,
+                dfcw_dot_seconds=args.dfcw_dot_seconds,
+                fskcw_separation_hz=args.fskcw_separation_hz,
+                dfcw_separation_hz=args.dfcw_separation_hz,
+            )
+            complete_plan = compose_complete_test_plan(
+                args.transmitter_host,
+                args.receiver_host,
+                args.sdr,
+                configuration=args.configuration,
+                overrides=overrides,
+                discovered_sdr=discovered_sdr,
+                delegation_receipt=delegation_receipt,
+                live=not args.rehearse,
+            )
+            execution = complete_plan["execution_paths"]
+            output_parent = Path(execution["output_parent"])
+            if args.rehearse:
+                complete_result = rehearse_complete_test(complete_plan, output_parent)
+            else:
+                complete_result = run_complete_test(
+                    complete_plan,
+                    output_parent,
+                    ssh_executable=Path(execution["ssh_executable"]["path"]),
+                    work_directory=Path(execution["work_directory"]),
+                )
+        except (
+            CompleteTestError,
+            RealSessionError,
+            LiveKeyedError,
+            OfflineAnalysisError,
+            OSError,
+            ValueError,
+        ) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        rendered_complete = (
+            complete_result if args.delegated_output else _complete_test_summary(complete_result)
+        )
+        print(json.dumps(rendered_complete, indent=2, sort_keys=True))
+        if args.rehearse:
+            return 0
+        status = complete_result["result"]["final_status"]
+        if status == "qualified":
+            return 0
+        if status in {"fixture_blocked", "preflight_failed", "inconclusive"}:
+            return 3
+        if status in {"unqualified_carrier", "unqualified_decode", "unqualified_keyed"}:
+            return 4
+        if status == "aborted":
+            return 5
+        if status == "cleanup_failed":
+            return 6
+        raise AssertionError("unreachable complete-test status")
     if args.command == "turnkey-campaign":
         try:
             if args.turnkey_action == "plan":

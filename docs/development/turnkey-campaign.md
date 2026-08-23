@@ -47,3 +47,59 @@ Do not infer permission to contact a host, open a device, change a service, or
 emit RF from a plan, rehearsal, saved digest, or this guide. Those operations
 still require the precise current authority required by the subordinate
 coordinator and repository contract.
+
+## Simple five-mode `complete-test`
+
+`complete-test` is the normal fixed campaign surface; the explicit-plan
+`turnkey-campaign` commands above remain the advanced interface. The normal
+command accepts two hosts and an exact SDR selector, resolves installed
+deployment foundations on the receiver execution host, discovers the selected
+SDR immediately, and derives all five mode plans rather than accepting five
+operator-authored mode plans. The one-time administrator deployment must already
+provide the maintained helper, source, service, calibration, and RF-path facts;
+the production coordinators recheck their current state during preflight. Both endpoints
+may be remote to the controller; the controller delegates execution to the
+receiver. `--configuration PATH` remains an advanced development override:
+
+```text
+wsprrypi-qualification complete-test wspr4 wspr5 \
+  --sdr driver=sdrplay,serial=2404058C60 --enable-rf
+wsprrypi-qualification complete-test wspr4 wspr5 \
+  --sdr driver=sdrplay,serial=2404058C60 --rehearse --configuration PATH
+wsprrypi-qualification validate-complete-test CAMPAIGN-BUNDLE
+```
+
+Defaults are 20 m, 14,097,100 Hz, `Q0QQQ`, `JJ00`, 0 dBm, keyed message `ET`,
+0.7-second QRSS/FSKCW/DFCW dots, and 5.0 Hz FSKCW/DFCW separation. All are
+named CLI overrides. WSPR retains the maintained three-frame contract; keyed
+modes retain three independent transactions. The application shim derives the
+WSPR dial frequency from its maintained 1500 Hz audio offset and derives the
+FSKCW space and DFCW dash frequency below the primary according to the existing
+protocol ordering.
+
+The command validates the complete bounded execution before constructing a
+production adapter. One deliberate invocation is the campaign authorization. Modes
+run as TONE, WSPR, QRSS, FSKCW, DFCW. Cleanup, abort, preflight, fixture,
+quiescence, or inconclusive outcomes stop all later modes. A failed TONE carrier
+also stops the campaign. WSPR decode unqualification and keyed-mode
+unqualification remain authoritative but do not prevent later independent modes,
+so useful authenticated evidence is preserved. Modes stopped by the matrix are
+`not_attempted`; cleanup and quiescence failures retain precedence and cannot be
+hidden by aggregation.
+
+Live exit codes are stable: 0 qualified, 2 invalid input, 3 technical blockage
+or inconclusive evidence, 4 transmitter unqualification, 5 abort, and 6 cleanup
+failure. Aggregate validation recomputes ordering, campaign and subordinate plan
+bindings, linked result identities, cleanup precedence, final status, and
+qualification scope even if a manifest has been rebuilt after tampering.
+
+Rehearsal routes and authenticates five generated plans but contacts no host,
+opens no receiver, inspects no service, touches no GPIO/I2C/GPCLK, and emits no
+RF. It is non-qualifying. Same-host local production transport is rejected as
+`unsupported_topology`; Track D owns that capability. Track E transmitter-PPM
+provenance and later prompt/qualification campaigns are also outside this work.
+The current `main` production application/quiescence contracts support GPIO and
+Si5351, not `rp1_gpclk`; selecting RP1 therefore returns `missing_capability`
+before adapter construction. GPIO4/2 mA RP1 defaults will apply only after that
+backend is present in the maintained production contracts and cannot leak into
+GPIO or Si5351 plans.

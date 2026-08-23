@@ -1,0 +1,363 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_type",
+    "campaign_id",
+    "transmitter_host",
+    "receiver_host",
+    "sdr_selector",
+    "sdr_discovery",
+    "delegation_receipt",
+    "execution_policy",
+    "authorization",
+    "configuration",
+    "defaults",
+    "resolved_values",
+    "derived_frequencies",
+    "mode_order",
+    "mode_plans",
+    "topology",
+    "transport",
+    "campaign_deadline_s",
+    "execution_paths",
+    "production_adapters_constructed",
+    "qualification_claim"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "evidence_type": {
+      "const": "resolved_complete_test_plan"
+    },
+    "campaign_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "transmitter_host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "receiver_host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sdr_selector": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sdr_discovery": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "delegation_receipt": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/delegation_receipt"
+        }
+      ]
+    },
+    "execution_policy": {
+      "enum": [
+        "hardware_free",
+        "live"
+      ]
+    },
+    "authorization": {
+      "const": "deliberate_invocation"
+    },
+    "configuration": {
+      "$ref": "#/$defs/binding"
+    },
+    "defaults": {
+      "$ref": "#/$defs/values"
+    },
+    "resolved_values": {
+      "$ref": "#/$defs/values"
+    },
+    "derived_frequencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wspr_dial_frequency_hz",
+        "wspr_audio_offset_hz",
+        "fskcw_secondary_frequency_hz",
+        "dfcw_secondary_frequency_hz"
+      ],
+      "properties": {
+        "wspr_dial_frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "wspr_audio_offset_hz": {
+          "const": 1500
+        },
+        "fskcw_secondary_frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "dfcw_secondary_frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "mode_order": {
+      "const": [
+        "TONE",
+        "WSPR",
+        "QRSS",
+        "FSKCW",
+        "DFCW"
+      ]
+    },
+    "mode_plans": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "source",
+          "plan",
+          "plan_sha256",
+          "production_route"
+        ],
+        "properties": {
+          "mode": {
+            "enum": [
+              "TONE",
+              "WSPR",
+              "QRSS",
+              "FSKCW",
+              "DFCW"
+            ]
+          },
+          "source": {
+            "$ref": "#/$defs/artifact"
+          },
+          "plan": {
+            "type": "object"
+          },
+          "plan_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "production_route": {
+            "enum": [
+              "real_session",
+              "live_keyed"
+            ]
+          }
+        }
+      }
+    },
+    "topology": {
+      "const": "split_host_ssh"
+    },
+    "transport": {
+      "const": "ssh"
+    },
+    "campaign_deadline_s": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "execution_paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ssh_executable",
+        "work_directory",
+        "output_parent"
+      ],
+      "properties": {
+        "ssh_executable": {
+          "$ref": "#/$defs/artifact"
+        },
+        "work_directory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "output_parent": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "production_adapters_constructed": {
+      "const": false
+    },
+    "qualification_claim": {
+      "const": false
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "size_bytes",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "delegation_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "launcher",
+        "module"
+      ],
+      "properties": {
+        "launcher": {
+          "$ref": "#/$defs/artifact"
+        },
+        "module": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "delegation_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receiver_host",
+        "ssh",
+        "known_hosts",
+        "remote_exec",
+        "qualification"
+      ],
+      "properties": {
+        "receiver_host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ssh": {
+          "$ref": "#/$defs/artifact"
+        },
+        "known_hosts": {
+          "$ref": "#/$defs/artifact"
+        },
+        "remote_exec": {
+          "$ref": "#/$defs/delegation_identity"
+        },
+        "qualification": {
+          "$ref": "#/$defs/delegation_identity"
+        }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact",
+        "document"
+      ],
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "document": {
+          "type": "object"
+        }
+      }
+    },
+    "values": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "band",
+        "frequency_hz",
+        "callsign",
+        "grid",
+        "power_dbm",
+        "message",
+        "qrss_dot_seconds",
+        "fskcw_dot_seconds",
+        "dfcw_dot_seconds",
+        "fskcw_separation_hz",
+        "dfcw_separation_hz",
+        "keyed_observations",
+        "wspr_observations"
+      ],
+      "properties": {
+        "band": {
+          "type": "string",
+          "minLength": 1
+        },
+        "frequency_hz": {
+          "type": "integer",
+          "minimum": 1501
+        },
+        "callsign": {
+          "type": "string",
+          "minLength": 1
+        },
+        "grid": {
+          "type": "string",
+          "minLength": 1
+        },
+        "power_dbm": {
+          "type": "integer"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "qrss_dot_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "fskcw_dot_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "dfcw_dot_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "fskcw_separation_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "dfcw_separation_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "keyed_observations": {
+          "const": 3
+        },
+        "wspr_observations": {
+          "const": 3
+        }
+      }
+    }
+  }
+}

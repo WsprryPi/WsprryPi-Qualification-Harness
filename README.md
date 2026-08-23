@@ -31,7 +31,9 @@ The maintained package provides:
 - digest-bound, read-only actual-host preflight;
 - fail-closed split-host WSPR and carrier-only live coordinators;
 - thin typed `turnkey-campaign` planning, deterministic rehearsal, exact-digest
-  confirmation, and routing to the existing production coordinators; and
+  confirmation, and routing to the existing production coordinators;
+- simple `complete-test TRANSMITTER_HOST RECEIVER_HOST --sdr SELECTOR --enable-rf`
+  orchestration for the ordered TONE, WSPR, QRSS, FSKCW, and DFCW campaign; and
 - schema-validated result bundles with explicit cleanup and qualification states.
 
 Hardware-free results, replays, mock lifecycles, and host preflights cannot

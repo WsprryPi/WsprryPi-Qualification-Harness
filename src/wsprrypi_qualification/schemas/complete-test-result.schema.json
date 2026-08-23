@@ -1,0 +1,387 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_type",
+    "campaign_id",
+    "campaign_plan_sha256",
+    "transmitter_host",
+    "receiver_host",
+    "sdr_selector",
+    "delegation_receipt",
+    "authorization",
+    "mode_order",
+    "modes",
+    "final_status",
+    "cleanup_precedence_applied",
+    "campaign_cleanup",
+    "qualification_scope",
+    "qualification_claim"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "evidence_type": {
+      "const": "complete_test_result"
+    },
+    "campaign_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "campaign_plan_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "transmitter_host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "receiver_host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sdr_selector": {
+      "type": "string",
+      "minLength": 1
+    },
+    "delegation_receipt": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/delegation_receipt"
+        }
+      ]
+    },
+    "authorization": {
+      "const": "deliberate_invocation"
+    },
+    "mode_order": {
+      "const": [
+        "TONE",
+        "WSPR",
+        "QRSS",
+        "FSKCW",
+        "DFCW"
+      ]
+    },
+    "modes": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "state",
+          "final_status",
+          "plan_sha256",
+          "authoritative_bundle",
+          "stopping_reason",
+          "result_sha256",
+          "result_artifact",
+          "bundle_manifest_artifact"
+        ],
+        "properties": {
+          "mode": {
+            "enum": [
+              "TONE",
+              "WSPR",
+              "QRSS",
+              "FSKCW",
+              "DFCW"
+            ]
+          },
+          "state": {
+            "enum": [
+              "attempted",
+              "not_attempted",
+              "attempted_unverified"
+            ]
+          },
+          "final_status": {
+            "enum": [
+              "qualified",
+              "unqualified_carrier",
+              "unqualified_decode",
+              "unqualified_keyed",
+              "fixture_blocked",
+              "preflight_failed",
+              "aborted",
+              "cleanup_failed",
+              "inconclusive"
+            ]
+          },
+          "plan_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "authoritative_bundle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stopping_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result_sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "result_artifact": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/artifact"
+              }
+            ]
+          },
+          "bundle_manifest_artifact": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/artifact"
+              }
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "attempted"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "authoritative_bundle": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "result_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "result_artifact": {
+                  "$ref": "#/$defs/artifact"
+                },
+                "bundle_manifest_artifact": {
+                  "$ref": "#/$defs/artifact"
+                },
+                "stopping_reason": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": [
+                    "not_attempted",
+                    "attempted_unverified"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "authoritative_bundle": {
+                  "type": "null"
+                },
+                "result_sha256": {
+                  "type": "null"
+                },
+                "result_artifact": {
+                  "type": "null"
+                },
+                "bundle_manifest_artifact": {
+                  "type": "null"
+                },
+                "stopping_reason": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "final_status": {
+      "enum": [
+        "qualified",
+        "unqualified_carrier",
+        "unqualified_decode",
+        "unqualified_keyed",
+        "fixture_blocked",
+        "preflight_failed",
+        "aborted",
+        "cleanup_failed",
+        "inconclusive"
+      ]
+    },
+    "cleanup_precedence_applied": {
+      "type": "boolean"
+    },
+    "campaign_cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subordinate_cleanup_authoritative",
+        "restoration_authoritative",
+        "all_attempted_modes_authenticated"
+      ],
+      "properties": {
+        "subordinate_cleanup_authoritative": {
+          "type": "boolean"
+        },
+        "restoration_authoritative": {
+          "type": "boolean"
+        },
+        "all_attempted_modes_authenticated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "qualification_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transmitter_host",
+        "receiver_host",
+        "sdr_selector",
+        "band",
+        "frequency_hz",
+        "modes",
+        "topology"
+      ],
+      "properties": {
+        "transmitter_host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "receiver_host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sdr_selector": {
+          "type": "string",
+          "minLength": 1
+        },
+        "band": {
+          "type": "string",
+          "minLength": 1
+        },
+        "frequency_hz": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "modes": {
+          "const": [
+            "TONE",
+            "WSPR",
+            "QRSS",
+            "FSKCW",
+            "DFCW"
+          ]
+        },
+        "topology": {
+          "const": "split_host_ssh"
+        }
+      }
+    },
+    "qualification_claim": {
+      "type": "boolean"
+    }
+  },
+  "$defs": {
+    "delegation_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "launcher",
+        "module"
+      ],
+      "properties": {
+        "launcher": {
+          "$ref": "#/$defs/artifact"
+        },
+        "module": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "delegation_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receiver_host",
+        "ssh",
+        "known_hosts",
+        "remote_exec",
+        "qualification"
+      ],
+      "properties": {
+        "receiver_host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ssh": {
+          "$ref": "#/$defs/artifact"
+        },
+        "known_hosts": {
+          "$ref": "#/$defs/artifact"
+        },
+        "remote_exec": {
+          "$ref": "#/$defs/delegation_identity"
+        },
+        "qualification": {
+          "$ref": "#/$defs/delegation_identity"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "size_bytes",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

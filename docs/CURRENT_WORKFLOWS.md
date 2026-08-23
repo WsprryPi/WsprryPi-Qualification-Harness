@@ -25,6 +25,26 @@ runtime safety, cleanup, evidence, and status.
 
 Guide: [Turnkey campaign orchestration](development/turnkey-campaign.md).
 
+### Simple complete five-mode campaign
+
+[Issue #9](https://github.com/WsprryPi/WsprryPi-Qualification-Harness/issues/9)
+is implemented by `complete-test`. The normal live form is:
+
+```text
+wsprrypi-qualification complete-test TRANSMITTER_HOST RECEIVER_HOST \
+  --sdr driver=sdrplay,serial=2404058C60 --enable-rf
+```
+
+It resolves the one-time administrator-installed split-host deployment
+foundations internally, applies canonical defaults plus named CLI overrides,
+uniquely resolves the selected SDR through SoapySDR on the receiver, validates
+all five generated subordinate plans, then
+routes TONE, WSPR, QRSS, FSKCW, and DFCW in that order. Both named hosts may be
+remote to the controller; execution is delegated to the receiver host.
+`--rehearse` is deterministic and hardware-free and conflicts with
+`--enable-rf`. Same-host local production transport remains unsupported until
+Track D; it fails before production adapter construction.
+
 ## Offline WSPR analysis
 
 The maintained sequence is:
