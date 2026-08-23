@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object", "additionalProperties": false,
-  "required": ["schema_version", "evidence_type", "run_id", "mode", "evidence_index", "measurement", "lifecycle", "failure_causes", "final_status", "qualification_claim"],
+  "required": ["schema_version", "evidence_type", "run_id", "mode", "evidence_index", "measurement", "receiver_frequency_interpretation", "lifecycle", "failure_causes", "final_status", "qualification_claim"],
   "properties": {
     "schema_version": {"const": 1},
     "evidence_type": {"const": "cw_replay_result"},
@@ -16,6 +16,7 @@
         "mode_gate": {"enum": ["passed", "failed", "blocked", "inconclusive", "not_applicable"]}
       }
     },
+    "receiver_frequency_interpretation": {"type": "object"},
     "lifecycle": {
       "type": "object", "additionalProperties": false,
       "required": ["runtime_authorization_evidence", "live_session_evidence", "cleanup_evidence", "quiescence_evidence"],

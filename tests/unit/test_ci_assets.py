@@ -10,6 +10,7 @@ def test_installed_live_package_smoke_covers_required_modules_and_schemas() -> N
         "application-plan.schema.json",
         "real-session-stage-evidence.schema.json",
         "resolved-real-session-plan.schema.json",
+        "receiver-calibration-binding.schema.json",
     ):
         assert required in text
     workflow = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")

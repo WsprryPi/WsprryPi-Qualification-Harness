@@ -30,6 +30,7 @@ from wsprrypi_qualification.cw_replay import (
 )
 from wsprrypi_qualification.manifests import write_manifest
 from wsprrypi_qualification.offline import OfflineAnalysisError, validate_document
+from wsprrypi_qualification.receiver_calibration import disabled_binding
 
 
 def _write(path: Path, document: dict) -> None:
@@ -555,6 +556,28 @@ def test_phase4_cli_composes_and_validates_non_qualifying_replay(
     validated = json.loads(capsys.readouterr().out)
     assert validated["valid"] is True
     assert validated["qualification_claim"] is False
+
+    invalid_calibration = disabled_binding()
+    invalid_calibration["policy"] = "required"
+    calibration_path = tmp_path / "invalid-calibration.json"
+    _write(calibration_path, invalid_calibration)
+    assert (
+        main(
+            [
+                "compose-cw-acquired-replay",
+                str(plan),
+                str(expected),
+                str(metadata),
+                str(tmp_path / "rejected-bundle"),
+                "--source-revision",
+                "e" * 40,
+                "--receiver-calibration-binding",
+                str(calibration_path),
+            ]
+        )
+        == 2
+    )
+    assert "required receiver calibration is absent" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("mode", ["tone", "cw", "qrss", "fskcw", "dfcw"])

@@ -128,11 +128,15 @@ the plot: its artifact identity, dimensions, renderer, relative normalization,
 and source-analysis digest are authenticated. Plots remain relative and
 non-calibrated operational output, never repository collateral.
 
-The separate hardware-free SDR calibration consumer accepts only the frozen
-native `sdr-calibration-profile` version `1.0.0` contract. Use
-`evaluate-sdr-calibration PROFILE.json APPLICATION.json` to validate and apply
-it without device access. It is a standalone profile-evaluation capability;
-see [`sdr-calibration-profile-consumer.md`](development/sdr-calibration-profile-consumer.md).
+The receiver calibration consumer accepts only the frozen native
+`sdr-calibration-profile` version `1.0.0` contract. Use
+`evaluate-sdr-calibration PROFILE.json APPLICATION.json` to inspect it and
+`compose-receiver-calibration PROFILE.json APPLICATION.json BINDING.json` to
+create a first-class recorded/live binding without device access. Every live
+plan carries an explicit `required`, `optional`, or `disabled` binding. Receiver
+calibration changes only receiver-frequency interpretation and never WsprryPi
+PPM. See
+[`sdr-calibration-profile-consumer.md`](development/sdr-calibration-profile-consumer.md).
 
 The command synopsis in [`CURRENT_WORKFLOWS.md`](CURRENT_WORKFLOWS.md) provides
 the supported sequence. Use the relevant command's current `--help` output and
@@ -342,6 +346,8 @@ hosted-CI result into a hardware qualification claim.
 - Transmitter lifecycle: [`transmitter-lifecycle.md`](development/transmitter-lifecycle.md)
 - Split-host live sequence: [`live-three-frame.md`](development/live-three-frame.md)
 - Preserved archive intake: [`archive-normalization.md`](development/archive-normalization.md)
+- Receiver calibration operation and prompts:
+  [`receiver-calibration-operator.md`](development/receiver-calibration-operator.md)
 
 For the newest state, prefer the current Git revision, CLI help, schemas, CI,
 and newest immutable evidence bundle over numbered implementation records or

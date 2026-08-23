@@ -24,6 +24,13 @@ from wsprrypi_qualification.offline import (
     sha256_file,
     write_json_new,
 )
+from wsprrypi_qualification.receiver_calibration import (
+    disabled_binding,
+    interpret_frequency,
+)
+from wsprrypi_qualification.receiver_calibration import (
+    validate_binding as validate_receiver_calibration,
+)
 
 REQUIRED_INDEX = {
     "plan": "plan.json",
@@ -32,6 +39,7 @@ REQUIRED_INDEX = {
     "capture_iq": "capture.cf32",
     "observations": "observations.json",
     "mode_gate": "mode-gate.json",
+    "receiver_calibration": "receiver-calibration.json",
 }
 REQUIRED_FILES = {*REQUIRED_INDEX.values(), "evidence-index.json", "result.json", "SHA256SUMS"}
 
@@ -113,6 +121,7 @@ def compose_acquired_replay(
     output_directory: Path,
     *,
     source_revision: str,
+    receiver_calibration: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compose a new deterministic, non-qualifying acquired-IQ replay bundle."""
     if output_directory.exists():
@@ -121,6 +130,9 @@ def compose_acquired_replay(
         _fail("replay bundle parent does not exist", FailureCause.INVALID_ARGUMENTS)
     plan, expected, metadata, capture_path = _load_acquired_inputs(
         plan_path, expected_path, metadata_path
+    )
+    calibration = validate_receiver_calibration(
+        receiver_calibration if receiver_calibration is not None else disabled_binding()
     )
     try:
         output_directory.resolve().relative_to(capture_path.resolve())
@@ -138,6 +150,7 @@ def compose_acquired_replay(
         retained_expected = temporary / REQUIRED_INDEX["expected_events"]
         retained_metadata = temporary / REQUIRED_INDEX["capture_metadata"]
         retained_capture = temporary / REQUIRED_INDEX["capture_iq"]
+        retained_calibration = temporary / REQUIRED_INDEX["receiver_calibration"]
         write_json_new(retained_plan, plan, schema_name="cw-mode-plan.schema.json")
         expected["plan"] = _relative_artifact(retained_plan)
         write_json_new(retained_expected, expected, schema_name="cw-expected-events.schema.json")
@@ -146,6 +159,11 @@ def compose_acquired_replay(
         metadata["expected_events"] = _relative_artifact(retained_expected)
         metadata["capture"] = _relative_artifact(retained_capture)
         write_json_new(retained_metadata, metadata, schema_name="cw-acquired-capture.schema.json")
+        write_json_new(
+            retained_calibration,
+            calibration,
+            schema_name="receiver-calibration-binding.schema.json",
+        )
         observations_path = temporary / REQUIRED_INDEX["observations"]
         gate_path = temporary / REQUIRED_INDEX["mode_gate"]
         observations, gate = analyze_synthetic_iq(
@@ -182,6 +200,9 @@ def compose_acquired_replay(
                 "carrier_gate": gate["carrier_gate"],
                 "mode_gate": gate["mode_gate"],
             },
+            "receiver_frequency_interpretation": _frequency_interpretation(
+                calibration, observations
+            ),
             "lifecycle": {
                 "runtime_authorization_evidence": None,
                 "live_session_evidence": None,
@@ -203,6 +224,39 @@ def compose_acquired_replay(
     except Exception:
         shutil.rmtree(temporary, ignore_errors=True)
         raise
+    return result
+
+
+def _frequency_interpretation(
+    calibration: dict[str, Any], observations: dict[str, Any]
+) -> dict[str, Any]:
+    interpreted = []
+    for observation in observations["observations"]:
+        frequency = observation["measured_frequency_hz"]
+        interpreted.append(
+            {
+                "event_index": observation["event_index"],
+                "interpretation": None
+                if frequency is None
+                else interpret_frequency(calibration, frequency),
+            }
+        )
+    summary = observations.get("measurement_summary", {})
+    model = summary.get("shifted_frequency_model") or summary.get("unshifted_frequency_model")
+    result: dict[str, Any] = {"events": interpreted, "derived": None}
+    if model is not None:
+        primary = model.get("primary_frequency_hz", model.get("measured_primary_frequency_hz"))
+        secondary = model.get("secondary_frequency_hz")
+        derived = {"primary": interpret_frequency(calibration, primary)}
+        if secondary is not None:
+            derived["secondary"] = interpret_frequency(calibration, secondary)
+            derived["indicated_separation_hz"] = secondary - primary
+            if derived["primary"]["calibration_applied"]:
+                derived["estimated_true_separation_hz"] = (
+                    derived["secondary"]["estimated_true_frequency_hz"]
+                    - derived["primary"]["estimated_true_frequency_hz"]
+                )
+        result["derived"] = derived
     return result
 
 
@@ -230,6 +284,12 @@ def validate_replay_bundle(
         bundle / "evidence-index.json", "cw-replay-evidence-index.schema.json"
     )
     result = load_json_document(bundle / "result.json", "cw-replay-result.schema.json")
+    calibration = validate_receiver_calibration(
+        load_json_document(
+            bundle / "receiver-calibration.json",
+            "receiver-calibration-binding.schema.json",
+        )
+    )
     bindings = (
         (expected["plan"], bundle / "plan.json", "expected-event plan"),
         (metadata["plan"], bundle / "plan.json", "capture-metadata plan"),
@@ -272,6 +332,10 @@ def validate_replay_bundle(
         "mode_gate": gate["mode_gate"],
     }:
         _fail("replay result measurement contradicts the mode gate")
+    if result["receiver_frequency_interpretation"] != _frequency_interpretation(
+        calibration, observations
+    ):
+        _fail("replay receiver calibration interpretation contradicts observations")
     expected_result_causes = sorted(
         set(observations["failure_causes"] + ["replay_lifecycle_evidence_absent"])
     )

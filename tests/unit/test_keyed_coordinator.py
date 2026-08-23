@@ -18,6 +18,7 @@ from wsprrypi_qualification.keyed_session_contracts import (
     validate_keyed_artifact_index,
 )
 from wsprrypi_qualification.manifests import build_manifest, render_manifest
+from wsprrypi_qualification.receiver_calibration import disabled_binding
 
 
 def _digest(value: str) -> str:
@@ -60,7 +61,15 @@ def _plan(mode: str = "QRSS", session_id: str = "fake-keyed-session") -> dict[st
             "channel": 0,
             "read_timeout_us": 100_000,
             "clipping_threshold": 0.98,
+            "clock_source": "internal",
+            "frequency_correction_ppm": 0.0,
+            "driver_version": "test-driver",
+            "firmware_version": None,
+            "antenna_port": "A",
+            "tuner_path": None,
+            "binding_extension": {},
         },
+        "receiver_calibration": disabled_binding(),
         "rf_path": {
             "antenna_connected": False,
             "attenuation_db": 20,

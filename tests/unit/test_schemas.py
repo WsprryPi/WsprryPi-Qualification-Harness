@@ -58,6 +58,7 @@ def test_packaged_sdr_calibration_schemas_are_byte_identical() -> None:
     for name in (
         "sdr-calibration-profile.schema.json",
         "sdr-calibration-application-request.schema.json",
+        "receiver-calibration-binding.schema.json",
     ):
         review_facing = ROOT / "schemas" / name
         packaged = files("wsprrypi_qualification.schemas").joinpath(name)

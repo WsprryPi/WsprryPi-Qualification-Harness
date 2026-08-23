@@ -190,6 +190,7 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
     assert sealed_expected in adapter._artifacts
     assert retained_expected in adapter._artifacts
     assert observed["artifacts_at_analysis"] == (
+        work / "receiver-calibration-binding.json",
         work / "carrier-analysis.json",
         retained_plan,
         sealed_expected,

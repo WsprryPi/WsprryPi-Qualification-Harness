@@ -13,7 +13,7 @@ The review-facing schema and packaged runtime copy are byte-identical and
 schema-pin tests protect both. The harness does not depend on a sibling
 SDR-Calibration checkout at runtime.
 
-## Current boundary
+## First-class receiver binding
 
 `evaluate-sdr-calibration` is hardware-free. It validates the native profile,
 verifies the RFC 8785 payload SHA-256, validates a run-specific application
@@ -27,11 +27,18 @@ another device, clock, sample rate, bandwidth, driver-applied frequency
 correction, firmware, antenna port, tuner path, or binding extension from being
 silently reused.
 
+`compose-receiver-calibration` authenticates the exact profile and application
+request, evaluates them, and emits the first-class binding used by recorded
+carrier, acquired CW replay, and resolved live Tone, WSPR, QRSS, FSKCW, and
+DFCW plans. The binding policy is `required`, `optional`, or `disabled`.
+Required calibration cannot fall back; optional absence and disabled use remain
+explicitly uncalibrated. The complete binding participates in the live plan
+digest and runtime authorization.
+
 This consumer deliberately does not:
 
 - alter receiver tuning or set a SoapySDR frequency correction;
 - substitute receiver calibration for WsprryPi transmitter PPM;
-- attach calibration to carrier, CW, WSPR, recorded, or live workflows;
 - access an SDR, GPIO, I2C, a service, another host, or RF;
 - verify Ed25519 signatures; or
 - make a hardware, transmitter, power, or spectral-compliance claim.
@@ -50,7 +57,20 @@ Status `1` is a structurally valid but non-qualification-usable application,
 and status `2` is invalid input, unsupported schema/version, failed integrity,
 or another contract error.
 
-The current consumer is standalone. Any caller that binds its result into a
-recorded or live plan must also bind the exact source profile. Both paths require exactly
-profile version `1.0.0`; neither may silently fall back to uncalibrated carrier
-offset interpretation when calibration is required.
+Create a binding without hardware access:
+
+```text
+wsprrypi-qualification compose-receiver-calibration \
+  PROFILE.json APPLICATION.json RECEIVER-CALIBRATION.json --policy required
+```
+
+For hardware-free contract exercises only:
+
+```text
+wsprrypi-qualification generate-synthetic-sdr-calibration NEW-DIRECTORY
+```
+
+The generated identifiers and provenance are conspicuously synthetic, the
+profile is unsigned, and its output cannot support a hardware qualification.
+Both recorded and live paths require exactly profile version `1.0.0`; neither
+may silently fall back when calibration is required.

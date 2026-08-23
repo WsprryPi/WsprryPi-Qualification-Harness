@@ -20,6 +20,7 @@ from wsprrypi_qualification.real_session import (
     validate_real_session_document,
     validate_real_session_plan,
 )
+from wsprrypi_qualification.receiver_calibration import disabled_binding
 
 NOW = datetime(2026, 8, 12, 20, 0, tzinfo=UTC)
 
@@ -125,7 +126,15 @@ def plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
             "bias_tee": False,
             "read_timeout_us": 500000,
             "clipping_threshold": 0.999,
+            "clock_source": "internal",
+            "frequency_correction_ppm": 0.0,
+            "driver_version": "test-driver",
+            "firmware_version": None,
+            "antenna_port": "A",
+            "tuner_path": None,
+            "binding_extension": {},
         },
+        "receiver_calibration": disabled_binding(),
         "rf_path": {
             "path_type": "radiated",
             "antenna_connected": True,

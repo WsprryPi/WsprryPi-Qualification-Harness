@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WsprryPi/WsprryPi-Qualification-Harness/schemas/receiver-calibration-binding.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_type", "policy", "applied", "synthetic", "profile", "application_request", "application_result", "frozen_contract", "limitation"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "receiver_calibration_binding"},
+    "policy": {"enum": ["required", "optional", "disabled"]},
+    "applied": {"type": "boolean"},
+    "synthetic": {"type": "boolean"},
+    "profile": {"anyOf": [{"$ref": "#/$defs/bound_document"}, {"type": "null"}]},
+    "application_request": {"anyOf": [{"$ref": "#/$defs/bound_document"}, {"type": "null"}]},
+    "application_result": {"type": ["object", "null"]},
+    "frozen_contract": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_name", "schema_version", "upstream_revision", "upstream_schema_sha256"],
+      "properties": {
+        "schema_name": {"const": "sdr-calibration-profile"},
+        "schema_version": {"const": "1.0.0"},
+        "upstream_revision": {"const": "faae3ea76ee9611e379fa2b3c99fb92bebd48041"},
+        "upstream_schema_sha256": {"const": "2a2ef74f783e6962159c41283a70fc5dced70e7cfc2f6ae2eb4bbc5ff52b9930"}
+      }
+    },
+    "limitation": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "size_bytes", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "bound_document": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifact", "document"],
+      "properties": {"artifact": {"$ref": "#/$defs/artifact"}, "document": {"type": "object"}}
+    }
+  }
+}

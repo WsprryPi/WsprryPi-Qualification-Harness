@@ -123,13 +123,22 @@ qualification.
 
 Guide: [Archive normalization](development/archive-normalization.md).
 
-## SDR calibration profile evaluation
+## Receiver calibration
 
-Use `evaluate-sdr-calibration` to validate and apply the frozen native
-`sdr-calibration-profile` version `1.0.0` contract without opening a receiver.
-The result is not automatically attached to recorded or live qualification.
+Use `evaluate-sdr-calibration` to inspect the frozen native
+`sdr-calibration-profile` version `1.0.0` contract, then
+`compose-receiver-calibration` to create a first-class `required` or `optional`
+binding. Recorded carrier and CW replay accept that binding, and resolved Tone,
+WSPR, QRSS, FSKCW, and DFCW plans require an explicit binding (including the
+explicit `disabled` form). The plan digest covers the complete binding.
 
-Guide: [SDR calibration profile consumer](development/sdr-calibration-profile-consumer.md).
+`generate-synthetic-sdr-calibration` creates a deterministic unsigned fixture
+for hardware-free exercises. It is not a real calibration and cannot qualify a
+receiver. Receiver calibration adds estimated-true frequency and uncertainty
+while retaining indicated measurements; it never changes transmitter PPM.
+
+Guides: [SDR calibration profile consumer](development/sdr-calibration-profile-consumer.md)
+and [receiver calibration operator workflow](development/receiver-calibration-operator.md).
 
 ## Deployment and actual-host preflight
 

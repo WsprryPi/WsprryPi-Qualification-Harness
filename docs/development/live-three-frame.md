@@ -26,6 +26,12 @@ conflicting owners that are stopped for capture. The receiver-helper,
 capture-helper, and decoder host must match the receiver; the WsprryPi and
 transmitter-helper host must match the transmitter.
 
+The plan also requires an explicit frozen receiver-calibration binding. When
+applied, its exact profile, application request/result, and hashes participate
+in the plan digest. Carrier and WSPR evidence preserve indicated values and add
+receiver-only estimated-true frequency and uncertainty. Receiver calibration
+never changes requested RF frequency, WsprryPi arguments, or transmitter PPM.
+
 Local SDRplay capture still uses the SoapySDR API and the `sdrplay` Soapy
 module. Its vendor API daemon may therefore be declared as a required receiver
 service. SoapyRemote is a separate network-export layer and is not required
