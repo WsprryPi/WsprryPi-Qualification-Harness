@@ -54,13 +54,28 @@ from wsprrypi_qualification.keyed_session_contracts import (
     validate_resolved_keyed_plan,
 )
 from wsprrypi_qualification.live_keyed import LiveKeyedError, run_live_keyed_session
-from wsprrypi_qualification.offline import OfflineAnalysisError, write_offline_failure
+from wsprrypi_qualification.offline import (
+    OfflineAnalysisError,
+    load_json_document,
+    write_json_new,
+    write_offline_failure,
+)
 from wsprrypi_qualification.profiles import ProfileError, load_profile
 from wsprrypi_qualification.real_session import (
     RealQualificationSession,
     RealRuntimeAuthorization,
     RealSessionError,
     ResolvedRealSessionPlan,
+)
+from wsprrypi_qualification.receiver_calibration import (
+    ReceiverCalibrationError,
+    write_synthetic_fixture,
+)
+from wsprrypi_qualification.receiver_calibration import (
+    compose_binding as compose_receiver_calibration,
+)
+from wsprrypi_qualification.receiver_calibration import (
+    disabled_binding as disabled_receiver_calibration,
 )
 from wsprrypi_qualification.simulator import SimulationError, SimulatorPlan, run_simulation
 
@@ -83,6 +98,21 @@ def _parser() -> argparse.ArgumentParser:
     )
     sdr_calibration.add_argument("profile", type=Path)
     sdr_calibration.add_argument("request", type=Path)
+    synthetic_calibration = subparsers.add_parser(
+        "generate-synthetic-sdr-calibration",
+        help="write a deterministic non-hardware frozen-contract profile fixture",
+    )
+    synthetic_calibration.add_argument("output_directory", type=Path)
+    compose_calibration = subparsers.add_parser(
+        "compose-receiver-calibration",
+        help="bind a frozen receiver profile and application request for recorded/live plans",
+    )
+    compose_calibration.add_argument("profile", type=Path)
+    compose_calibration.add_argument("request", type=Path)
+    compose_calibration.add_argument("output", type=Path)
+    compose_calibration.add_argument(
+        "--policy", choices=("required", "optional"), default="required"
+    )
     capture_metadata = subparsers.add_parser(
         "validate-capture-metadata", help="validate exact-count capture metadata"
     )
@@ -150,6 +180,7 @@ def _parser() -> argparse.ArgumentParser:
     cw_replay.add_argument("capture_metadata", type=Path)
     cw_replay.add_argument("output_directory", type=Path)
     cw_replay.add_argument("--source-revision", required=True)
+    cw_replay.add_argument("--receiver-calibration-binding", type=Path)
     cw_replay_validate = subparsers.add_parser(
         "validate-cw-acquired-replay",
         help="authenticate and recompute a non-qualifying replay bundle",
@@ -275,6 +306,14 @@ def _parser() -> argparse.ArgumentParser:
     carrier.add_argument("--rf-on-metadata", type=Path, required=True)
     carrier.add_argument("--relocation-bundle", type=Path)
     carrier.add_argument(
+        "--receiver-calibration-policy",
+        choices=("required", "optional", "disabled"),
+        default="disabled",
+    )
+    carrier.add_argument("--receiver-calibration-profile", type=Path)
+    carrier.add_argument("--receiver-calibration-request", type=Path)
+    carrier.add_argument("--receiver-calibration-binding", type=Path)
+    carrier.add_argument(
         "--plot",
         type=Path,
         help="write an authenticated relative-spectrum plot (.png or .svg)",
@@ -376,6 +415,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["qualification_usable"] else 1
+    if args.command == "generate-synthetic-sdr-calibration":
+        try:
+            paths = write_synthetic_fixture(args.output_directory)
+        except (ReceiverCalibrationError, OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(
+            json.dumps({key: str(value) for key, value in paths.items()}, indent=2, sort_keys=True)
+        )
+        return 0
+    if args.command == "compose-receiver-calibration":
+        try:
+            binding = compose_receiver_calibration(args.profile, args.request, policy=args.policy)
+            write_json_new(
+                args.output, binding, schema_name="receiver-calibration-binding.schema.json"
+            )
+        except (ReceiverCalibrationError, OfflineAnalysisError, OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(binding, indent=2, sort_keys=True))
+        return 0
     if args.command == "validate-capture-metadata":
         try:
             metadata = load_capture_metadata(args.path)
@@ -489,14 +549,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "compose-cw-acquired-replay":
         try:
+            calibration = (
+                disabled_receiver_calibration()
+                if args.receiver_calibration_binding is None
+                else load_json_document(
+                    args.receiver_calibration_binding,
+                    "receiver-calibration-binding.schema.json",
+                )
+            )
             result = compose_acquired_replay(
                 args.plan,
                 args.expected_events,
                 args.capture_metadata,
                 args.output_directory,
                 source_revision=args.source_revision,
+                receiver_calibration=calibration,
             )
-        except (CwReplayError, CwIqError, OfflineAnalysisError, OSError) as error:
+        except (
+            CwReplayError,
+            CwIqError,
+            OfflineAnalysisError,
+            ReceiverCalibrationError,
+            OSError,
+        ) as error:
             print(str(error), file=sys.stderr)
             return 2
         print(json.dumps(result, indent=2, sort_keys=True))
@@ -698,6 +773,37 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if result["session"]["final_status"] == "inconclusive" else 1
     try:
         if args.command == "analyze-carrier":
+            if args.receiver_calibration_binding is not None and any(
+                value is not None
+                for value in (
+                    args.receiver_calibration_profile,
+                    args.receiver_calibration_request,
+                )
+            ):
+                raise ReceiverCalibrationError(
+                    "use either a receiver calibration binding or profile/request inputs"
+                )
+            if (args.receiver_calibration_profile is None) != (
+                args.receiver_calibration_request is None
+            ):
+                raise ReceiverCalibrationError(
+                    "receiver calibration profile and request are required together"
+                )
+            if args.receiver_calibration_binding is not None:
+                receiver_calibration = load_json_document(
+                    args.receiver_calibration_binding,
+                    "receiver-calibration-binding.schema.json",
+                )
+            elif args.receiver_calibration_profile is None:
+                receiver_calibration = disabled_receiver_calibration(
+                    args.receiver_calibration_policy
+                )
+            else:
+                receiver_calibration = compose_receiver_calibration(
+                    args.receiver_calibration_profile,
+                    args.receiver_calibration_request,
+                    policy=args.receiver_calibration_policy,
+                )
             document = analyze_carrier_acquired(
                 args.rf_off,
                 args.rf_on,
@@ -710,6 +816,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 dc_exclusion_hz=args.dc_exclusion_hz,
                 relocation_bundle=args.relocation_bundle,
                 plot_path=args.plot,
+                receiver_calibration=receiver_calibration,
             )
         elif args.command == "make-slot-wav":
             document = create_slot_wav_acquired(
@@ -733,7 +840,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             document = summarize_decodes(args.slot_documents, args.evidence)
         else:
             raise AssertionError("unreachable command")
-    except (OfflineAnalysisError, OSError, ValueError) as error:
+    except (OfflineAnalysisError, ReceiverCalibrationError, OSError, ValueError) as error:
         evidence = getattr(args, "evidence", None)
         if isinstance(evidence, Path) and not evidence.exists():
             with suppress(OSError, OfflineAnalysisError):

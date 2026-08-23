@@ -12,6 +12,13 @@ canonical digest is SHA-256 over finite JSON encoded with sorted keys, compact
 separators, and ASCII escaping. Runtime authorization binds that exact digest,
 session, mode, operator, UTC time, and exactly three transactions.
 
+The plan also requires an explicit first-class `receiver_calibration` binding.
+Its frozen profile, application request/result, policy, and hashes participate
+in the digest. Each transaction retains indicated receiver frequencies and the
+derived receiver-only interpretation. FSKCW and DFCW retain indicated spacing
+so calibration cannot conceal spacing error. This binding never changes the
+application plan or transmitter PPM.
+
 The plan fixes `message_repetitions_per_transaction` to one. Each transaction
 therefore launches one keyed message and acquires one independent capture; the
 required three observations are never modeled as repetitions within one process.

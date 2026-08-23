@@ -14,6 +14,13 @@ from typing import Any, NoReturn
 
 from wsprrypi_qualification.application_shims import validate_application_plan
 from wsprrypi_qualification.offline import FailureCause, OfflineAnalysisError, validate_document
+from wsprrypi_qualification.receiver_calibration import (
+    ReceiverCalibrationError,
+    interpret_frequency,
+)
+from wsprrypi_qualification.receiver_calibration import (
+    validate_binding as validate_receiver_calibration,
+)
 
 KEYED_MODES = frozenset({"QRSS", "FSKCW", "DFCW"})
 LIFECYCLE_STAGES = (
@@ -34,6 +41,7 @@ REQUIRED_INDEX_ROLES = frozenset(
         "transaction_3",
         "aggregate_session",
         "result",
+        "receiver_calibration_binding",
     }
 )
 
@@ -93,6 +101,10 @@ def validate_resolved_keyed_plan(document: dict[str, Any]) -> dict[str, Any]:
         != receiver["identity_sha256"]
     ):
         _fail("receiver identity hash does not bind the resolved device")
+    try:
+        validate_receiver_calibration(document["receiver_calibration"], receiver=receiver)
+    except ReceiverCalibrationError as error:
+        _fail(str(error))
     bound_artifacts = [
         transmitter["executable"],
         document["reference"]["plan"],
@@ -173,6 +185,27 @@ def validate_keyed_transaction(
     validated_plan = validate_resolved_keyed_plan(plan)
     validated_authorization = validate_keyed_runtime_authorization(validated_plan, authorization)
     validate_document(transaction, "keyed-transaction.schema.json")
+    protocol = validated_plan["application_plan"]["protocol_contract"]
+    expected_interpretation = {
+        "primary": interpret_frequency(
+            validated_plan["receiver_calibration"], protocol["primary_frequency_hz"]
+        )
+    }
+    secondary = protocol.get("secondary_frequency_hz")
+    if secondary is not None:
+        expected_interpretation["secondary"] = interpret_frequency(
+            validated_plan["receiver_calibration"], secondary
+        )
+        expected_interpretation["indicated_separation_hz"] = (
+            secondary - protocol["primary_frequency_hz"]
+        )
+        if expected_interpretation["primary"]["calibration_applied"]:
+            expected_interpretation["estimated_true_separation_hz"] = (
+                expected_interpretation["secondary"]["estimated_true_frequency_hz"]
+                - expected_interpretation["primary"]["estimated_true_frequency_hz"]
+            )
+    if transaction["receiver_frequency_interpretation"] != expected_interpretation:
+        _fail("keyed receiver calibration interpretation contradicts the resolved plan")
     if (
         transaction["session_id"] != validated_plan["session_id"]
         or transaction["mode"] != validated_plan["mode"]
@@ -394,6 +427,10 @@ def validate_keyed_artifact_index(plan: dict[str, Any], index: dict[str, Any]) -
     roles = [item["role"] for item in index["artifacts"]]
     if any(roles.count(role) != 1 for role in REQUIRED_INDEX_ROLES):
         _fail("keyed artifact index requires each contract artifact exactly once")
+    applied = validated_plan["receiver_calibration"]["applied"]
+    for role in ("receiver_calibration_profile", "receiver_calibration_request"):
+        if roles.count(role) != (1 if applied else 0):
+            _fail("keyed artifact index calibration artifacts contradict the plan policy")
     for field in ("path", "sha256"):
         values = [item[field] for item in index["artifacts"]]
         if len(values) != len(set(values)):

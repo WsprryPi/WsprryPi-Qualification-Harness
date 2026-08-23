@@ -15,8 +15,14 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from wsprrypi_qualification.manifests import write_manifest
-from wsprrypi_qualification.offline import validate_document, write_json_new
+from wsprrypi_qualification.offline import artifact, validate_document, write_json_new
 from wsprrypi_qualification.real_capabilities import RuntimeAuthorization
+from wsprrypi_qualification.receiver_calibration import (
+    ReceiverCalibrationError,
+)
+from wsprrypi_qualification.receiver_calibration import (
+    validate_binding as validate_receiver_calibration,
+)
 from wsprrypi_qualification.results import validate_result_document
 
 
@@ -462,6 +468,32 @@ class RealQualificationSession:
                 document,
                 schema_name="real-qualification-session.schema.json",
             )
+            calibration_files = [temporary / "receiver-calibration.json"]
+            write_json_new(
+                calibration_files[0],
+                plan["receiver_calibration"],
+                schema_name="receiver-calibration-binding.schema.json",
+            )
+            if plan["receiver_calibration"]["applied"]:
+                for field, name in (
+                    ("profile", "receiver-calibration-profile.json"),
+                    ("application_request", "receiver-calibration-request.json"),
+                ):
+                    binding = plan["receiver_calibration"][field]
+                    source = Path(binding["artifact"]["path"])
+                    if source.is_symlink() or not source.is_file():
+                        raise RealSessionError(
+                            "receiver calibration source artifact is unavailable"
+                        )
+                    source_identity = artifact(source)
+                    if any(
+                        source_identity[key] != binding["artifact"][key]
+                        for key in ("size_bytes", "sha256")
+                    ):
+                        raise RealSessionError("receiver calibration source artifact changed")
+                    target = temporary / name
+                    shutil.copyfile(source, target)
+                    calibration_files.append(target)
             result_causes = _result_causes(final_status, failure_causes, preflight_passed)
             retained_artifacts: list[dict[str, object]] = []
             if plan["execution_mode"] == "live":
@@ -473,6 +505,13 @@ class RealQualificationSession:
                 if validate_published is None:
                     raise RealSessionError("live adapter cannot validate retained evidence")
                 validate_published(temporary)
+            retained_artifacts.extend(
+                {
+                    **artifact(path),
+                    "path": path.name,
+                }
+                for path in calibration_files
+            )
             result_document = {
                 "schema_version": 1,
                 "run_id": run_id,
@@ -529,6 +568,14 @@ class RealQualificationSession:
 
 def validate_real_session_plan(document: dict[str, Any]) -> None:
     validate_document(document, "resolved-real-session-plan.schema.json")
+    try:
+        validate_receiver_calibration(
+            document["receiver_calibration"], receiver=document["receiver"]
+        )
+    except ReceiverCalibrationError as error:
+        raise RealSessionError(str(error)) from error
+    if document["execution_mode"] == "live" and document["receiver_calibration"]["synthetic"]:
+        raise RealSessionError("synthetic receiver calibration cannot enter live execution")
     session_kind = document.get("session_kind", "wspr_qualification")
     if session_kind == "wspr_qualification":
         if document["mode"] != "WSPR" or document["frame_count"] != 3:

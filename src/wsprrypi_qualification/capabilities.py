@@ -47,6 +47,10 @@ def capability_report() -> dict[str, Any]:
         ),
         "wspr_decode": "UTC-slot WAV generation, independent wsprd execution, and decode summary",
         "cw_analysis": "tone, QRSS, FSKCW, and DFCW reference, IQ, replay, and mode analysis",
+        "receiver_calibration": (
+            "frozen SDR Calibration Profile 1.0.0 bindings and receiver-only frequency "
+            "interpretation for recorded, Tone, WSPR, QRSS, FSKCW, and DFCW evidence"
+        ),
         "live_keyed_contracts": (
             "offline-only QRSS, FSKCW, and DFCW three-transaction plan, authorization, "
             "aggregate, result, and artifact-index validation"

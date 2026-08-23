@@ -10,6 +10,7 @@
     "mode",
     "transmitter",
     "receiver",
+    "receiver_calibration",
     "rf_path",
     "reference",
     "application_plan",
@@ -93,7 +94,14 @@
         "gain_db",
         "channel",
         "read_timeout_us",
-        "clipping_threshold"
+        "clipping_threshold",
+        "clock_source",
+        "frequency_correction_ppm",
+        "driver_version",
+        "firmware_version",
+        "antenna_port",
+        "tuner_path",
+        "binding_extension"
       ],
       "properties": {
         "host": {
@@ -139,8 +147,18 @@
           "type": "number",
           "exclusiveMinimum": 0,
           "maximum": 1
-        }
+        },
+        "clock_source": {"type": "string", "minLength": 1},
+        "frequency_correction_ppm": {"type": "number"},
+        "driver_version": {"type": ["string", "null"]},
+        "firmware_version": {"type": ["string", "null"]},
+        "antenna_port": {"type": ["string", "null"]},
+        "tuner_path": {"type": ["string", "null"]},
+        "binding_extension": {"type": "object"}
       }
+    },
+    "receiver_calibration": {
+      "type": "object"
     },
     "rf_path": {
       "type": "object",

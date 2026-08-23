@@ -42,10 +42,10 @@ filtering, or spectral qualification.
 
 ## Live integration boundary
 
-The public live carrier command accepts TONE only. The harness has offline live
-QRSS, FSKCW, and DFCW plan/transaction/result contracts, but no process-capable
-public coordinator yet; the contracts, application shims, and offline analyzers
-do not authorize or execute hardware. Any separately
+The public live carrier command accepts TONE only. The separate
+`run-cw-live-keyed` production coordinator supports QRSS, FSKCW, and DFCW;
+application shims still only construct arguments and never authorize or execute
+hardware themselves. Any separately
 authorized transmitter workflow that uses a validated keyed-mode plan must bind
 the per-run RF path and operator confirmation, install cleanup, verify idle
 hardware, enforce receiver/transmitter deadlines, and retain application stdout,

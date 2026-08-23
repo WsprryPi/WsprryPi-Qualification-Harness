@@ -1,1 +1,305 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://github.com/WsprryPi/WsprryPi-Qualification-Harness/schemas/keyed-transaction.schema.json","type":"object","additionalProperties":false,"required":["schema_version","evidence_type","session_id","mode","plan_sha256","authorization_sha256","transaction_number","transaction_id","process_id","capture_id","acquisition_id","analysis_id","lifecycle","measurement_outcome","cleanup_outcome","quiescence_outcome","final_outcome","artifacts","qualification_claim"],"properties":{"schema_version":{"const":1},"evidence_type":{"const":"keyed_transaction"},"session_id":{"type":"string","minLength":1},"mode":{"enum":["QRSS","FSKCW","DFCW"]},"plan_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"authorization_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"transaction_number":{"type":"integer","minimum":1,"maximum":3},"transaction_id":{"type":"string","minLength":1},"process_id":{"type":"string","minLength":1},"capture_id":{"type":"string","minLength":1},"acquisition_id":{"type":"string","minLength":1},"analysis_id":{"type":"string","minLength":1},"lifecycle":{"type":"array","minItems":7,"maxItems":7,"prefixItems":[{"$ref":"#/$defs/preflight"},{"$ref":"#/$defs/cleanupInstalled"},{"$ref":"#/$defs/processStarted"},{"$ref":"#/$defs/captureCompleted"},{"$ref":"#/$defs/analysisCompleted"},{"$ref":"#/$defs/cleanupCompleted"},{"$ref":"#/$defs/quiescenceVerified"}],"items":false},"measurement_outcome":{"enum":["passed","failed","blocked","inconclusive"]},"cleanup_outcome":{"enum":["verified","failed"]},"quiescence_outcome":{"enum":["verified","failed"]},"final_outcome":{"enum":["passed","failed","blocked","inconclusive","aborted","preflight_failed","cleanup_failed"]},"artifacts":{"type":"array","uniqueItems":true,"items":{"$ref":"#/$defs/namedArtifact"}},"qualification_claim":{"const":false}},"$defs":{"outcome":{"enum":["passed","failed","not_run","aborted"]},"stage":{"type":"object","additionalProperties":false,"required":["stage","outcome"],"properties":{"stage":{"type":"string"},"outcome":{"$ref":"#/$defs/outcome"}}},"preflight":{"allOf":[{"$ref":"#/$defs/stage"},{"properties":{"stage":{"const":"preflight"}}}]},"cleanupInstalled":{"allOf":[{"$ref":"#/$defs/stage"},{"properties":{"stage":{"const":"cleanup_installed"}}}]},"processStarted":{"allOf":[{"$ref":"#/$defs/stage"},{"properties":{"stage":{"const":"process_started"}}}]},"captureCompleted":{"allOf":[{"$ref":"#/$defs/stage"},{"properties":{"stage":{"const":"capture_completed"}}}]},"analysisCompleted":{"allOf":[{"$ref":"#/$defs/stage"},{"properties":{"stage":{"const":"analysis_completed"}}}]},"cleanupCompleted":{"allOf":[{"$ref":"#/$defs/stage"},{"properties":{"stage":{"const":"cleanup_completed"}}}]},"quiescenceVerified":{"allOf":[{"$ref":"#/$defs/stage"},{"properties":{"stage":{"const":"quiescence_verified"}}}]},"namedArtifact":{"type":"object","additionalProperties":false,"required":["role","path","size_bytes","sha256"],"properties":{"role":{"type":"string","minLength":1},"path":{"type":"string","minLength":1},"size_bytes":{"type":"integer","minimum":1},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}}}
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/WsprryPi/WsprryPi-Qualification-Harness/schemas/keyed-transaction.schema.json",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "schema_version",
+        "evidence_type",
+        "session_id",
+        "mode",
+        "plan_sha256",
+        "authorization_sha256",
+        "transaction_number",
+        "transaction_id",
+        "process_id",
+        "capture_id",
+        "acquisition_id",
+        "analysis_id",
+        "lifecycle",
+        "measurement_outcome",
+        "receiver_frequency_interpretation",
+        "cleanup_outcome",
+        "quiescence_outcome",
+        "final_outcome",
+        "artifacts",
+        "qualification_claim"
+    ],
+    "properties": {
+        "schema_version": {
+            "const": 1
+        },
+        "evidence_type": {
+            "const": "keyed_transaction"
+        },
+        "session_id": {
+            "type": "string",
+            "minLength": 1
+        },
+        "mode": {
+            "enum": [
+                "QRSS",
+                "FSKCW",
+                "DFCW"
+            ]
+        },
+        "plan_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+        },
+        "authorization_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+        },
+        "transaction_number": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3
+        },
+        "transaction_id": {
+            "type": "string",
+            "minLength": 1
+        },
+        "process_id": {
+            "type": "string",
+            "minLength": 1
+        },
+        "capture_id": {
+            "type": "string",
+            "minLength": 1
+        },
+        "acquisition_id": {
+            "type": "string",
+            "minLength": 1
+        },
+        "analysis_id": {
+            "type": "string",
+            "minLength": 1
+        },
+        "lifecycle": {
+            "type": "array",
+            "minItems": 7,
+            "maxItems": 7,
+            "prefixItems": [
+                {
+                    "$ref": "#/$defs/preflight"
+                },
+                {
+                    "$ref": "#/$defs/cleanupInstalled"
+                },
+                {
+                    "$ref": "#/$defs/processStarted"
+                },
+                {
+                    "$ref": "#/$defs/captureCompleted"
+                },
+                {
+                    "$ref": "#/$defs/analysisCompleted"
+                },
+                {
+                    "$ref": "#/$defs/cleanupCompleted"
+                },
+                {
+                    "$ref": "#/$defs/quiescenceVerified"
+                }
+            ],
+            "items": false
+        },
+        "measurement_outcome": {
+            "enum": [
+                "passed",
+                "failed",
+                "blocked",
+                "inconclusive"
+            ]
+        },
+        "receiver_frequency_interpretation": {
+            "type": "object"
+        },
+        "cleanup_outcome": {
+            "enum": [
+                "verified",
+                "failed"
+            ]
+        },
+        "quiescence_outcome": {
+            "enum": [
+                "verified",
+                "failed"
+            ]
+        },
+        "final_outcome": {
+            "enum": [
+                "passed",
+                "failed",
+                "blocked",
+                "inconclusive",
+                "aborted",
+                "preflight_failed",
+                "cleanup_failed"
+            ]
+        },
+        "artifacts": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+                "$ref": "#/$defs/namedArtifact"
+            }
+        },
+        "qualification_claim": {
+            "const": false
+        }
+    },
+    "$defs": {
+        "outcome": {
+            "enum": [
+                "passed",
+                "failed",
+                "not_run",
+                "aborted"
+            ]
+        },
+        "stage": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "stage",
+                "outcome"
+            ],
+            "properties": {
+                "stage": {
+                    "type": "string"
+                },
+                "outcome": {
+                    "$ref": "#/$defs/outcome"
+                }
+            }
+        },
+        "preflight": {
+            "allOf": [
+                {
+                    "$ref": "#/$defs/stage"
+                },
+                {
+                    "properties": {
+                        "stage": {
+                            "const": "preflight"
+                        }
+                    }
+                }
+            ]
+        },
+        "cleanupInstalled": {
+            "allOf": [
+                {
+                    "$ref": "#/$defs/stage"
+                },
+                {
+                    "properties": {
+                        "stage": {
+                            "const": "cleanup_installed"
+                        }
+                    }
+                }
+            ]
+        },
+        "processStarted": {
+            "allOf": [
+                {
+                    "$ref": "#/$defs/stage"
+                },
+                {
+                    "properties": {
+                        "stage": {
+                            "const": "process_started"
+                        }
+                    }
+                }
+            ]
+        },
+        "captureCompleted": {
+            "allOf": [
+                {
+                    "$ref": "#/$defs/stage"
+                },
+                {
+                    "properties": {
+                        "stage": {
+                            "const": "capture_completed"
+                        }
+                    }
+                }
+            ]
+        },
+        "analysisCompleted": {
+            "allOf": [
+                {
+                    "$ref": "#/$defs/stage"
+                },
+                {
+                    "properties": {
+                        "stage": {
+                            "const": "analysis_completed"
+                        }
+                    }
+                }
+            ]
+        },
+        "cleanupCompleted": {
+            "allOf": [
+                {
+                    "$ref": "#/$defs/stage"
+                },
+                {
+                    "properties": {
+                        "stage": {
+                            "const": "cleanup_completed"
+                        }
+                    }
+                }
+            ]
+        },
+        "quiescenceVerified": {
+            "allOf": [
+                {
+                    "$ref": "#/$defs/stage"
+                },
+                {
+                    "properties": {
+                        "stage": {
+                            "const": "quiescence_verified"
+                        }
+                    }
+                }
+            ]
+        },
+        "namedArtifact": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "role",
+                "path",
+                "size_bytes",
+                "sha256"
+            ],
+            "properties": {
+                "role": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "path": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "size_bytes": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                }
+            }
+        }
+    }
+}

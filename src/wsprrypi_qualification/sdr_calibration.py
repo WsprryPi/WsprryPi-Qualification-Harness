@@ -202,9 +202,10 @@ def _semantic_validate(profile: dict[str, Any]) -> None:
         raise SdrCalibrationError("profile cannot supersede itself")
 
 
-def load_profile(path: Path, *, verify_integrity: bool = True) -> dict[str, Any]:
-    """Load and validate exactly one frozen native SDR Calibration Profile."""
-    profile = _read_object(path, "SDR calibration profile")
+def validate_profile_document(
+    profile: dict[str, Any], *, verify_integrity: bool = True, source: str = "profile"
+) -> dict[str, Any]:
+    """Validate an in-memory frozen profile for authenticated plan bindings."""
     errors = sorted(
         Draft202012Validator(_schema(), format_checker=FormatChecker()).iter_errors(profile),
         key=lambda error: list(error.absolute_path),
@@ -212,7 +213,7 @@ def load_profile(path: Path, *, verify_integrity: bool = True) -> dict[str, Any]
     if errors:
         error = errors[0]
         location = "$" + "".join(f"[{item!r}]" for item in error.absolute_path)
-        raise SdrCalibrationError(f"{path}:{location}: {error.message}")
+        raise SdrCalibrationError(f"{source}:{location}: {error.message}")
     _semantic_validate(profile)
     if verify_integrity:
         payload = dict(profile)
@@ -227,9 +228,19 @@ def load_profile(path: Path, *, verify_integrity: bool = True) -> dict[str, Any]
     return profile
 
 
-def load_application_request(path: Path) -> dict[str, Any]:
-    """Load the harness-owned, run-specific application request."""
-    request = _read_object(path, "SDR calibration application request")
+def load_profile(path: Path, *, verify_integrity: bool = True) -> dict[str, Any]:
+    """Load and validate exactly one frozen native SDR Calibration Profile."""
+    return validate_profile_document(
+        _read_object(path, "SDR calibration profile"),
+        verify_integrity=verify_integrity,
+        source=str(path),
+    )
+
+
+def validate_application_request_document(
+    request: dict[str, Any], *, source: str = "application request"
+) -> dict[str, Any]:
+    """Validate an in-memory run-specific receiver application request."""
     errors = sorted(
         Draft202012Validator(_application_schema(), format_checker=FormatChecker()).iter_errors(
             request
@@ -239,9 +250,16 @@ def load_application_request(path: Path) -> dict[str, Any]:
     if errors:
         error = errors[0]
         location = "$" + "".join(f"[{item!r}]" for item in error.absolute_path)
-        raise SdrCalibrationError(f"{path}:{location}: {error.message}")
+        raise SdrCalibrationError(f"{source}:{location}: {error.message}")
     _timestamp(request["evaluated_at"], "evaluated_at")
     return request
+
+
+def load_application_request(path: Path) -> dict[str, Any]:
+    """Load the harness-owned, run-specific application request."""
+    return validate_application_request_document(
+        _read_object(path, "SDR calibration application request"), source=str(path)
+    )
 
 
 def _failed(profile: dict[str, Any], status: str, reason: str) -> dict[str, Any]:

@@ -20,6 +20,8 @@ The maintained package provides:
   plots, UTC-slot WAV generation, `wsprd` execution, and consecutive-decode validation;
 - deterministic tone and CW-family reference generation, synthetic-IQ analysis,
   acquired-IQ replay, and mock lifecycle rehearsal;
+- first-class frozen SDR Calibration Profile 1.0.0 bindings for receiver-only
+  frequency interpretation in recorded and live workflows;
 - offline live-keyed plan, authorization, transaction, aggregate, result, and
   artifact-index contracts plus a sealed deterministic hardware-free coordinator
   rehearsal for QRSS, FSKCW, and DFCW;
@@ -80,6 +82,8 @@ wsprrypi-qualification validate-profile test TEST.json
 wsprrypi-qualification validate-profile receiver-run RECEIVER_RUN.json
 wsprrypi-qualification validate-application-plan APPLICATION_PLAN.json
 wsprrypi-qualification real-session RESOLVED_PLAN.json --plan-only
+wsprrypi-qualification generate-synthetic-sdr-calibration NEW_DIRECTORY
+wsprrypi-qualification compose-receiver-calibration PROFILE REQUEST BINDING
 ```
 
 Example profiles are non-executable starting points. Device-specific gain,
@@ -133,6 +137,7 @@ and backend-specific quiescence verification.
 Successful decoding does not establish calibrated power, filtering, harmonic
 suppression, spurious-emission compliance, antenna readiness, or qualification
 of another configuration.
+Receiver calibration never supplies or alters WsprryPi transmitter PPM.
 
 ## License
 

@@ -988,6 +988,13 @@ class ProductionRealSessionAdapters:
         except KeyError as exc:
             raise RealSessionError("carrier analysis lacks an explicit capture binding") from exc
         evidence = self.paths.work_directory / "carrier-analysis.json"
+        calibration_path = self.paths.work_directory / "receiver-calibration-binding.json"
+        write_json_new(
+            calibration_path,
+            plan["receiver_calibration"],
+            schema_name="receiver-calibration-binding.schema.json",
+        )
+        self._artifacts.append(calibration_path)
         self._run_offline(
             (
                 "analyze-carrier",
@@ -1002,6 +1009,8 @@ class ProductionRealSessionAdapters:
                 str(self.paths.bench_profile),
                 "--test-profile",
                 str(self.paths.test_profile),
+                "--receiver-calibration-binding",
+                str(calibration_path),
             ),
             self._remaining(plan["deadlines"]["overall_s"], reserve_cleanup=True),
         )
@@ -1098,6 +1107,9 @@ class ProductionRealSessionAdapters:
                 "relative_acquisition_contrast_gate_db": document["contract"][
                     "relative_acquisition_contrast_gate_db"
                 ],
+                "receiver_frequency_interpretation": metrics.get(
+                    "receiver_frequency_interpretation"
+                ),
             },
             plan["deadlines"]["overall_s"],
             started,
@@ -1979,6 +1991,7 @@ class KeyedCapabilityProviders:
             self.capture_metadata[number],
             self.work_directory / f"transaction-{number}" / "analysis",
             source_revision=plan["analyzer_revision"],
+            receiver_calibration=plan["receiver_calibration"],
         )
         result_path = self.work_directory / f"transaction-{number}" / "analysis" / "result.json"
         self.analysis_evidence[number] = result_path

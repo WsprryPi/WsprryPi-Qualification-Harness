@@ -8,12 +8,12 @@
     "run_id": {"type": "string", "minLength": 1},
     "mode": {"enum": ["tone", "cw", "qrss", "fskcw", "dfcw"]},
     "artifacts": {
-      "type": "array", "minItems": 6, "maxItems": 6,
+      "type": "array", "minItems": 7, "maxItems": 7,
       "items": {
         "type": "object", "additionalProperties": false,
         "required": ["role", "path", "size_bytes", "sha256"],
         "properties": {
-          "role": {"enum": ["plan", "expected_events", "capture_metadata", "capture_iq", "observations", "mode_gate"]},
+          "role": {"enum": ["plan", "expected_events", "capture_metadata", "capture_iq", "observations", "mode_gate", "receiver_calibration"]},
           "path": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
           "size_bytes": {"type": "integer", "minimum": 1},
           "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}

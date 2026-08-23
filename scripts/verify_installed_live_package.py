@@ -12,11 +12,13 @@ MODULES = (
     "wsprrypi_qualification.deployment",
     "wsprrypi_qualification.live_adapters",
     "wsprrypi_qualification.real_session",
+    "wsprrypi_qualification.receiver_calibration",
 )
 SCHEMAS = (
     "application-plan.schema.json",
     "real-session-stage-evidence.schema.json",
     "resolved-real-session-plan.schema.json",
+    "receiver-calibration-binding.schema.json",
 )
 
 

@@ -28,6 +28,12 @@ from wsprrypi_qualification.offline_context import (
     load_profile_context,
     validate_acquired_capture,
 )
+from wsprrypi_qualification.receiver_calibration import (
+    interpret_frequency,
+)
+from wsprrypi_qualification.receiver_calibration import (
+    validate_binding as validate_receiver_calibration,
+)
 
 
 @dataclass(frozen=True)
@@ -77,6 +83,7 @@ def analyze_carrier(
     rf_off_metadata_path: Path | None = None,
     rf_on_metadata_path: Path | None = None,
     profile_evidence: dict[str, Any] | None = None,
+    receiver_calibration: dict[str, Any] | None = None,
     plot_path: Path | None = None,
 ) -> dict[str, Any]:
     if parameters.sample_rate_hz <= 0 or parameters.fft_size < 16:
@@ -241,6 +248,17 @@ def analyze_carrier(
             "nominal offset and best-20-Hz concentration remain diagnostic only",
         ],
     }
+    if receiver_calibration is not None:
+        binding = validate_receiver_calibration(receiver_calibration)
+        document["receiver_calibration"] = binding
+        document["metrics"]["receiver_frequency_interpretation"] = interpret_frequency(
+            binding, strongest_hz
+        )
+        if binding["applied"]:
+            document["limitations"][0] = (
+                "receiver-frequency interpretation uses the bound frozen calibration; "
+                "power and spectral compliance remain uncalibrated"
+            )
     # pathlib values from asdict are made explicit for portable JSON.
     for value in document["inputs"].values():
         value["path"] = str(Path(value["path"]).resolve(strict=True))
@@ -278,6 +296,7 @@ def analyze_carrier_acquired(
     dc_exclusion_hz: float = 1_000.0,
     relocation_bundle: Path | None = None,
     plot_path: Path | None = None,
+    receiver_calibration: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     context = load_profile_context(bench_profile_path, test_profile_path)
     off_metadata = validate_acquired_capture(
@@ -306,6 +325,7 @@ def analyze_carrier_acquired(
         rf_off_metadata_path=rf_off_metadata_path,
         rf_on_metadata_path=rf_on_metadata_path,
         profile_evidence=context.evidence(),
+        receiver_calibration=receiver_calibration,
         plot_path=plot_path,
     )
 
@@ -399,6 +419,7 @@ def load_acquired_carrier_evidence(path: Path) -> AcquiredCarrierEvidence:
                 fft_size=contract["fft_size"],
                 dc_exclusion_hz=contract["dc_exclusion_hz"],
                 plot_path=recomputed_plot,
+                receiver_calibration=document.get("receiver_calibration"),
             )
         observed_without_plot = dict(document)
         recomputed_without_plot = dict(recomputed)

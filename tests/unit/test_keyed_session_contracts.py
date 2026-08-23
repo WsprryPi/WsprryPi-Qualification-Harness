@@ -6,6 +6,7 @@ from copy import deepcopy
 import pytest
 
 import wsprrypi_qualification.keyed_session_contracts as contracts_module
+from wsprrypi_qualification.keyed_coordinator import _receiver_interpretations
 from wsprrypi_qualification.keyed_session_contracts import (
     KeyedSessionContractError,
     authorization_sha256,
@@ -22,6 +23,7 @@ from wsprrypi_qualification.keyed_session_contracts import (
     validate_resolved_keyed_plan,
 )
 from wsprrypi_qualification.offline import OfflineAnalysisError, validate_document
+from wsprrypi_qualification.receiver_calibration import disabled_binding
 
 
 def digest(label: str) -> str:
@@ -123,7 +125,15 @@ def plan(mode: str = "QRSS") -> dict[str, object]:
             "channel": 0,
             "read_timeout_us": 100_000,
             "clipping_threshold": 0.98,
+            "clock_source": "internal",
+            "frequency_correction_ppm": 0.0,
+            "driver_version": "test-driver",
+            "firmware_version": None,
+            "antenna_port": "A",
+            "tuner_path": None,
+            "binding_extension": {},
         },
+        "receiver_calibration": disabled_binding(),
         "rf_path": {
             "antenna_connected": False,
             "attenuation_db": 20,
@@ -195,6 +205,7 @@ def transaction(
         "analysis_id": f"analysis-{number}",
         "lifecycle": lifecycle,
         "measurement_outcome": "passed",
+        "receiver_frequency_interpretation": _receiver_interpretations(resolved),
         "cleanup_outcome": "verified",
         "quiescence_outcome": "verified",
         "final_outcome": "passed",
@@ -404,6 +415,7 @@ def index(resolved: dict[str, object]) -> dict[str, object]:
         "transaction_3",
         "aggregate_session",
         "result",
+        "receiver_calibration_binding",
     ]
     return {
         "schema_version": 1,

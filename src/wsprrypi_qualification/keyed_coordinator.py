@@ -23,6 +23,7 @@ from wsprrypi_qualification.keyed_session_contracts import (
 )
 from wsprrypi_qualification.manifests import validate_manifest_name, write_manifest
 from wsprrypi_qualification.offline import write_json_new
+from wsprrypi_qualification.receiver_calibration import interpret_frequency
 
 
 class KeyedCoordinatorError(RuntimeError):
@@ -129,6 +130,28 @@ def publish_keyed_session(
             auth,
             schema_name="keyed-runtime-authorization.schema.json",
         )
+        write_json_new(
+            temporary / "receiver-calibration.json",
+            resolved["receiver_calibration"],
+            schema_name="receiver-calibration-binding.schema.json",
+        )
+        if resolved["receiver_calibration"]["applied"]:
+            for field, name in (
+                ("profile", "receiver-calibration-profile.json"),
+                ("application_request", "receiver-calibration-request.json"),
+            ):
+                binding = resolved["receiver_calibration"][field]
+                calibration_source = Path(binding["artifact"]["path"])
+                if calibration_source.is_symlink() or not calibration_source.is_file():
+                    raise KeyedCoordinatorError(
+                        "receiver calibration source artifact is unavailable"
+                    )
+                identity = artifact_path_identity(calibration_source)
+                if any(
+                    identity[key] != binding["artifact"][key] for key in ("size_bytes", "sha256")
+                ):
+                    raise KeyedCoordinatorError("receiver calibration source artifact changed")
+                shutil.copyfile(calibration_source, temporary / name)
         for transaction in transactions:
             number = transaction["transaction_number"]
             for artifact in transaction["artifacts"]:
@@ -242,6 +265,7 @@ def _run_transaction(
         "analysis_id": f"fake-analysis-{number}",
         "lifecycle": [{"stage": stage, "outcome": outcomes[stage]} for stage in LIFECYCLE_STAGES],
         "measurement_outcome": measurement,
+        "receiver_frequency_interpretation": _receiver_interpretations(plan),
         "cleanup_outcome": "verified"
         if outcomes[Boundary.CLEANUP_COMPLETED.value] == "passed"
         else "failed",
@@ -260,6 +284,22 @@ def _run_transaction(
     else:
         transaction["final_outcome"] = derive_keyed_transaction_outcome(transaction)
     return transaction
+
+
+def _receiver_interpretations(plan: dict[str, Any]) -> dict[str, Any]:
+    protocol = plan["application_plan"]["protocol_contract"]
+    primary = protocol["primary_frequency_hz"]
+    values = {"primary": interpret_frequency(plan["receiver_calibration"], primary)}
+    secondary = protocol.get("secondary_frequency_hz")
+    if secondary is not None:
+        values["secondary"] = interpret_frequency(plan["receiver_calibration"], secondary)
+        values["indicated_separation_hz"] = secondary - primary
+        if values["primary"]["calibration_applied"]:
+            values["estimated_true_separation_hz"] = (
+                values["secondary"]["estimated_true_frequency_hz"]
+                - values["primary"]["estimated_true_frequency_hz"]
+            )
+    return values
 
 
 def _cancelled(
@@ -294,7 +334,7 @@ def artifact_path_identity(path: Path) -> dict[str, Any]:
 
 
 def _artifact_index(plan: dict[str, Any], root: Path) -> dict[str, Any]:
-    bindings = (
+    bindings = [
         ("resolved_plan", "resolved-plan.json"),
         ("runtime_authorization", "runtime-authorization.json"),
         ("transaction_1", "transaction-1.json"),
@@ -302,7 +342,15 @@ def _artifact_index(plan: dict[str, Any], root: Path) -> dict[str, Any]:
         ("transaction_3", "transaction-3.json"),
         ("aggregate_session", "aggregate-session.json"),
         ("result", "result.json"),
-    )
+        ("receiver_calibration_binding", "receiver-calibration.json"),
+    ]
+    if plan["receiver_calibration"]["applied"]:
+        bindings.extend(
+            (
+                ("receiver_calibration_profile", "receiver-calibration-profile.json"),
+                ("receiver_calibration_request", "receiver-calibration-request.json"),
+            )
+        )
     artifacts = []
     for role, relative in bindings:
         payload = (root / relative).read_bytes()

@@ -6,7 +6,11 @@ import threading
 from pathlib import Path
 from typing import Any, Protocol
 
-from wsprrypi_qualification.keyed_coordinator import artifact_path_identity, publish_keyed_session
+from wsprrypi_qualification.keyed_coordinator import (
+    _receiver_interpretations,
+    artifact_path_identity,
+    publish_keyed_session,
+)
 from wsprrypi_qualification.keyed_session_contracts import (
     LIFECYCLE_STAGES,
     authorization_sha256,
@@ -178,6 +182,7 @@ class ProductionKeyedAdapter:
                 {"stage": stage, "outcome": outcomes[stage]} for stage in LIFECYCLE_STAGES
             ],
             "measurement_outcome": measurement,
+            "receiver_frequency_interpretation": _receiver_interpretations(plan),
             "cleanup_outcome": "verified" if cleanup_ok else "failed",
             "quiescence_outcome": "verified" if quiescent else "failed",
             "final_outcome": "inconclusive",
@@ -202,6 +207,8 @@ def run_live_keyed_session(
     if type(adapter) is not ProductionKeyedAdapter:
         raise TypeError("live keyed execution requires the sealed production adapter")
     resolved = validate_resolved_keyed_plan(plan)
+    if resolved["receiver_calibration"]["synthetic"]:
+        raise LiveKeyedError("synthetic receiver calibration cannot enter live execution")
     auth = validate_keyed_runtime_authorization(resolved, authorization)
     try:
         validate_manifest_name(str(resolved["session_id"]))
@@ -240,6 +247,8 @@ def build_production_keyed_adapter(
 ) -> ProductionKeyedAdapter:
     """Construct the existing-capability provider composition for a live keyed plan."""
     resolved = validate_resolved_keyed_plan(plan)
+    if resolved["receiver_calibration"]["synthetic"]:
+        raise LiveKeyedError("synthetic receiver calibration cannot enter live execution")
     ssh_binding = resolved["capability_bindings"]["ssh"]
     if (
         not ssh_executable.is_absolute()

@@ -57,7 +57,9 @@ The harness provides:
 13. digest-authorized live QRSS, FSKCW, and DFCW coordination through the
     authenticated helper, exact-count capture, service, and quiescence adapters;
 14. cleanup supervisor and backend-specific quiescence verification;
-15. immutable-per-run result bundle and summary generation.
+15. immutable-per-run result bundle and summary generation;
+16. frozen SDR Calibration Profile 1.0.0 bindings and receiver-only calibrated
+    frequency interpretation for recorded IQ and every maintained live mode.
 
 The keyed schema/validator layer is validation-only: it exposes no process,
 transport, receiver, transmitter, service, or RF operation. Its three
@@ -128,6 +130,15 @@ local paths and credentials belong in ignored local overrides or environment
 configuration, never committed profiles. Avoid implicit project defaults for
 device-specific PPM, attenuation, gain, or safe input level.
 
+Receiver calibration policy is explicit: `required`, `optional`, or `disabled`.
+A supplied profile, application request, and application result are authenticated
+inputs to the resolved plan and therefore to runtime authorization. Required
+calibration must fail before receiver or RF access when absent, expired,
+mismatched, outside its validity domain, or not qualification usable. Receiver
+calibration preserves indicated measurements and adds estimated-true frequency
+and uncertainty; it never changes requested RF, WsprryPi arguments, or
+transmitter PPM.
+
 Operator confirmation is runtime evidence and must never be satisfied by a
 committed `confirmed: true` or similar profile value.
 
@@ -177,6 +188,12 @@ feature must be within 500 Hz of the requested frequency and at least 10 dB
 above its RF-off power. The historical 100-Hz offset and 50-percent best-20-Hz
 thresholds remain recorded as nominal diagnostics; they are not calibrated
 frequency or thermal-stability claims.
+
+When a frozen receiver calibration is applied, retain both the indicated and
+estimated-true frequency, expanded uncertainty, selected model segment,
+reliability quotient, profile identity, and exact application binding. Derived
+FSKCW and DFCW separations must retain their indicated value so a common
+calibration correction cannot conceal spacing error.
 
 Only a passing carrier advances to WSPR decoding. A qualifying run contains
 one coherent 370-second capture spanning three consecutive bounded frames,
