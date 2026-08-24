@@ -62,6 +62,17 @@ def bare_adapter(tmp_path: Path) -> ProductionRealSessionAdapters:
     return adapter
 
 
+def test_progress_hook_does_not_reset_live_session_state(tmp_path: Path) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._session_deadline = 123.0
+    adapter._cleanup_reserve_s = 7.0
+
+    adapter.set_progress(lambda *args: None)
+
+    assert adapter._session_deadline == 123.0
+    assert adapter._cleanup_reserve_s == 7.0
+
+
 def test_stage_bound_artifact_retains_external_path_with_spaces(tmp_path: Path) -> None:
     source_root = tmp_path / "external contract source"
     source_root.mkdir()

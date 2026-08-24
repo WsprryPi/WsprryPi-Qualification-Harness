@@ -236,17 +236,17 @@ class ProductionRealSessionAdapters:
             paths.capture_helper,
             paths.wsprd,
         ]
-
-    def set_progress(
-        self, callback: Callable[[str, str, str, int | None, int | None], None] | None
-    ) -> None:
-        self._progress = callback
         self._capture_artifacts: dict[str, tuple[Path, Path]] = {}
         self._acquired_carrier_frequency_hz: float | None = None
         self._final_quiescence: bool | None = None
         self._session_deadline: float | None = None
         self._cleanup_reserve_s = 0.0
         self._closed = False
+
+    def set_progress(
+        self, callback: Callable[[str, str, str, int | None, int | None], None] | None
+    ) -> None:
+        self._progress = callback
 
     def begin_session(self, plan: dict[str, Any]) -> None:
         if self._session_deadline is not None:
