@@ -716,11 +716,11 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
             document["wsprrypi"]["path"],
             "-i",
             tone_server["configuration"]["path"],
-                "--socket-port",
-                str(endpoint["port"]),
-                "--socket-loopback-only",
-                "--no-http",
-            ]
+            "--socket-port",
+            str(endpoint["port"]),
+            "--socket-loopback-only",
+            "--no-http",
+        ]
         if endpoint["host"] != "::1" or tone_server["arguments"] != expected_arguments:
             raise RealSessionError("bounded Tone server arguments differ from its endpoint")
         if tone_server["startup_seconds"] >= document["tone_schedule"]["off_seconds"]:

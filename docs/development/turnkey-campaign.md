@@ -52,12 +52,14 @@ coordinator and repository contract.
 
 `complete-test` is the normal fixed campaign surface; the explicit-plan
 `turnkey-campaign` commands above remain the advanced interface. The normal
-command accepts two hosts and an exact SDR selector, resolves installed
-deployment foundations on the receiver execution host, discovers the selected
+command accepts two hosts and an exact SDR selector, packages the current harness
+and local WsprryPi source, stages the required runtime, discovers the selected
 SDR immediately, and derives all five mode plans rather than accepting five
-operator-authored mode plans. The one-time administrator deployment must already
-provide the maintained helper, source, service, calibration, and RF-path facts;
-the production coordinators recheck their current state during preflight. Both endpoints
+operator-authored mode plans. Each host receives an independently owned durable
+per-campaign executable; temporary stages are removed, and the retained aggregate
+is revalidated afterward. `--enable-rf` also confirms the documented conducted
+default: antenna disconnected and a direct 50-ohm SDR input through 20 dB
+attenuation. Both endpoints
 may be remote to the controller; the controller delegates execution to the
 receiver. `--configuration PATH` remains an advanced development override:
 

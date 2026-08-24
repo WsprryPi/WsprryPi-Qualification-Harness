@@ -452,6 +452,7 @@ def test_required_initially_active_receiver_service_is_preserved_and_restored() 
     assert rx.requests == []
     assert providers.cleanup(resolved, 1)
     assert rx.running is True
+    assert rx.requests == []
 
 
 def test_required_receiver_service_start_failure_fails_closed() -> None:

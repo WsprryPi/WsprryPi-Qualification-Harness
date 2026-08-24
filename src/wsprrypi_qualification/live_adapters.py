@@ -819,7 +819,6 @@ class ProductionRealSessionAdapters:
         if not self._cleanup_installed:
             raise RealSessionError("bounded Tone server refused before cleanup registration")
         server_plan = plan["tone_server"]
-        epoch = time.monotonic()
         launcher = SshOwnedProcessLauncher(
             self.tx_client,
             plan["deadlines"]["transmitter_s"],
@@ -829,6 +828,7 @@ class ProductionRealSessionAdapters:
             },
         )
         server = launcher.begin(tuple(server_plan["arguments"]))
+        epoch = time.monotonic()
         self._owned.append(server)
         try:
             return self._run_tone_pattern_cycles(
@@ -1636,9 +1636,13 @@ def build_production_adapters(
         if not path.is_file():
             raise RealSessionError(f"required local live input is unavailable: {path}")
     work_directory.mkdir(parents=True, exist_ok=False)
+    digest = helper_configuration_plan_sha256(plan)
     remote_command = (
         f"{remote_wrapper} -n {plan['remote_helper']['path']} --serve "
-        f"--config {plan['remote_helper']['config_path']}"
+        f"--config {plan['remote_helper']['config_path']} "
+        f"--plan-sha256 {digest} "
+        f"--helper-sha256 {plan['remote_helper']['sha256']} "
+        f"--config-sha256 {plan['remote_helper']['config_sha256']}"
     )
     tx_transport: PersistentHelperTransport | None = None
     rx_transport: PersistentHelperTransport | None = None
@@ -1659,7 +1663,18 @@ def build_production_adapters(
             cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
         )
         rx_transport = PersistentHelperTransport(
-            (str(receiver_helper), "--serve", "--config", str(receiver_config)),
+            (
+                str(receiver_helper),
+                "--serve",
+                "--config",
+                str(receiver_config),
+                "--plan-sha256",
+                digest,
+                "--helper-sha256",
+                plan["receiver_helper"]["sha256"],
+                "--config-sha256",
+                plan["receiver_helper"]["config_sha256"],
+            ),
             cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
         )
     except Exception:
@@ -1668,7 +1683,6 @@ def build_production_adapters(
         shutil.rmtree(work_directory)
         raise
     assert tx_transport is not None and rx_transport is not None
-    digest = helper_configuration_plan_sha256(plan)
     tx_client = JsonHelperClient(
         ssh_executable,
         tx_transport,
@@ -2025,7 +2039,8 @@ class KeyedCapabilityProviders:
             okay = stopped.cleanup_verified and okay
         for provider, name, running in reversed(self.initial_services.get(number, [])):
             try:
-                provider.set_running(name, running)
+                if provider.inspect(name).running is not running:
+                    provider.set_running(name, running)
                 okay = provider.inspect(name).running is running and okay
             except Exception:
                 okay = False

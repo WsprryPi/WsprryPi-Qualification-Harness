@@ -8,6 +8,7 @@ import json
 import math
 import os
 import platform
+import re
 import secrets
 import shutil
 import socket
@@ -494,7 +495,7 @@ def _resolve_real(
             "missing_capability: rp1_gpclk is not supported by the current "
             "main production contracts"
         )
-    suffix = f"{campaign_id}-{mode.lower()}"[:80]
+    suffix = f"ct-{campaign_id.split('-')[1]}-{mode.lower()}"
     plan["run_id"] = f"{now.strftime('%Y%m%dT%H%M%SZ')}-{suffix}"
     plan["test_id"] = suffix
     plan["frequency_hz"] = values["frequency_hz"]
@@ -548,7 +549,7 @@ def _resolve_keyed(
     sdr_selector: str,
 ) -> dict[str, Any]:
     plan = deepcopy(template)
-    plan["session_id"] = f"{campaign_id}-{mode.lower()}"[:128]
+    plan["session_id"] = f"ct-{campaign_id.split('-')[1]}-{mode.lower()}"
     frequency = float(cast(int, values["frequency_hz"]))
     dot = float(cast(float, values[f"{mode.lower()}_dot_seconds"]))
     separation = (
@@ -574,8 +575,11 @@ def _resolve_keyed(
     plan["mode"] = mode
     plan["transmitter"]["frequency_hz"] = values["frequency_hz"]
     plan["receiver"]["center_frequency_hz"] = values["frequency_hz"]
-    plan["receiver"]["device"] = sdr_selector
-    plan["receiver"]["identity_sha256"] = hashlib.sha256(sdr_selector.encode("utf-8")).hexdigest()
+    device_identity = _parse_sdr_selector(sdr_selector)["serial"]
+    plan["receiver"]["device"] = device_identity
+    plan["receiver"]["identity_sha256"] = hashlib.sha256(
+        device_identity.encode("utf-8")
+    ).hexdigest()
     plan["application_plan"] = application
     plan["transaction_count"] = values["keyed_observations"]
     plan["message_repetitions_per_transaction"] = 1
@@ -612,7 +616,7 @@ def _materialize_cw_reference(
         ),
         "mode": normalized_mode,
         "backend": plan["backend"] if tone else plan["transmitter"]["backend"],
-        "hardware_profile": "complete-test-discovered-runtime",
+        "hardware_profile": "complete-test-resolved-campaign",
         "band": plan.get("band", "20m"),
         "source": {
             "parent_revision": source_revision,
@@ -621,7 +625,7 @@ def _materialize_cw_reference(
         "transmitter": {
             "host": plan["host"] if tone else plan["transmitter"]["host"],
             "output": plan["output"] if tone else plan["transmitter"]["output"],
-            "model": "discovered WsprryPi host",
+            "model": "configured WsprryPi host",
             "drive_value": plan["drive"]["value"] if tone else plan["transmitter"]["drive"],
             "drive_unit": plan["drive"]["unit"] if tone else "power_level",
             "clock_reference": "configured transmitter clock",
@@ -733,6 +737,15 @@ def _materialize_real_profiles(plan: dict[str, Any], destination: Path, *, now: 
     destination.mkdir(parents=True, exist_ok=False)
     receiver = plan["receiver"]
     rf_path = plan["rf_path"]
+    termination = rf_path.get("termination")
+    if (
+        rf_path["path_type"] != "conducted"
+        or not isinstance(termination, str)
+        or re.match(r"^50(?:\.0+)?[ -]?ohm\b", termination, re.IGNORECASE) is None
+    ):
+        raise CompleteTestError(
+            "automatic complete-test requires an explicit 50-ohm conducted termination"
+        )
     bench = {
         "schema_version": 1,
         "bench_id": "complete-test-conducted",
@@ -914,7 +927,7 @@ def compose_complete_test_plan(
         if expected_driver is not None and receiver["driver"] != expected_driver:
             raise CompleteTestError(f"{mode} plan receiver driver differs from --sdr")
         plan_device = receiver["serial"] if mode in {"TONE", "WSPR"} else receiver["device"]
-        expected_device = selector_fields["serial"] if mode in {"TONE", "WSPR"} else sdr_selector
+        expected_device = selector_fields["serial"]
         if plan_device != expected_device:
             raise CompleteTestError(f"{mode} plan receiver serial differs from --sdr")
         bindings.append(
@@ -1060,9 +1073,7 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
             raise CompleteTestError(f"{mode} retained receiver binding changed")
         if selector_fields.get("driver", receiver["driver"]) != receiver["driver"]:
             raise CompleteTestError(f"{mode} retained SDR driver binding changed")
-        expected_device = (
-            selector_fields["serial"] if mode in {"TONE", "WSPR"} else document["sdr_selector"]
-        )
+        expected_device = selector_fields["serial"]
         actual_device = receiver["serial"] if mode in {"TONE", "WSPR"} else receiver["device"]
         if actual_device != expected_device:
             raise CompleteTestError(f"{mode} retained SDR identity binding changed")
@@ -1143,15 +1154,14 @@ def _campaign_status(entries: list[dict[str, Any]]) -> str:
 
 
 def _stops_campaign(mode: str, status: str) -> bool:
-    if status in {
+    del mode
+    return status in {
         "cleanup_failed",
         "aborted",
         "preflight_failed",
         "fixture_blocked",
         "inconclusive",
-    }:
-        return True
-    return mode == "TONE" and status != "qualified"
+    }
 
 
 def validate_complete_test_bundle(bundle: Path) -> dict[str, Any]:
@@ -1384,6 +1394,7 @@ def run_complete_test(
     campaign_started = time.monotonic()
     for entry in resolved["mode_plans"]:
         mode = entry["mode"]
+        child_campaign_id = f"ct-{resolved['campaign_id'].split('-')[1]}-{mode.lower()}"
         if (
             stopped is None
             and time.monotonic() - campaign_started >= resolved["campaign_deadline_s"]
@@ -1412,7 +1423,9 @@ def run_complete_test(
             from wsprrypi_qualification.turnkey_campaign import compose_resolved_campaign_plan
 
             generated = (
-                work_directory.resolve() / f"{resolved['campaign_id']}-generated" / mode.lower()
+                work_directory.resolve().parent
+                / f"{resolved['campaign_id']}-generated"
+                / mode.lower()
             )
             generated.mkdir(parents=True, exist_ok=False)
             request_path = generated / "request.json"
@@ -1420,7 +1433,7 @@ def run_complete_test(
             request = {
                 "schema_version": 1,
                 "evidence_type": "turnkey_campaign_request",
-                "campaign_id": f"{resolved['campaign_id']}-{mode.lower()}",
+                "campaign_id": child_campaign_id,
                 "mode": mode,
                 "execution_policy": "live",
             }
@@ -1433,7 +1446,7 @@ def run_complete_test(
             child_wrapper = {
                 "schema_version": 1,
                 "evidence_type": "resolved_turnkey_campaign_plan",
-                "campaign_id": f"{resolved['campaign_id']}-{mode.lower()}",
+                "campaign_id": child_campaign_id,
                 "mode": mode,
                 "execution_policy": "live",
                 "request": resolved["configuration"],
@@ -1453,7 +1466,11 @@ def run_complete_test(
                 operator="complete-test-invocation",
                 confirmed_plan_sha256=digest,
                 ssh_executable=ssh_executable,
-                work_directory=work_directory,
+                work_directory=(
+                    work_directory.resolve() / resolved["campaign_id"] / mode.lower()
+                    if production_dispatch
+                    else work_directory
+                ),
             )
         except (Exception, KeyboardInterrupt) as error:
             stopped = f"{mode} coordinator blocked before authoritative publication: {error}"
@@ -1495,7 +1512,8 @@ def run_complete_test(
         result_document = _load(result_path)
         if mode in {"TONE", "WSPR"}:
             status = validate_result_document(result_document).value
-            if outcome["underlying_result"] != result_document:
+            session_document = _load(bundle / "session.json")
+            if outcome["underlying_result"] != session_document:
                 raise CompleteTestError("returned real-session result differs from its bundle")
         else:
             authorization = _load(bundle / "runtime-authorization.json")

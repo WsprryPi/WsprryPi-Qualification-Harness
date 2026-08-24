@@ -366,11 +366,14 @@ hosted-CI result into a hardware qualification claim.
   [`turnkey-campaign.md`](development/turnkey-campaign.md)
 
 For the simple fixed five-mode workflow, use `complete-test TRANSMITTER_HOST
-RECEIVER_HOST --sdr SELECTOR --enable-rf`. The normal path resolves installed
-deployment foundations without a configuration argument. Those one-time
-administrator inputs must already bind the helper, source, services,
-calibration policy, and RF path; per-run current state is rechecked by the
-production preflight. If both endpoints are
+RECEIVER_HOST --sdr SELECTOR --enable-rf`. The normal path requires no
+configuration argument: it temporarily stages
+the current harness and local WsprryPi source. It retains independently owned
+per-campaign executables and generated inputs, removes temporary stages, and
+revalidates the aggregate after cleanup. `--enable-rf` confirms the documented
+conducted default of an antenna-disconnected, direct 50-ohm SDR input through
+20 dB attenuation; per-run current state is rechecked by production preflight.
+If both endpoints are
 remote to the controller, execution is delegated to the receiver host, which
 coordinates the transmitter. The SDR selector must uniquely match receiver-side
 SoapySDR discovery before transmission. `--configuration` and `--rehearse` are

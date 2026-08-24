@@ -23,6 +23,10 @@ from wsprrypi_qualification.archive_intake import (
     validate_multi_capture_session,
 )
 from wsprrypi_qualification.audio import create_slot_wav_acquired
+from wsprrypi_qualification.automatic_deployment import (
+    AutomaticDeploymentError,
+    delegate_automatic_complete_test,
+)
 from wsprrypi_qualification.capabilities import capability_report
 from wsprrypi_qualification.capture_metadata import CaptureMetadataError, load_capture_metadata
 from wsprrypi_qualification.carrier import analyze_carrier_acquired
@@ -387,7 +391,14 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         help="exact SoapySDR device selector to resolve on the receiver host",
     )
-    complete.add_argument("--enable-rf", action="store_true")
+    complete.add_argument(
+        "--enable-rf",
+        action="store_true",
+        help=(
+            "authorize one bounded run and confirm the default conducted path: antenna "
+            "disconnected, direct 50-ohm SDR input through 20 dB attenuation"
+        ),
+    )
     complete.add_argument("--receiver-local", action="store_true", help=argparse.SUPPRESS)
     complete.add_argument("--delegated-output", action="store_true", help=argparse.SUPPRESS)
     complete.add_argument("--delegation-receipt-base64", help=argparse.SUPPRESS)
@@ -507,13 +518,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                         str(args.dfcw_separation_hz),
                     )
                 )
-                delegated = delegate_complete_test(
-                    args.transmitter_host,
-                    args.receiver_host,
-                    args.sdr,
-                    forwarded,
-                    configuration=args.configuration,
-                )
+                if args.configuration is None:
+                    delegated = delegate_automatic_complete_test(
+                        args.transmitter_host,
+                        args.receiver_host,
+                        args.sdr,
+                        forwarded,
+                    )
+                else:
+                    delegated = delegate_complete_test(
+                        args.transmitter_host,
+                        args.receiver_host,
+                        args.sdr,
+                        forwarded,
+                        configuration=args.configuration,
+                    )
                 print(json.dumps(_complete_test_summary(delegated), indent=2, sort_keys=True))
                 status = delegated["result"]["final_status"]
                 return {
@@ -563,6 +582,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     work_directory=Path(execution["work_directory"]),
                 )
         except (
+            AutomaticDeploymentError,
             CompleteTestError,
             RealSessionError,
             LiveKeyedError,

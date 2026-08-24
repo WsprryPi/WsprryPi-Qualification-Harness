@@ -35,10 +35,12 @@ wsprrypi-qualification complete-test TRANSMITTER_HOST RECEIVER_HOST \
   --sdr driver=sdrplay,serial=2404058C60 --enable-rf
 ```
 
-It resolves the one-time administrator-installed split-host deployment
-foundations internally, applies canonical defaults plus named CLI overrides,
-uniquely resolves the selected SDR through SoapySDR on the receiver, validates
-all five generated subordinate plans, then
+The default path packages the current harness and local WsprryPi source, stages
+only the required runtime on both hosts, builds independently owned durable
+per-campaign executables, and removes both temporary stages. `--enable-rf`
+confirms the documented conducted default: antenna disconnected and a direct
+50-ohm SDR input through 20 dB attenuation. The receiver uniquely resolves the
+selected SDR through SoapySDR, validates all five generated subordinate plans, then
 routes TONE, WSPR, QRSS, FSKCW, and DFCW in that order. Both named hosts may be
 remote to the controller; execution is delegated to the receiver host.
 `--rehearse` is deterministic and hardware-free and conflicts with

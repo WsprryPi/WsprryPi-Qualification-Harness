@@ -79,7 +79,7 @@ def _configuration(tmp_path: Path, *, topology: str = "split_host_ssh") -> Path:
     real["rf_path"] = {
         "path_type": "conducted",
         "antenna_connected": False,
-        "termination": "direct SDR input through attenuator",
+        "termination": "50 ohm direct SDR input through attenuator",
         "attenuation_db": 20,
         "filter": "none",
         "safe_input_basis": "bounded conducted fixture",
@@ -405,8 +405,10 @@ def test_live_order_early_stop_and_not_attempted(tmp_path: Path) -> None:
             "artifacts": [],
         }
         _write(bundle / "result.json", document)
+        session = {"run_id": document["run_id"], "final_status": status}
+        _write(bundle / "session.json", session)
         write_manifest(bundle)
-        return {"authoritative_bundle": str(bundle), "underlying_result": document}
+        return {"authoritative_bundle": str(bundle), "underlying_result": session}
 
     outcome = run_complete_test(
         plan,
