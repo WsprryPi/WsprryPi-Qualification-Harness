@@ -58,9 +58,12 @@ def _write(path: Path, document: dict) -> Path:
 
 def _configuration(tmp_path: Path, *, topology: str = "split_host_ssh") -> Path:
     known_hosts = tmp_path / "known_hosts"
+    ssh_executable = tmp_path / "ssh-fixture"
     known_hosts.parent.mkdir(parents=True, exist_ok=True)
     if not known_hosts.exists():
         known_hosts.write_text("receiver key", encoding="utf-8")
+    if not ssh_executable.exists():
+        ssh_executable.write_text("portable ssh fixture", encoding="utf-8")
     real = tone_plan_document(execution_mode="live")
     real["backend"] = "gpio"
     real["output"] = "GPIO4"
@@ -97,7 +100,7 @@ def _configuration(tmp_path: Path, *, topology: str = "split_host_ssh") -> Path:
             "receiver_host": "wspr5.local",
             "sdr_selector": SDR,
             "receiver_delegation": {
-                "ssh": artifact(Path("/usr/bin/ssh")),
+                "ssh": artifact(ssh_executable),
                 "known_hosts": artifact(known_hosts),
                 "remote_exec": REMOTE_EXEC_IDENTITY,
                 "qualification": QUALIFICATION_IDENTITY,
@@ -107,7 +110,7 @@ def _configuration(tmp_path: Path, *, topology: str = "split_host_ssh") -> Path:
                 "real_session": "templates/real.json",
                 "keyed_session": "templates/keyed.json",
             },
-            "ssh_executable": "/usr/bin/ssh",
+            "ssh_executable": str(ssh_executable),
             "work_directory": str(tmp_path / "work"),
             "output_parent": str(tmp_path / "runs"),
             "campaign_deadline_s": 1200,
@@ -214,7 +217,7 @@ def test_remote_receiver_returns_classified_nonpassing_result(tmp_path: Path, mo
     configuration = _configuration(tmp_path)
     receipt = {
         "receiver_host": "wspr5.local",
-        "ssh": artifact(Path("/usr/bin/ssh")),
+        "ssh": artifact(tmp_path / "ssh-fixture"),
         "known_hosts": artifact(tmp_path / "known_hosts"),
         "remote_exec": REMOTE_EXEC_IDENTITY,
         "qualification": QUALIFICATION_IDENTITY,
@@ -427,7 +430,7 @@ def test_live_order_early_stop_and_not_attempted(tmp_path: Path) -> None:
     outcome = run_complete_test(
         plan,
         tmp_path / "runs",
-        ssh_executable=Path("/usr/bin/ssh"),
+        ssh_executable=tmp_path / "ssh-fixture",
         work_directory=tmp_path / "work",
         dispatcher=dispatch,
     )
@@ -473,7 +476,7 @@ def test_tampering_reordering_and_path_escape_are_rejected(tmp_path: Path) -> No
         run_complete_test(
             plan,
             tmp_path / "runs",
-            ssh_executable=Path("/usr/bin/ssh"),
+            ssh_executable=tmp_path / "ssh-fixture",
             work_directory=tmp_path / "work",
             dispatcher=escape,
         )
@@ -524,7 +527,7 @@ def test_coordinator_exception_publishes_partial_authenticated_campaign(tmp_path
     outcome = run_complete_test(
         plan,
         tmp_path / "runs",
-        ssh_executable=Path("/usr/bin/ssh"),
+        ssh_executable=tmp_path / "ssh-fixture",
         work_directory=tmp_path / "work",
         dispatcher=blocked,
     )
@@ -562,7 +565,7 @@ def test_complete_validation_precedes_dispatch_and_rehearsal_has_no_contact(
         run_complete_test(
             plan,
             tmp_path / "runs",
-            ssh_executable=Path("/usr/bin/ssh"),
+            ssh_executable=tmp_path / "ssh-fixture",
             work_directory=tmp_path / "work",
             dispatcher=forbidden,
         )
@@ -585,7 +588,7 @@ def test_keyboard_interrupt_is_authenticated_as_campaign_abort(tmp_path: Path) -
     outcome = run_complete_test(
         plan,
         tmp_path / "runs",
-        ssh_executable=Path("/usr/bin/ssh"),
+        ssh_executable=tmp_path / "ssh-fixture",
         work_directory=tmp_path / "work",
         dispatcher=cancelled,
     )
