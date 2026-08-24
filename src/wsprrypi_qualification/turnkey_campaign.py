@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+from collections.abc import Callable
 from copy import deepcopy
 from enum import StrEnum
 from pathlib import Path
@@ -170,6 +171,7 @@ def run_live_campaign(
     confirmed_plan_sha256: str,
     ssh_executable: Path,
     work_directory: Path,
+    progress: Callable[[str, str, str, int | None, int | None], None] | None = None,
 ) -> dict[str, Any]:
     """Dispatch through an existing coordinator after exact campaign confirmation."""
     resolved = validate_resolved_campaign_plan(plan)
@@ -200,10 +202,16 @@ def run_live_campaign(
             ssh_executable=ssh_executable.resolve(),
             work_directory=work_directory.resolve(),
         )
-        result = RealQualificationSession(child_plan, adapters, now=now).run(
+        session = RealQualificationSession(child_plan, adapters, now=now)
+        authorizations = (
             RealRuntimeAuthorization("external_access", operator, now, child_digest, True),
             RealRuntimeAuthorization("rf", operator, now, child_digest, True),
             output_parent,
+        )
+        result = (
+            session.run(*authorizations, progress=progress)
+            if progress is not None
+            else session.run(*authorizations)
         )
         authoritative_bundle = output_parent.resolve() / str(result["run_id"])
     else:
@@ -226,7 +234,11 @@ def run_live_campaign(
             ssh_executable=ssh_executable.resolve(),
             work_directory=work_directory.resolve(),
         )
-        result = run_live_keyed_session(child, authorization, output_parent, adapter)
+        result = (
+            run_live_keyed_session(child, authorization, output_parent, adapter, progress=progress)
+            if progress is not None
+            else run_live_keyed_session(child, authorization, output_parent, adapter)
+        )
         authoritative_bundle = Path(result["bundle"])
     return {
         "campaign_id": resolved["campaign_id"],

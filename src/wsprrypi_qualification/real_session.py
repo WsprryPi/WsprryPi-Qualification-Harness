@@ -160,6 +160,8 @@ class RealQualificationSession:
         external_authorization: RealRuntimeAuthorization | None,
         rf_authorization: RealRuntimeAuthorization | None,
         output_parent: Path,
+        *,
+        progress: Callable[[str, str, str, int | None, int | None], None] | None = None,
     ) -> dict[str, Any]:
         if self._used:
             raise RealSessionError("real qualification coordinators are single-use")
@@ -183,6 +185,8 @@ class RealQualificationSession:
             except ReceiverCalibrationError as error:
                 raise RealSessionError(str(error)) from error
             self.adapters.begin_session(plan)
+            if hasattr(self.adapters, "set_progress"):
+                self.adapters.set_progress(progress)
         run_id = cast(str, plan["run_id"])
         parent = output_parent.resolve()
         final = parent / run_id
@@ -219,6 +223,8 @@ class RealQualificationSession:
                     "detail": detail,
                 }
             )
+            if progress is not None:
+                progress(phase.value, outcome, detail, None, None)
 
         event(RealPhase.REQUESTED, "recorded", "real session requested")
         try:
@@ -321,6 +327,8 @@ class RealQualificationSession:
             evidence["cleanup_registration"] = installed
             event(RealPhase.CLEANUP_INSTALLED, "passed", "cleanup installed before RF enable")
             preflight_passed = True
+            if progress is not None:
+                progress("rf_off_capture", "started", "RF-off capture started", None, None)
             rf_off = self.adapters.capture_rf_off(plan)
             _validate_capture(rf_off, plan, "rf_off", plan["carrier"]["rf_off_sample_count"])
             evidence["rf_off"] = rf_off
@@ -328,6 +336,8 @@ class RealQualificationSession:
             runtime_rf = RuntimeAuthorization(
                 self.plan.sha256, rf_authorization.operator, self.now, True, True
             )
+            if progress is not None:
+                progress("carrier_capture", "started", "carrier capture started", None, None)
             rf_on = self.adapters.transmit_carrier_and_capture_rf_on(plan, runtime_rf)
             _validate_capture(rf_on, plan, "rf_on", plan["carrier"]["rf_on_sample_count"])
             evidence["rf_on"] = rf_on
@@ -340,6 +350,10 @@ class RealQualificationSession:
                 final_status = "inconclusive"
                 failure_causes.append("carrier_only_session")
             elif carrier_gate == "passed":
+                if progress is not None:
+                    progress(
+                        "coherent_capture", "started", "three-frame capture started", None, None
+                    )
                 coherent = self.adapters.transmit_frames_and_capture(plan, runtime_rf)
                 _validate_capture(
                     coherent, plan, "coherent", plan["coherent_capture"]["sample_count"]

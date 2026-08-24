@@ -35,6 +35,14 @@ wsprrypi-qualification complete-test TRANSMITTER_HOST RECEIVER_HOST \
   --sdr driver=sdrplay,serial=2404058C60 --enable-rf
 ```
 
+Every invocation creates an exclusive JSON Lines progress log and prints its
+absolute path to stderr before long-running work begins. Use `--progress-log
+PATH` to select it explicitly. Records are flushed individually and carry the
+campaign, mode, stage, status, and optional frame or observation number; stdout
+remains reserved for the final structured result. Delegated receiver execution
+forwards protocol records into the invoking controller's local log, so the same
+tailing interface works from either endpoint or a third system.
+
 The default path packages the current harness and local WsprryPi source, stages
 only the required runtime on both hosts, builds independently owned durable
 per-campaign executables, and removes both temporary stages. `--enable-rf`

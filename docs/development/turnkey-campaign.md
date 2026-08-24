@@ -65,7 +65,8 @@ receiver. `--configuration PATH` remains an advanced development override:
 
 ```text
 wsprrypi-qualification complete-test wspr4 wspr5 \
-  --sdr driver=sdrplay,serial=2404058C60 --enable-rf
+  --sdr driver=sdrplay,serial=2404058C60 --enable-rf \
+  --progress-log /absolute/path/complete-test-progress.jsonl
 wsprrypi-qualification complete-test wspr4 wspr5 \
   --sdr driver=sdrplay,serial=2404058C60 --rehearse --configuration PATH
 wsprrypi-qualification validate-complete-test CAMPAIGN-BUNDLE
@@ -85,6 +86,12 @@ replace that row with a status glyph and color, and visible output is limited to
 exit at the campaign terminal record. Use `--replay` to render an existing log
 without waiting for another record. This display is operational convenience;
 the authenticated campaign bundle remains authoritative evidence.
+
+The progress file uses `complete-test-progress.schema.json`. Each JSON Lines
+record is flushed before execution continues. The CLI announces the absolute
+path on stderr; stdout remains final-result JSON only. Delegated processes
+mirror schema-identified records over stderr, and the controller resequences
+them into its local log. Other stderr remains diagnostic text.
 
 Defaults are 20 m, 14,097,100 Hz, `Q0QQQ`, `JJ00`, 0 dBm, keyed message `ET`,
 0.7-second QRSS/FSKCW/DFCW dots, and 5.0 Hz FSKCW/DFCW separation. All are
