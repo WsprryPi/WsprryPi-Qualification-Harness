@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import os
 import platform
 import secrets
@@ -25,6 +26,7 @@ from wsprrypi_qualification.application_shims import (
     WsprryPiBackendConfig,
     WsprryPiShim,
 )
+from wsprrypi_qualification.cw_reference import generate_expected_events
 from wsprrypi_qualification.keyed_session_contracts import (
     canonical_sha256,
     validate_keyed_result,
@@ -581,6 +583,265 @@ def _resolve_keyed(
     return plan
 
 
+def _materialize_cw_reference(
+    plan: dict[str, Any], mode: str, destination: Path, *, now: datetime
+) -> None:
+    destination.mkdir(parents=True, exist_ok=False)
+    tone = mode == "TONE"
+    application: dict[str, Any] = {} if tone else plan["application_plan"]
+    protocol: dict[str, Any] = {} if tone else application["protocol_contract"]
+    source_revision = (
+        plan["source"]["parent_revision"] if tone else application["identity"]["source_revision"]
+    )
+    submodule_revision = (
+        plan["source"]["submodule_revision"]
+        if tone
+        else application["identity"]["submodule_revision"]
+    )
+    normalized_mode = mode.lower()
+    primary = plan["frequency_hz"] if tone else protocol["primary_frequency_hz"]
+    secondary = None if tone else protocol["secondary_frequency_hz"]
+    dot = None if tone else protocol["dot_seconds"]
+    mode_plan = {
+        "schema_version": 1,
+        "evidence_type": "resolved_cw_mode_plan",
+        "run_id": (
+            plan["run_id"]
+            if tone
+            else f"{now.strftime('%Y%m%dT%H%M%SZ')}-{mode.lower()}-{secrets.token_hex(4)}"
+        ),
+        "mode": normalized_mode,
+        "backend": plan["backend"] if tone else plan["transmitter"]["backend"],
+        "hardware_profile": "complete-test-discovered-runtime",
+        "band": plan.get("band", "20m"),
+        "source": {
+            "parent_revision": source_revision,
+            "submodule_revision": submodule_revision,
+        },
+        "transmitter": {
+            "host": plan["host"] if tone else plan["transmitter"]["host"],
+            "output": plan["output"] if tone else plan["transmitter"]["output"],
+            "model": "discovered WsprryPi host",
+            "drive_value": plan["drive"]["value"] if tone else plan["transmitter"]["drive"],
+            "drive_unit": plan["drive"]["unit"] if tone else "power_level",
+            "clock_reference": "configured transmitter clock",
+        },
+        "receiver": {
+            "host": plan["receiver"]["host"],
+            "driver": plan["receiver"]["driver"],
+            "device_identity": (plan["receiver"]["serial"] if tone else plan["receiver"]["device"]),
+        },
+        "rf_path": {
+            "attenuation_db": plan["rf_path"].get("attenuation_db"),
+            "filter_state": plan["rf_path"].get("filter")
+            or plan["rf_path"].get("filter_state")
+            or "not specified for radiated path",
+            "termination": plan["rf_path"].get("termination") or "radiated receiver path",
+            "antenna_state": (
+                "connected" if plan["rf_path"].get("antenna_connected") else "disconnected"
+            ),
+            "safe_input_basis": plan["rf_path"]["safe_input_basis"],
+        },
+        "protocol": {
+            "definition": (
+                "wspq-tone@v1"
+                if tone
+                else "wsprrypi-dfcw@v1"
+                if normalized_mode == "dfcw"
+                else f"wspq-{normalized_mode}@v1"
+            ),
+            "message": None if tone else protocol["message"],
+            "dot_seconds": dot,
+            "repetitions": None if tone else 1,
+            "primary_frequency_hz": primary,
+            "secondary_frequency_hz": secondary,
+            "pre_quiet_seconds": plan["tone_schedule"]["off_seconds"] if tone else 2.0,
+            "post_quiet_seconds": plan["tone_schedule"]["off_seconds"] if tone else 2.0,
+            "intra_element_gap_units": (
+                None if tone else 0.333333 if normalized_mode == "dfcw" else 1.0
+            ),
+            "inter_character_gap_units": (
+                None if tone else 1.0 if normalized_mode == "dfcw" else 3.0
+            ),
+            "inter_word_gap_units": (None if tone else 3.0 if normalized_mode == "dfcw" else 7.0),
+            "tone_cycles": plan["tone_schedule"]["cycles"] if tone else None,
+            "tone_on_seconds": plan["tone_schedule"]["on_seconds"] if tone else None,
+            "tone_off_seconds": plan["tone_schedule"]["off_seconds"] if tone else None,
+        },
+        "capture_contract": {
+            "format": "CF32LE",
+            "sample_rate_hz": plan["receiver"]["sample_rate_hz"],
+            "center_frequency_hz": plan["receiver"]["center_frequency_hz"],
+            "sample_count": (
+                plan["carrier"]["rf_on_sample_count"]
+                if tone
+                else plan["receiver"]["sample_rate_hz"] * 600
+            ),
+            "overflow_max": 0,
+            "fixed_gain": True,
+            "agc_enabled": False,
+            "bias_tee_enabled": False,
+            "first_read_discarded": True,
+        },
+        "thresholds": {
+            "frequency_tolerance_hz": 1.0,
+            "spacing_tolerance_hz": 1.0,
+            "minimum_contrast_db": 10.0,
+            "timing_tolerance_s": 0.15,
+            "maximum_transition_s": 0.25,
+            "maximum_clipping_fraction": 0.01,
+        },
+        "resolved_utc": now.isoformat().replace("+00:00", "Z"),
+    }
+    events = generate_expected_events(mode_plan)
+    if not tone:
+        duration = float(events[-1]["end_s"])
+        mode_plan["capture_contract"]["sample_count"] = math.ceil(
+            duration * plan["receiver"]["sample_rate_hz"]
+        )
+        events = generate_expected_events(mode_plan)
+    plan_path = destination / "mode-plan.json"
+    expected_path = destination / "expected-events.json"
+    write_json_new(plan_path, mode_plan, schema_name="cw-mode-plan.schema.json")
+    expected = {
+        "schema_version": 1,
+        "evidence_type": "cw_expected_events",
+        "run_id": mode_plan["run_id"],
+        "mode": normalized_mode,
+        "plan": artifact(plan_path),
+        "generator": {
+            "origin": "harness_generated",
+            "name": "wsprrypi-qualification-cw-reference",
+            "version": "1",
+            "source_revision": plan.get("analyzer_revision", source_revision),
+        },
+        "protocol_definition": mode_plan["protocol"]["definition"],
+        "events": events,
+    }
+    write_json_new(expected_path, expected, schema_name="cw-expected-events.schema.json")
+    if tone:
+        plan["cw_contract"]["plan"] = artifact(plan_path)
+        plan["cw_contract"]["expected_events"] = artifact(expected_path)
+    else:
+        plan["reference"] = {
+            "plan": artifact(plan_path),
+            "expected_events": artifact(expected_path),
+        }
+
+
+def _materialize_real_profiles(plan: dict[str, Any], destination: Path, *, now: datetime) -> None:
+    destination.mkdir(parents=True, exist_ok=False)
+    receiver = plan["receiver"]
+    rf_path = plan["rf_path"]
+    bench = {
+        "schema_version": 1,
+        "bench_id": "complete-test-conducted",
+        "receiver": {
+            "transport": "local",
+            "host": receiver["host"],
+            "driver": receiver["driver"],
+            "serial": receiver["serial"],
+            "channel": receiver["channel"],
+            "sample_rate_hz": receiver["sample_rate_hz"],
+            "bandwidth_hz": receiver["bandwidth_hz"],
+            "sample_format": receiver["sample_format"],
+            "agc": receiver["agc"],
+            "bias_tee": receiver["bias_tee"],
+        },
+        "rf_path": {
+            "path_type": rf_path["path_type"],
+            "antenna_connected": rf_path["antenna_connected"],
+            "termination_ohms": 50,
+            "attenuation_db": rf_path["attenuation_db"],
+            "filter_description": rf_path["filter"] or "none",
+            "safe_input_description": rf_path["safe_input_basis"],
+        },
+    }
+    tone = plan["mode"] == "TONE"
+    transmitter = {
+        "transport": "ssh",
+        "host": plan["host"],
+        "backend": plan["backend"],
+        "output": plan["output"],
+        "source_revision": plan["source"]["parent_revision"],
+        "submodule_revision": plan["source"]["submodule_revision"],
+    }
+    if plan["backend"] == "gpio":
+        transmitter.update(
+            {
+                "gpio_pin": plan["backend_contract"]["gpio_pin"],
+                "power_level": plan["backend_contract"]["drive_or_power_level"],
+                "pacing_clocks": 1,
+            }
+        )
+    test = {
+        "schema_version": 1,
+        "test_id": f"complete-test-{plan['mode'].lower()}",
+        "transmitter": transmitter,
+        "band": plan["band"],
+        "mode": plan["mode"],
+        "frequency_hz": plan["frequency_hz"],
+        "receiver_center_hz": receiver["center_frequency_hz"],
+        "receiver_gain_db": receiver["gain_db"],
+        "ppm": plan["calibration"]["ppm"],
+        "identity": plan["identity"],
+        "gates": {
+            "carrier_offset_max_hz": plan["carrier"]["offset_gate_hz"],
+            "best_20hz_share_min": plan["carrier"]["best_20hz_share_min"],
+            "required_consecutive_decodes": 0 if tone else 3,
+        },
+        "stopping_procedure": {
+            "transmitter_termination": plan["stopping_procedure"]["transmitter"],
+            "receiver_termination": plan["stopping_procedure"]["receiver"],
+            "operator_abort": "bounded supervisor cancellation",
+            "cleanup_expectation": plan["stopping_procedure"]["cleanup"],
+            "emergency_stop_note": "stop the owned process and verify GPIO quiescence",
+        },
+        "frame_count": plan["frame_count"],
+        "bounded_duration_s": 14 if tone else 370,
+        "random_offset_enabled": False,
+    }
+    duration = 14 if tone else 370
+    run_profile = {
+        "schema_version": 1,
+        "run_id": f"{now.strftime('%Y%m%dT%H%M%SZ')}-receiver-{plan['mode'].lower()}",
+        "bench_id": bench["bench_id"],
+        "receiver": bench["receiver"],
+        "center_frequency_hz": receiver["center_frequency_hz"],
+        "gain_db": receiver["gain_db"],
+        "duration_s": duration,
+        "rf_path": bench["rf_path"],
+        "limits": {
+            "sample_count": duration * receiver["sample_rate_hz"],
+            "read_timeout_us": receiver["read_timeout_us"],
+            "helper_deadline_s": duration + 10,
+            "external_deadline_s": duration + 20,
+        },
+        "authorization": {
+            "scope": "single_run",
+            "reference": "complete-test deliberate invocation",
+            "recorded_utc": now.isoformat().replace("+00:00", "Z"),
+        },
+        "ownership_and_cleanup": "capture is exact-count and owned by this campaign",
+    }
+    documents = {
+        "bench": (bench, "bench-profile.schema.json"),
+        "test": (test, "test-profile.schema.json"),
+        "receiver_run": (run_profile, "receiver-run-profile.schema.json"),
+    }
+    for name, (document, schema) in documents.items():
+        path = destination / f"{name}.json"
+        write_json_new(path, document, schema_name=schema)
+        record = artifact(path)
+        binding = {
+            "id": document.get(f"{name}_id", name),
+            "path": record["path"],
+            "sha256": record["sha256"],
+        }
+        plan["requested_profiles"][name] = binding
+        plan["resolved_profiles"][name] = binding
+
+
 def compose_complete_test_plan(
     transmitter_host: str,
     receiver_host: str,
@@ -632,6 +893,17 @@ def compose_complete_test_plan(
                 sdr_selector=sdr_selector,
             )
         )
+        if mode != "WSPR":
+            reference_directory = work_path / f"{campaign_id}-inputs" / mode.lower()
+            _materialize_cw_reference(plan, mode, reference_directory, now=composed_at)
+        if mode in {"TONE", "WSPR"}:
+            profile_directory = work_path / f"{campaign_id}-inputs" / mode.lower() / "profiles"
+            _materialize_real_profiles(plan, profile_directory, now=composed_at)
+        if mode in {"TONE", "WSPR"}:
+            _set_real_digest(plan)
+            validate_real_session_plan(plan)
+        else:
+            validate_resolved_keyed_plan(plan)
         resolved_host = plan["host"] if mode in {"TONE", "WSPR"} else plan["transmitter"]["host"]
         if resolved_host != transmitter_host:
             raise CompleteTestError(f"{mode} plan transmitter differs from TRANSMITTER_HOST")

@@ -76,6 +76,15 @@ def _configuration(tmp_path: Path, *, topology: str = "split_host_ssh") -> Path:
     keyed["receiver"]["host"] = "wspr5.local"
     real["receiver"]["host"] = "wspr5.local"
     real["receiver"]["serial"] = "2404058C60"
+    real["rf_path"] = {
+        "path_type": "conducted",
+        "antenna_connected": False,
+        "termination": "direct SDR input through attenuator",
+        "attenuation_db": 20,
+        "filter": "none",
+        "safe_input_basis": "bounded conducted fixture",
+        "authorization_scope": "single_run",
+    }
     _write(tmp_path / "templates/real.json", real)
     _write(tmp_path / "templates/keyed.json", keyed)
     return _write(
@@ -124,6 +133,8 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert wspr["backend_contract"]["drive_or_power_level"] == 2
     tone = plan["mode_plans"][0]["plan"]
     assert "--no-http" in tone["tone_server"]["arguments"]
+    assert Path(tone["cw_contract"]["plan"]["path"]).is_file()
+    assert Path(tone["resolved_profiles"]["bench"]["path"]).is_file()
     keyed = {entry["mode"]: entry["plan"] for entry in plan["mode_plans"][2:]}
     assert keyed["QRSS"]["application_plan"]["protocol_contract"] == {
         "message": "ET",
@@ -140,6 +151,7 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
         == 14_097_095.0
     )
     assert keyed["QRSS"]["transmitter"]["drive"] == 0
+    assert Path(keyed["QRSS"]["reference"]["plan"]["path"]).is_file()
     assert keyed["QRSS"]["application_plan"]["backend_contract"]["gpio_pin"] == 4
     with pytest.raises(SystemExit) as help_exit:
         main(["complete-test", "--help"])
