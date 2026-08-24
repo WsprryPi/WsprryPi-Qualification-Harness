@@ -24,6 +24,7 @@ from wsprrypi_qualification.complete_test import (
     run_complete_test,
     validate_complete_test_bundle,
 )
+from wsprrypi_qualification.cw_reference import validate_keyed_capture_margin
 from wsprrypi_qualification.manifests import write_manifest
 from wsprrypi_qualification.offline import artifact
 from wsprrypi_qualification.progress import ProgressReporter
@@ -177,6 +178,15 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert Path(keyed["QRSS"]["reference"]["plan"]["path"]).is_file()
     assert keyed["QRSS"]["application_plan"]["backend_contract"]["gpio_pin"] == 4
     for child in keyed.values():
+        reference = json.loads(Path(child["reference"]["plan"]["path"]).read_text())
+        validate_keyed_capture_margin(reference)
+        capture = reference["capture_contract"]
+        assert child["deadlines"]["transaction_s"] > (
+            capture["sample_count"] / capture["sample_rate_hz"]
+        )
+        assert child["deadlines"]["overall_s"] >= (
+            3 * child["deadlines"]["transaction_s"] + child["deadlines"]["cleanup_s"]
+        )
         arguments = child["application_plan"]["arguments"]
         assert arguments.count("--no-system-clock-frequency-estimate") == 1
         assert arguments.count("--gpio-manual-ppm") == 1

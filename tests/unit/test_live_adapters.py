@@ -4,7 +4,7 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -12,11 +12,17 @@ import pytest
 from tests.unit.test_cw_contracts import _chain
 from tests.unit.test_real_session import plan_document, tone_plan_document
 from wsprrypi_qualification.cw_iq import analyze_synthetic_iq, generate_synthetic_iq
+from wsprrypi_qualification.cw_reference import (
+    generate_expected_events,
+    required_keyed_capture_sample_count,
+    validate_keyed_capture_margin,
+)
 from wsprrypi_qualification.live_adapters import (
     LiveAdapterPaths,
     ProductionRealSessionAdapters,
     _coherent_capture_launch_epoch,
     _derive_rebound_expected_events,
+    _derive_scheduled_mode_plan,
     _intentional_carrier_stop_verified,
     _owned_process_released,
     _retained_capture_has_margin,
@@ -71,6 +77,29 @@ def test_progress_hook_does_not_reset_live_session_state(tmp_path: Path) -> None
 
     assert adapter._session_deadline == 123.0
     assert adapter._cleanup_reserve_s == 7.0
+
+
+@pytest.mark.parametrize("mode", ["qrss", "fskcw", "dfcw"])
+def test_scheduled_keyed_rebase_preserves_capture_guard(tmp_path: Path, mode: str) -> None:
+    plan_path, *_ = _chain(tmp_path, mode)
+    mode_plan = json.loads(plan_path.read_text())
+    mode_plan["protocol"]["message"] = "ETE"
+    mode_plan["protocol"]["dot_seconds"] = 0.7
+    mode_plan["protocol"]["pre_quiet_seconds"] = 2.0
+    mode_plan["protocol"]["post_quiet_seconds"] = 2.0
+    events = generate_expected_events(mode_plan)
+    mode_plan["capture_contract"]["sample_count"] = required_keyed_capture_sample_count(mode_plan)
+    capture_start = datetime(2026, 8, 24, 19, 0, tzinfo=UTC)
+
+    scheduled, relative_start = _derive_scheduled_mode_plan(
+        mode_plan,
+        capture_start,
+        capture_start + timedelta(seconds=2.027201),
+    )
+
+    assert relative_start == 2.027201
+    validate_keyed_capture_margin(scheduled)
+    assert generate_expected_events(scheduled)[-1]["end_s"] == events[-1]["end_s"]
 
 
 def test_stage_bound_artifact_retains_external_path_with_spaces(tmp_path: Path) -> None:

@@ -159,6 +159,10 @@ fails. Each transaction retains the accepted schedule, actual launch, schedule
 error, receiver capture start, and derived capture-relative start. Capture setup
 failure therefore blocks RF rather than producing a knowingly truncated
 observation.
+The resolved exact-count capture is calculated from the final generated keyed
+timeline plus a one-second guard and rounded upward to a whole sample. Scheduled
+quiet-time rebasing preserves that bound, and production preflight rejects an
+older or hand-authored plan that omits the guard.
 If capture fails after launch, the transaction is classified as receiver or
 fixture blockage. Its partial bundle retains authenticated native failure
 metadata and the bounded helper execution diagnostic, while incomplete or

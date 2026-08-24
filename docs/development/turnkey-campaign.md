@@ -86,6 +86,12 @@ WSPR dial frequency from its maintained 1500 Hz audio offset and derives the
 FSKCW space and DFCW dash frequency below the primary according to the existing
 protocol ordering.
 
+Each keyed capture is sized from its final generated timeline, not a nominal
+duration reconstructed elsewhere. The composer adds a one-second guard and
+rounds upward to a whole sample, then expands the transaction and overall
+deadlines when necessary. Production preflight and scheduled-plan analysis
+revalidate the same bound after runtime quiet-time rebasing.
+
 For every mode, the normal composer tunes the receiver 25 kHz below requested
 RF while leaving transmitter and protocol frequencies unchanged. This places
 the target at positive complex baseband, outside the maintained zero-IF DC

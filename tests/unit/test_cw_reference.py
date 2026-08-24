@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -8,8 +9,11 @@ import pytest
 from wsprrypi_qualification.cli import main
 from wsprrypi_qualification.cw_defaults import hardware_free_keyed_protocol
 from wsprrypi_qualification.cw_reference import (
+    KEYED_CAPTURE_GUARD_SECONDS,
     ReferenceEncoderError,
     generate_expected_events,
+    required_keyed_capture_sample_count,
+    validate_keyed_capture_margin,
 )
 
 
@@ -109,6 +113,25 @@ def _plan(mode: str, *, message: str | None = None, repetitions: int | None = No
         },
         "resolved_utc": "2026-08-15T18:00:00Z",
     }
+
+
+@pytest.mark.parametrize("mode", ["qrss", "fskcw", "dfcw"])
+@pytest.mark.parametrize("dot_seconds", [0.7, 0.333333])
+def test_keyed_capture_margin_rounds_up_from_final_timeline(mode: str, dot_seconds: float) -> None:
+    plan = _plan(mode, message="ETE")
+    plan["protocol"]["dot_seconds"] = dot_seconds
+    events = generate_expected_events(plan)
+    required = required_keyed_capture_sample_count(plan)
+    plan["capture_contract"]["sample_count"] = required
+
+    assert validate_keyed_capture_margin(plan) == events
+    duration = Decimal(required) / Decimal(plan["capture_contract"]["sample_rate_hz"])
+    endpoint = Decimal(str(events[-1]["end_s"]))
+    assert duration - endpoint >= KEYED_CAPTURE_GUARD_SECONDS
+
+    plan["capture_contract"]["sample_count"] = required - 1
+    with pytest.raises(ReferenceEncoderError, match="guard margin"):
+        validate_keyed_capture_margin(plan)
 
 
 def test_tone_golden_alternates_three_cycles_from_and_to_quiet() -> None:

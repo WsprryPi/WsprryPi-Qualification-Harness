@@ -115,6 +115,10 @@ or wrapper/executable/argument substitution fails before RF.
 The receiver capture must establish its retained output and complete the
 resolved RF-off preamble before WsprryPi is launched. Capture setup failure or
 premature capture termination must therefore prevent transmitter launch.
+Every QRSS, FSKCW, and DFCW capture must contain the final generated timeline
+plus a maintained one-second guard, with the required sample count rounded
+upward. Runtime scheduling may redistribute pre- and post-quiet time but must
+preserve that guarded capture bound; an under-sized plan fails preflight.
 After transmitter launch, a capture-helper or receiver-evidence failure is a
 receiver/fixture blockage, not transmitter unqualification. The live keyed
 bundle must retain the bounded helper execution diagnostic and any native

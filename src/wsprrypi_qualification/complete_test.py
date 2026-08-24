@@ -28,7 +28,11 @@ from wsprrypi_qualification.application_shims import (
     WsprryPiShim,
 )
 from wsprrypi_qualification.cw_defaults import CANONICAL_KEYED_TEST_MESSAGE
-from wsprrypi_qualification.cw_reference import generate_expected_events
+from wsprrypi_qualification.cw_reference import (
+    generate_expected_events,
+    required_keyed_capture_sample_count,
+    validate_keyed_capture_margin,
+)
 from wsprrypi_qualification.keyed_session_contracts import (
     canonical_sha256,
     validate_keyed_result,
@@ -40,7 +44,12 @@ from wsprrypi_qualification.manifests import (
     validate_manifest_name,
     write_manifest,
 )
-from wsprrypi_qualification.offline import artifact, validate_document, write_json_new
+from wsprrypi_qualification.offline import (
+    OfflineAnalysisError,
+    artifact,
+    validate_document,
+    write_json_new,
+)
 from wsprrypi_qualification.progress import run_streaming
 from wsprrypi_qualification.real_session import (
     helper_configuration_plan_sha256,
@@ -766,11 +775,10 @@ def _materialize_cw_reference(
     }
     events = generate_expected_events(mode_plan)
     if not tone:
-        duration = float(events[-1]["end_s"])
-        mode_plan["capture_contract"]["sample_count"] = math.ceil(
-            duration * plan["receiver"]["sample_rate_hz"]
+        mode_plan["capture_contract"]["sample_count"] = required_keyed_capture_sample_count(
+            mode_plan
         )
-        events = generate_expected_events(mode_plan)
+        events = validate_keyed_capture_margin(mode_plan)
     plan_path = destination / "mode-plan.json"
     expected_path = destination / "expected-events.json"
     write_json_new(plan_path, mode_plan, schema_name="cw-mode-plan.schema.json")
@@ -798,6 +806,17 @@ def _materialize_cw_reference(
             "plan": artifact(plan_path),
             "expected_events": artifact(expected_path),
         }
+        capture_seconds = (
+            mode_plan["capture_contract"]["sample_count"]
+            / mode_plan["capture_contract"]["sample_rate_hz"]
+        )
+        plan["deadlines"]["transaction_s"] = max(
+            plan["deadlines"]["transaction_s"], math.ceil(capture_seconds) + 5
+        )
+        plan["deadlines"]["overall_s"] = max(
+            plan["deadlines"]["overall_s"],
+            3 * plan["deadlines"]["transaction_s"] + plan["deadlines"]["cleanup_s"],
+        )
 
 
 def _materialize_real_profiles(plan: dict[str, Any], destination: Path, *, now: datetime) -> None:
@@ -1183,6 +1202,20 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
             current_source[field] != entry["source"][field] for field in ("size_bytes", "sha256")
         ):
             raise CompleteTestError(f"{mode} source template changed")
+        if mode not in {"TONE", "WSPR"}:
+            reference_path = Path(child["reference"]["plan"]["path"])
+            if _contains_symlink(reference_path) or not reference_path.is_file():
+                raise CompleteTestError(f"{mode} reference plan is unavailable or unsafe")
+            try:
+                reference = _load(reference_path)
+                validate_document(reference, "cw-mode-plan.schema.json")
+                validate_keyed_capture_margin(reference)
+            except (OfflineAnalysisError, ValueError) as error:
+                raise CompleteTestError(f"{mode} capture margin is invalid: {error}") from error
+            capture = reference["capture_contract"]
+            capture_seconds = capture["sample_count"] / capture["sample_rate_hz"]
+            if child["deadlines"]["transaction_s"] <= capture_seconds:
+                raise CompleteTestError(f"{mode} transaction deadline cannot contain capture")
         expected = (
             resolved_real_plan_sha256(child)
             if mode in {"TONE", "WSPR"}

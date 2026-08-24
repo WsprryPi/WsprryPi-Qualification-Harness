@@ -20,6 +20,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, TypeVar, cast
@@ -33,7 +34,11 @@ from wsprrypi_qualification.application_shims import (
     WsprryPiShim,
 )
 from wsprrypi_qualification.cw_iq import analyze_synthetic_iq
-from wsprrypi_qualification.cw_reference import generate_expected_events, write_expected_events
+from wsprrypi_qualification.cw_reference import (
+    generate_expected_events,
+    validate_keyed_capture_margin,
+    write_expected_events,
+)
 from wsprrypi_qualification.cw_replay import compose_acquired_replay
 from wsprrypi_qualification.keyed_session_contracts import resolved_keyed_plan_sha256
 from wsprrypi_qualification.offline import artifact, load_json_document, write_json_new
@@ -120,16 +125,16 @@ def _derive_scheduled_mode_plan(
     mode_plan: dict[str, Any], capture_start: datetime, scheduled_start: datetime
 ) -> tuple[dict[str, Any], float]:
     """Rebase only the quiet margins while preserving waveform and capture duration."""
-    relative_start = (scheduled_start - capture_start).total_seconds()
-    original_prequiet = float(mode_plan["protocol"]["pre_quiet_seconds"])
-    original_postquiet = float(mode_plan["protocol"]["post_quiet_seconds"])
-    adjusted_postquiet = original_postquiet - (relative_start - original_prequiet)
-    if relative_start <= 0 or adjusted_postquiet <= 0:
+    relative_start_decimal = Decimal(str((scheduled_start - capture_start).total_seconds()))
+    original_prequiet = Decimal(str(mode_plan["protocol"]["pre_quiet_seconds"]))
+    original_postquiet = Decimal(str(mode_plan["protocol"]["post_quiet_seconds"]))
+    adjusted_postquiet = original_postquiet - (relative_start_decimal - original_prequiet)
+    if relative_start_decimal <= 0 or adjusted_postquiet <= 0:
         raise RealSessionError("scheduled process start falls outside retained capture")
     derived = deepcopy(mode_plan)
-    derived["protocol"]["pre_quiet_seconds"] = relative_start
-    derived["protocol"]["post_quiet_seconds"] = adjusted_postquiet
-    return derived, relative_start
+    derived["protocol"]["pre_quiet_seconds"] = float(relative_start_decimal)
+    derived["protocol"]["post_quiet_seconds"] = float(adjusted_postquiet)
+    return derived, float(relative_start_decimal)
 
 
 def _coherent_capture_launch_epoch(first_slot: datetime, required_margin_s: float) -> float:
@@ -1843,6 +1848,10 @@ class KeyedCapabilityProviders:
         mode_plan = load_json_document(
             Path(plan["reference"]["plan"]["path"]), "cw-mode-plan.schema.json"
         )
+        try:
+            validate_keyed_capture_margin(mode_plan)
+        except ValueError:
+            return False
         protocol = mode_plan["protocol"]
         application = plan["application_plan"]["protocol_contract"]
         receiver = plan["receiver"]
@@ -2185,6 +2194,7 @@ class KeyedCapabilityProviders:
             mode_plan, relative_start = _derive_scheduled_mode_plan(
                 mode_plan, capture_start, scheduled_start
             )
+            validate_keyed_capture_margin(mode_plan)
             derived_plan_path = directory / "scheduled-plan.json"
             derived_expected_path = directory / "scheduled-expected-events.json"
             write_json_new(derived_plan_path, mode_plan, schema_name="cw-mode-plan.schema.json")
