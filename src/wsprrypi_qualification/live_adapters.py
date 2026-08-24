@@ -228,6 +228,7 @@ class ProductionRealSessionAdapters:
         self._owned: list[OwnedProcess] = []
         self._capture_tasks: list[tuple[threading.Thread, threading.Event]] = []
         self._cleanup_installed = False
+        self._progress: Callable[[str, str, str, int | None, int | None], None] | None = None
         self._artifacts: list[Path] = [
             paths.bench_profile,
             paths.test_profile,
@@ -235,6 +236,11 @@ class ProductionRealSessionAdapters:
             paths.capture_helper,
             paths.wsprd,
         ]
+
+    def set_progress(
+        self, callback: Callable[[str, str, str, int | None, int | None], None] | None
+    ) -> None:
+        self._progress = callback
         self._capture_artifacts: dict[str, tuple[Path, Path]] = {}
         self._acquired_carrier_frequency_hz: float | None = None
         self._final_quiescence: bool | None = None
@@ -1193,7 +1199,28 @@ class ProductionRealSessionAdapters:
                 ) from exc
             raise
         try:
-            worker.join(self._remaining(plan["deadlines"]["receiver_s"], reserve_cleanup=True))
+            announced: set[int] = set()
+            deadline = time.monotonic() + self._remaining(
+                plan["deadlines"]["receiver_s"], reserve_cleanup=True
+            )
+            slots = [
+                datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+                for value in plan["slots_utc"]
+            ]
+            while worker.is_alive() and time.monotonic() < deadline:
+                now_epoch = time.time()
+                for index, slot_epoch in enumerate(slots, 1):
+                    if index not in announced and now_epoch >= slot_epoch:
+                        announced.add(index)
+                        if self._progress is not None:
+                            self._progress(
+                                "wspr_frame",
+                                "started",
+                                f"WSPR frame {index} UTC window started",
+                                index,
+                                3,
+                            )
+                worker.join(min(0.25, max(0.0, deadline - time.monotonic())))
             if worker.is_alive():
                 cancellation.set()
                 raise RealSessionError("coherent receiver exceeded its hard deadline")

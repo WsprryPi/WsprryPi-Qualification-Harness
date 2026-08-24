@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -226,6 +227,7 @@ def run_live_keyed_session(
     adapter: ProductionKeyedAdapter,
     *,
     cancellation: threading.Event | None = None,
+    progress: Callable[[str, str, str, int | None, int | None], None] | None = None,
 ) -> dict[str, Any]:
     """Execute at most three live transactions through the sealed production adapter."""
     if type(adapter) is not ProductionKeyedAdapter:
@@ -240,8 +242,18 @@ def run_live_keyed_session(
     transactions: list[dict[str, Any]] = []
     try:
         for number in (1, 2, 3):
+            if progress is not None:
+                progress("keyed_observation", "started", f"observation {number} started", number, 3)
             transaction = adapter.transaction(resolved, auth, number, cancellation)
             transactions.append(transaction)
+            if progress is not None:
+                progress(
+                    "keyed_observation",
+                    "completed" if transaction["final_outcome"] == "passed" else "failed",
+                    f"observation {number} ended with {transaction['final_outcome']}",
+                    number,
+                    3,
+                )
             if transaction["final_outcome"] != "passed":
                 break
     finally:

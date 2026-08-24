@@ -41,6 +41,7 @@ from wsprrypi_qualification.manifests import (
     write_manifest,
 )
 from wsprrypi_qualification.offline import artifact, validate_document, write_json_new
+from wsprrypi_qualification.progress import run_streaming
 from wsprrypi_qualification.real_session import (
     helper_configuration_plan_sha256,
     resolved_real_plan_sha256,
@@ -97,6 +98,7 @@ def delegate_complete_test(
     *,
     configuration: Path | None = None,
     timeout_s: float = 7500.0,
+    progress: Any | None = None,
 ) -> dict[str, Any]:
     """Run the complete command on a remote receiver without shell interpolation."""
     _, deployment = load_saved_configuration(transmitter_host, receiver_host, configuration)
@@ -191,24 +193,32 @@ def delegate_complete_test(
     encoded = base64.urlsafe_b64encode(
         json.dumps(remote_argv, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     ).decode("ascii")
-    record = LocalCommandTransport().execute(
-        CommandPlan(
-            ssh,
-            (
-                *common_ssh,
-                remote_exec,
-                "--argv-base64",
-                encoded,
-                "--timeout",
-                str(timeout_s),
-            ),
-            timeout_s=timeout_s + 30.0,
-        )
+    if progress is not None:
+        progress.emit("delegation", "started", "receiver delegation started")
+    delegation_plan = CommandPlan(
+        ssh,
+        (
+            *common_ssh,
+            remote_exec,
+            "--argv-base64",
+            encoded,
+            "--timeout",
+            str(timeout_s),
+        ),
+        timeout_s=timeout_s + 30.0,
     )
-    if record.timed_out or record.disconnected:
+    record = (
+        run_streaming(delegation_plan, progress)
+        if progress is not None
+        else LocalCommandTransport().execute(delegation_plan)
+    )
+    timed_out = getattr(record, "timed_out", False)
+    disconnected = getattr(record, "disconnected", False)
+    return_code = getattr(record, "return_code", getattr(record, "returncode", None))
+    if timed_out or disconnected:
         raise CompleteTestError(
             "remote receiver campaign failed before returning a result: "
-            f"{record.stderr.strip() or record.return_code}"
+            f"{record.stderr.strip() or return_code}"
         )
     try:
         result = json.loads(record.stdout)
@@ -216,10 +226,10 @@ def delegate_complete_test(
         raise CompleteTestError("remote receiver returned invalid campaign JSON") from error
     if not isinstance(result, dict):
         raise CompleteTestError("remote receiver returned a non-object campaign result")
-    if record.return_code not in {0, 3, 4, 5, 6}:
+    if return_code not in {0, 3, 4, 5, 6}:
         raise CompleteTestError(
             "remote receiver campaign failed before returning a classified result: "
-            f"{record.stderr.strip() or record.return_code}"
+            f"{record.stderr.strip() or return_code}"
         )
     bundle = result.get("bundle")
     if not isinstance(bundle, str) or not bundle:
@@ -287,6 +297,8 @@ def delegate_complete_test(
         raise CompleteTestError("receiver qualification executable changed during execution")
     if result["result"].get("delegation_receipt") != delegation_receipt:
         raise CompleteTestError("retained campaign omits receiver delegation evidence")
+    if progress is not None:
+        progress.emit("delegation", "completed", "receiver delegation completed")
     return result
 
 
@@ -1474,6 +1486,7 @@ def run_complete_test(
     ssh_executable: Path,
     work_directory: Path,
     dispatcher: Callable[..., dict[str, Any]] | None = None,
+    progress: Callable[..., object] | None = None,
 ) -> dict[str, Any]:
     resolved = validate_complete_test_plan(plan)
     if resolved["execution_policy"] != "live":
@@ -1494,6 +1507,10 @@ def run_complete_test(
     entries: list[dict[str, Any]] = []
     stopped: str | None = None
     campaign_started = time.monotonic()
+    if progress is not None:
+        progress(
+            "campaign", "started", "five-mode campaign started", campaign_id=resolved["campaign_id"]
+        )
     for entry in resolved["mode_plans"]:
         mode = entry["mode"]
         child_campaign_id = f"ct-{resolved['campaign_id'].split('-')[1]}-{mode.lower()}"
@@ -1507,6 +1524,8 @@ def run_complete_test(
         if stopped is None and remaining < child_deadline:
             stopped = "campaign deadline cannot contain the next bounded mode"
         if stopped is not None:
+            if progress is not None:
+                progress("mode", "skipped", stopped, campaign_id=resolved["campaign_id"], mode=mode)
             entries.append(
                 {
                     "mode": mode,
@@ -1561,6 +1580,34 @@ def run_complete_test(
         from wsprrypi_qualification.turnkey_campaign import canonical_sha256 as wrapper_digest
 
         digest = wrapper_digest(child_wrapper)
+        if progress is not None:
+            progress(
+                "mode",
+                "started",
+                f"{mode} execution started",
+                campaign_id=resolved["campaign_id"],
+                mode=mode,
+            )
+
+        def child_progress(
+            stage: str,
+            status: str,
+            detail: str,
+            item: int | None,
+            item_count: int | None,
+            child_mode: str = mode,
+        ) -> None:
+            if progress is not None:
+                progress(
+                    stage,
+                    status,
+                    detail,
+                    campaign_id=resolved["campaign_id"],
+                    mode=child_mode,
+                    item=item,
+                    item_count=item_count,
+                )
+
         try:
             outcome = dispatcher(
                 child_wrapper,
@@ -1573,6 +1620,7 @@ def run_complete_test(
                     if production_dispatch
                     else work_directory
                 ),
+                progress=child_progress,
             )
         except (Exception, KeyboardInterrupt) as error:
             stopped = f"{mode} coordinator blocked before authoritative publication: {error}"
@@ -1590,6 +1638,8 @@ def run_complete_test(
                     "bundle_manifest_artifact": None,
                 }
             )
+            if progress is not None:
+                progress("mode", "failed", stopped, campaign_id=resolved["campaign_id"], mode=mode)
             continue
         unresolved_bundle = Path(str(outcome["authoritative_bundle"])).absolute()
         if _contains_symlink(unresolved_bundle):
@@ -1645,6 +1695,22 @@ def run_complete_test(
                 },
             }
         )
+        if progress is not None:
+            progress(
+                "mode",
+                "completed",
+                f"{mode} ended with {status}",
+                campaign_id=resolved["campaign_id"],
+                mode=mode,
+            )
         if _stops_campaign(mode, status):
             stopped = f"{mode} ended with {status}"
-    return _publish(resolved, output_parent, entries)
+    published = _publish(resolved, output_parent, entries)
+    if progress is not None:
+        progress(
+            "campaign",
+            "terminal",
+            f"campaign ended with {published['result']['final_status']}",
+            campaign_id=resolved["campaign_id"],
+        )
+    return published
