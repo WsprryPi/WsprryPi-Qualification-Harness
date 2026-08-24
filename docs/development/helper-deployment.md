@@ -102,3 +102,24 @@ transmission. Before any
 connection, read-only inspection, service action, SDR opening, or RF, the
 operator must establish that neither host has ongoing work that could be
 interrupted. Uncertainty fails closed.
+
+## Temporary run staging
+
+Actual-host orchestration may use `RemoteStage` when the reviewed runtime or a
+native helper must be copied for one bounded run instead of installed. The
+controller creates a fresh, mode-0700 directory under `/tmp`, copies only an
+explicit file list with `scp`, and exposes only controller-generated absolute
+paths. Host names, remote names, and stage identifiers are validated before
+transport. The stage is a context manager: partial-copy failure, campaign
+failure, cancellation, and success all enter the same removal path. Removal is
+performed by a fixed Python operation and is successful only when the remote
+directory is confirmed absent. An unverified removal is a cleanup failure.
+
+Staging does not itself authorize execution, device access, or RF. The caller
+must still bind the staged executable and configuration into the applicable
+production plan, install operational cleanup before enabling hardware, and
+retain the normal result evidence. Staged content is never installed over a
+target checkout or persistent runtime. `tests/unit/test_remote_staging.py`
+covers normal removal, partial-copy removal, unsafe targets, and cleanup-failure
+precedence; actual-host smoke tests must additionally verify post-run process
+absence and hardware quiescence.
