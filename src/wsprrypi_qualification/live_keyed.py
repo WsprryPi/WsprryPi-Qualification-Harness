@@ -63,13 +63,14 @@ class LiveKeyedProviders(Protocol):
 class ProductionKeyedAdapter:
     """Sealed lifecycle adapter over authenticated capability providers."""
 
-    __slots__ = ("artifact_sources", "providers")
+    __slots__ = ("artifact_sources", "providers", "retained_artifact_identities")
 
     def __init__(self, providers: LiveKeyedProviders) -> None:
         if type(self) is not ProductionKeyedAdapter:
             raise TypeError("production keyed adapter is sealed")
         self.providers = providers
         self.artifact_sources: dict[str, Path] = {}
+        self.retained_artifact_identities: set[tuple[int, str]] = set()
 
     def transaction(
         self,
@@ -180,6 +181,10 @@ class ProductionKeyedAdapter:
             if source is None or not source.is_file() or source.is_symlink():
                 continue
             identity = artifact_path_identity(source)
+            content_identity = (identity["size_bytes"], identity["sha256"])
+            if content_identity in self.retained_artifact_identities:
+                continue
+            self.retained_artifact_identities.add(content_identity)
             suffix = source.suffix if source.suffix else ".bin"
             relative = f"transactions/{number}/{role}{suffix}"
             retained_artifacts.append({"role": role, "path": relative, **identity})

@@ -11,7 +11,10 @@ from wsprrypi_qualification.application_shims import (
     WsprryPiShim,
     validate_application_plan,
 )
-from wsprrypi_qualification.cw_defaults import hardware_free_keyed_protocol
+from wsprrypi_qualification.cw_defaults import (
+    CANONICAL_KEYED_TEST_MESSAGE,
+    hardware_free_keyed_protocol,
+)
 
 
 def identity(executable: str = "/opt/Wsprry Pi/wsprrypi") -> ApplicationIdentity:
@@ -136,7 +139,7 @@ def test_qrss_family_uses_mode_specific_transient_interface(
     )
     assert all(flag in plan.arguments for flag in flags)
     assert "--repeat" not in plan.arguments
-    assert "ET" in plan.arguments and "0.7" in plan.arguments
+    assert CANONICAL_KEYED_TEST_MESSAGE in plan.arguments and "0.7" in plan.arguments
     validate_application_plan(plan.to_document())
 
 

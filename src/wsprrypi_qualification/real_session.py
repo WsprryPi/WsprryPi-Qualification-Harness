@@ -730,7 +730,6 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
             "--socket-port",
             str(endpoint["port"]),
             "--socket-loopback-only",
-            "--no-http",
         ]
         if endpoint["host"] != "::1" or tone_server["arguments"] != expected_arguments:
             raise RealSessionError("bounded Tone server arguments differ from its endpoint")
@@ -1004,8 +1003,14 @@ def validate_real_session_document(document: dict[str, Any]) -> None:
             raise RealSessionError("failed decode gate requires unqualified-decode status")
         if "blocked" in {carrier_gate, decode_gate} and status != "fixture_blocked":
             raise RealSessionError("blocked gate requires fixture-blocked status")
-        if (carrier_gate, decode_gate) == ("passed", "passed") and status != "inconclusive":
-            raise RealSessionError("passed hardware-free gates require inconclusive status")
+        if (carrier_gate, decode_gate) == ("passed", "passed"):
+            expected_passed_status = (
+                "inconclusive" if "incomplete_evidence" in causes else "qualified"
+            )
+            if status != expected_passed_status:
+                raise RealSessionError(
+                    "passed gates require qualified or explicitly incomplete status"
+                )
     if status == "fixture_blocked" and not (
         "blocked" in {document["carrier_gate"], document["decode_gate"]} or has_fixture_cause
     ):

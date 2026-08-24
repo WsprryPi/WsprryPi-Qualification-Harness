@@ -133,7 +133,7 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert wspr["backend_contract"]["gpio_pin"] == 4
     assert wspr["backend_contract"]["drive_or_power_level"] == 2
     tone = plan["mode_plans"][0]["plan"]
-    assert "--no-http" in tone["tone_server"]["arguments"]
+    assert "--no-web" not in tone["tone_server"]["arguments"]
     assert Path(tone["cw_contract"]["plan"]["path"]).is_file()
     assert Path(tone["resolved_profiles"]["bench"]["path"]).is_file()
     keyed = {entry["mode"]: entry["plan"] for entry in plan["mode_plans"][2:]}
@@ -151,7 +151,7 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
         for entry in plan["mode_plans"]
     )
     assert keyed["QRSS"]["application_plan"]["protocol_contract"] == {
-        "message": "ET",
+        "message": "ETE",
         "dot_seconds": 0.7,
         "primary_frequency_hz": 14_097_100.0,
         "secondary_frequency_hz": None,
@@ -404,7 +404,7 @@ def test_live_order_early_stop_and_not_attempted(tmp_path: Path) -> None:
         calls.append(mode)
         bundle = output_parent / f"child-{mode.lower()}"
         bundle.mkdir(parents=True)
-        status = "fixture_blocked" if mode == "WSPR" else "qualified"
+        status = "fixture_blocked" if mode == "WSPR" else "inconclusive"
         document = {
             "schema_version": 1,
             "run_id": f"20260823T200000Z-{mode.lower()}",
@@ -413,7 +413,7 @@ def test_live_order_early_stop_and_not_attempted(tmp_path: Path) -> None:
             "completed_utc": "2026-08-23T20:00:01Z",
             "preflight_passed": True,
             "carrier_gate": "blocked" if status == "fixture_blocked" else "passed",
-            "decode_gate": "not_run" if status == "fixture_blocked" else "passed",
+            "decode_gate": "not_run" if mode == "TONE" or status == "fixture_blocked" else "passed",
             "cleanup_outcome": "verified",
             "failure_causes": ["receiver_unavailable"] if status == "fixture_blocked" else [],
             "artifacts": [],
@@ -440,6 +440,7 @@ def test_live_order_early_stop_and_not_attempted(tmp_path: Path) -> None:
         "not_attempted",
     ]
     assert outcome["result"]["final_status"] == "fixture_blocked"
+    assert outcome["result"]["modes"][0]["final_status"] == "qualified"
     (tmp_path / "runs/child-tone/extra.txt").write_text("tampered", encoding="utf-8")
     with pytest.raises(CompleteTestError, match="bundle evidence changed"):
         validate_complete_test_bundle(Path(outcome["bundle"]))

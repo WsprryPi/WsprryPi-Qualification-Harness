@@ -104,6 +104,7 @@ def _plan(mode: str, *, message: str | None = None, repetitions: int | None = No
             "minimum_contrast_db": 10,
             "timing_tolerance_s": 0.1,
             "maximum_transition_s": 0.2,
+            "maximum_alignment_shift_s": 0.5,
             "maximum_clipping_fraction": 0.01,
         },
         "resolved_utc": "2026-08-15T18:00:00Z",

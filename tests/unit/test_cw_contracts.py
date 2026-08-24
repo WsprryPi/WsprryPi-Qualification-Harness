@@ -10,7 +10,7 @@ from wsprrypi_qualification.cli import main
 from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contract_chain
 from wsprrypi_qualification.cw_iq import (
     CwIqError,
-    _acquired_tone_timing_alignment,
+    _acquired_timing_alignment,
     _shifted_frequency_model,
     _unshifted_frequency_model,
     analyze_synthetic_iq,
@@ -141,6 +141,7 @@ def _chain(tmp_path: Path, mode: str) -> tuple[Path, Path, Path, Path, Path]:
             "minimum_contrast_db": 10.0,
             "timing_tolerance_s": 0.1,
             "maximum_transition_s": 0.2,
+            "maximum_alignment_shift_s": 0.5,
             "maximum_clipping_fraction": 0.01,
         },
         "resolved_utc": "2026-08-15T12:00:00Z",
@@ -307,6 +308,33 @@ def test_acquired_replay_passes_measurement_but_stays_inconclusive(
         "quiescence_evidence": None,
     }
     assert validate_replay_bundle(bundle, recompute=True)["valid"] is True
+
+
+@pytest.mark.parametrize("mode", ["fskcw", "dfcw"])
+def test_acquired_shifted_modes_resolve_one_common_frequency_offset(
+    tmp_path: Path, mode: str
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, mode)
+    metadata_document = json.loads(metadata.read_text(encoding="utf-8"))
+    capture = source / metadata_document["capture"]["path"]
+    samples = np.fromfile(capture, dtype="<c8")
+    rate = float(metadata_document["sample_rate_hz"])
+    times = np.arange(samples.size, dtype=np.float64) / rate
+    samples *= np.exp(2j * np.pi * 20.0 * times).astype(np.complex64)
+    samples.astype("<c8").tofile(capture)
+    metadata_document["capture"] = _artifact(capture)
+    _write(metadata, metadata_document)
+
+    bundle = tmp_path / "bundle"
+    result = compose_acquired_replay(plan, expected, metadata, bundle, source_revision="e" * 40)
+    observations = json.loads((bundle / "observations.json").read_text(encoding="utf-8"))
+    model = observations["measurement_summary"]["shifted_frequency_model"]
+    assert result["measurement"] == {"carrier_gate": "passed", "mode_gate": "passed"}
+    assert model is not None
+    assert model["primary_frequency_hz"] == pytest.approx(137520.0, abs=0.25)
+    assert abs(model["signed_spacing_hz"]) == pytest.approx(10.0, abs=0.25)
 
 
 def test_acquired_replay_is_byte_deterministic_and_portable(tmp_path: Path) -> None:
@@ -484,7 +512,7 @@ def test_acquired_replay_final_validation_failure_does_not_publish_bundle(
     assert not list(tmp_path.glob(".bundle.incomplete-*"))
 
 
-def test_acquired_replay_detects_iq_shifted_event_boundaries(tmp_path: Path) -> None:
+def test_acquired_replay_aligns_bounded_common_cw_latency(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
     plan, expected, metadata = _acquired_inputs(source, "cw")
@@ -499,8 +527,12 @@ def test_acquired_replay_detects_iq_shifted_event_boundaries(tmp_path: Path) -> 
     bundle = tmp_path / "bundle"
     result = compose_acquired_replay(plan, expected, metadata, bundle, source_revision="e" * 40)
     observations = json.loads((bundle / "observations.json").read_text(encoding="utf-8"))
-    assert result["measurement"]["carrier_gate"] == "failed"
-    assert "timing_error" in observations["failure_causes"]
+    assert result["measurement"]["carrier_gate"] == "passed"
+    assert "timing_error" not in observations["failure_causes"]
+    alignment = observations["measurement_summary"]["timing_alignment"]
+    assert alignment["common_shift_s"] == pytest.approx(
+        31 / metadata_document["sample_rate_hz"], abs=0.02
+    )
     expected_document = json.loads((bundle / "expected-events.json").read_text(encoding="utf-8"))
     assert any(
         measured["measured_start_s"] != event["start_s"]
@@ -804,7 +836,7 @@ def test_acquired_tone_timing_alignment_accepts_only_one_bounded_common_shift(
     tmp_path: Path,
 ) -> None:
     plan, expected, states, rate = _tone_detected_states(tmp_path, shift_s=0.22)
-    model = _acquired_tone_timing_alignment(plan, expected, states, rate)
+    model = _acquired_timing_alignment(plan, expected, states, rate)
     assert model is not None
     assert model["common_shift_s"] == pytest.approx(0.22)
     assert model["maximum_boundary_residual_s"] == pytest.approx(0.0)
@@ -817,7 +849,7 @@ def test_acquired_tone_timing_alignment_accepts_only_one_bounded_common_shift(
 def test_acquired_tone_timing_alignment_fails_closed(case: str, tmp_path: Path) -> None:
     plan, expected, states, rate = _tone_detected_states(
         tmp_path,
-        shift_s=0.31 if case == "excessive_shift" else 0.15,
+        shift_s=0.51 if case == "excessive_shift" else 0.15,
         inconsistent_s=0.11 if case == "inconsistent_latency" else 0.0,
         extra=case == "extra_tone",
     )
@@ -829,7 +861,7 @@ def test_acquired_tone_timing_alignment_fails_closed(case: str, tmp_path: Path) 
         states[start : active[end_index - 1] + 1] = 0
     if case == "interruption":
         states[round(3.55 * rate) : round(3.85 * rate)] = 0
-    assert _acquired_tone_timing_alignment(plan, expected, states, rate) is None
+    assert _acquired_timing_alignment(plan, expected, states, rate) is None
 
 
 def test_synthetic_iq_shifted_iq_with_bounded_common_drift_passes(tmp_path: Path) -> None:

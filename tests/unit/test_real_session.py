@@ -240,7 +240,6 @@ def tone_plan_document(*, execution_mode: str = "hardware_free_validation") -> d
                     "--socket-port",
                     "31416",
                     "--socket-loopback-only",
-                    "--no-http",
                 ],
                 "startup_seconds": 0.25,
             },
@@ -767,7 +766,7 @@ def test_event_outcome_must_match_retained_stage(tmp_path: Path):
 def test_fixture_blocked_status_requires_blocked_evidence(tmp_path: Path):
     document = run(tmp_path, FakeAdapters())
     document["final_status"] = "fixture_blocked"
-    with pytest.raises(RealSessionError, match=r"lacks blocked|require inconclusive"):
+    with pytest.raises(RealSessionError, match=r"lacks blocked|passed gates"):
         validate_real_session_document(document)
 
 
@@ -782,7 +781,7 @@ def test_completed_gates_cannot_be_relabelled_aborted(tmp_path: Path):
     document = run(tmp_path, FakeAdapters())
     document["final_status"] = "aborted"
     document["failure_causes"] = ["invented"]
-    with pytest.raises(RealSessionError, match=r"aborted status|require inconclusive"):
+    with pytest.raises(RealSessionError, match=r"aborted status|passed gates"):
         validate_real_session_document(document)
 
 

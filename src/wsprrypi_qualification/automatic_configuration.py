@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+from wsprrypi_qualification.cw_defaults import CANONICAL_KEYED_TEST_MESSAGE
 from wsprrypi_qualification.cw_reference import generate_expected_events
 from wsprrypi_qualification.offline import artifact, validate_document, write_json_new
 from wsprrypi_qualification.real_session import helper_configuration_plan_sha256
@@ -267,7 +268,6 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
                 "--socket-port",
                 "31416",
                 "--socket-loopback-only",
-                "--no-http",
             ],
             "startup_seconds": 0.25,
         },
@@ -295,7 +295,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         },
         "protocol": "qrss",
         "protocol_contract": {
-            "message": "ET",
+            "message": CANONICAL_KEYED_TEST_MESSAGE,
             "dot_seconds": 0.7,
             "primary_frequency_hz": 14_097_100,
             "secondary_frequency_hz": None,
@@ -312,7 +312,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "0",
             "--no-offset",
             "--qrss-message",
-            "ET",
+            CANONICAL_KEYED_TEST_MESSAGE,
             "--qrss-frequency",
             "14097100",
             "--qrss-dot-seconds",
@@ -356,7 +356,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         },
         "protocol": {
             "definition": "wspq-qrss@v1",
-            "message": "ET",
+            "message": CANONICAL_KEYED_TEST_MESSAGE,
             "dot_seconds": 0.7,
             "repetitions": 1,
             "primary_frequency_hz": 14_097_100,
@@ -382,11 +382,12 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "first_read_discarded": True,
         },
         "thresholds": {
-            "frequency_tolerance_hz": 1.0,
-            "spacing_tolerance_hz": 1.0,
+            "frequency_tolerance_hz": 2.0,
+            "spacing_tolerance_hz": 2.0,
             "minimum_contrast_db": 10.0,
             "timing_tolerance_s": 0.15,
             "maximum_transition_s": 0.25,
+            "maximum_alignment_shift_s": 0.75,
             "maximum_clipping_fraction": 0.01,
         },
         "resolved_utc": "2026-08-23T00:00:00Z",

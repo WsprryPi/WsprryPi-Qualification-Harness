@@ -184,34 +184,83 @@ def _selected_host_keys(known_hosts: Path, host: str, *, ssh_keygen: Path) -> tu
     return "\n".join(rewritten) + "\n", values[0]
 
 
-def _prepare_transmitter(stage: RemoteStage) -> dict[str, Any]:
+def _prepare_transmitter(
+    stage: RemoteStage, *, installed_binary: str | None = None
+) -> dict[str, Any]:
     token = stage.root.rsplit("-", 1)[-1]
     deployment = f"/home/pi/wsprrypi-qualification-runs/complete-test-deployment-{token}"
-    program = (
-        "import hashlib,os,subprocess,zipfile;root=pathlib.Path(sys.argv[1]);"
-        "deployment=pathlib.Path(sys.argv[2]);deployment.parent.mkdir(parents=True,exist_ok=True);"
-        "assert deployment.parent.is_dir() and not deployment.parent.is_symlink();"
-        "os.mkdir(deployment,0o700);"
-        "fd=os.open(deployment/'.owner',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);"
-        "os.write(fd,sys.argv[3].encode('ascii'));os.close(fd);"
-        "src=root/'source';"
-        "r=subprocess.run(['/usr/bin/git','clone',str(root/'wsprrypi.bundle'),str(src)],capture_output=True,text=True);"
-        "assert r.returncode==0,r.stderr;"
-        "r=subprocess.run(['/usr/bin/git','-C',str(src),'rev-parse','HEAD'],capture_output=True,text=True);"
-        "assert r.returncode==0,r.stderr;"
-        "r=subprocess.run(['/usr/bin/make','-C',str(src/'src'),'-j2',"
-        "'BACKENDS=rpi-gpio'],capture_output=True,text=True,timeout=900)\n"
-        "assert r.returncode==0,r.stdout+r.stderr\n"
-        "source_binary=src/'src/build/bin/wsprrypi';data=source_binary.read_bytes();"
-        "binary=deployment/'wsprrypi';"
-        "fd=os.open(binary,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o700);"
-        "os.write(fd,data);os.fsync(fd);os.close(fd);"
-        "assert binary.is_file() and not binary.is_symlink() and "
-        "hashlib.sha256(binary.read_bytes()).hexdigest()==hashlib.sha256(data).hexdigest();"
-        "(root/'gpio-inspect').chmod(0o700);"
-        "print(str(binary))"
-    )
-    result = stage.run_python(program, deployment, stage.owner_token, timeout_s=1000)
+    if installed_binary is not None:
+        if not PurePosixPath(installed_binary).is_absolute():
+            raise AutomaticDeploymentError("installed WsprryPi binary must be absolute")
+        installed_configuration = os.environ.get(
+            "WSPQ_WSPRRRYPI_INSTALLED_CONFIG", "/usr/local/etc/wsprrypi.ini"
+        )
+        if not PurePosixPath(installed_configuration).is_absolute():
+            raise AutomaticDeploymentError("installed WsprryPi configuration must be absolute")
+        program = (
+            "import hashlib,os;deployment=pathlib.Path(sys.argv[2]);"
+            "deployment.parent.mkdir(parents=True,exist_ok=True);"
+            "assert deployment.parent.is_dir() and not deployment.parent.is_symlink();"
+            "os.mkdir(deployment,0o700);"
+            "fd=os.open(deployment/'.owner',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);"
+            "os.write(fd,sys.argv[3].encode('ascii'));os.close(fd);"
+            "source=pathlib.Path(sys.argv[4]);"
+            "assert source.is_absolute() and source.is_file() and not source.is_symlink();"
+            "data=source.read_bytes();binary=deployment/'wsprrypi';"
+            "fd=os.open(binary,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o700);"
+            "os.write(fd,data);os.fsync(fd);os.close(fd);"
+            "assert hashlib.sha256(binary.read_bytes()).hexdigest()=="
+            "hashlib.sha256(data).hexdigest();"
+            "config_source=pathlib.Path(sys.argv[5]);"
+            "assert config_source.is_absolute() and config_source.is_file() "
+            "and not config_source.is_symlink();"
+            "lines=config_source.read_text().splitlines(keepends=True);"
+            "unsupported=('22m =','22m Active High =');"
+            "filtered=''.join(line for line in lines "
+            "if not line.lstrip().startswith(unsupported));"
+            "config=deployment/'wsprrypi.ini';"
+            "fd=os.open(config,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);"
+            "os.write(fd,filtered.encode());os.fsync(fd);os.close(fd);"
+            "(pathlib.Path(sys.argv[1])/'gpio-inspect').chmod(0o700);print(str(binary))"
+        )
+        result = stage.run_python(
+            program,
+            deployment,
+            stage.owner_token,
+            installed_binary,
+            installed_configuration,
+            timeout_s=120,
+        )
+        source_path = "/home/pi/WsprryPi"
+        tone_configuration = f"{deployment}/wsprrypi.ini"
+    else:
+        program = (
+            "import hashlib,os,subprocess,zipfile;root=pathlib.Path(sys.argv[1]);"
+            "deployment=pathlib.Path(sys.argv[2]);deployment.parent.mkdir(parents=True,exist_ok=True);"
+            "assert deployment.parent.is_dir() and not deployment.parent.is_symlink();"
+            "os.mkdir(deployment,0o700);"
+            "fd=os.open(deployment/'.owner',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);"
+            "os.write(fd,sys.argv[3].encode('ascii'));os.close(fd);"
+            "src=root/'source';"
+            "r=subprocess.run(['/usr/bin/git','clone',str(root/'wsprrypi.bundle'),str(src)],capture_output=True,text=True);"
+            "assert r.returncode==0,r.stderr;"
+            "r=subprocess.run(['/usr/bin/git','-C',str(src),'rev-parse','HEAD'],capture_output=True,text=True);"
+            "assert r.returncode==0,r.stderr;"
+            "r=subprocess.run(['/usr/bin/make','-C',str(src/'src'),'-j2',"
+            "'BACKENDS=rpi-gpio'],capture_output=True,text=True,timeout=900)\n"
+            "assert r.returncode==0,r.stdout+r.stderr\n"
+            "source_binary=src/'src/build/bin/wsprrypi';data=source_binary.read_bytes();"
+            "binary=deployment/'wsprrypi';"
+            "fd=os.open(binary,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o700);"
+            "os.write(fd,data);os.fsync(fd);os.close(fd);"
+            "assert binary.is_file() and not binary.is_symlink() and "
+            "hashlib.sha256(binary.read_bytes()).hexdigest()==hashlib.sha256(data).hexdigest();"
+            "(root/'gpio-inspect').chmod(0o700);"
+            "print(str(binary))"
+        )
+        result = stage.run_python(program, deployment, stage.owner_token, timeout_s=1000)
+        source_path = f"{stage.root}/source"
+        tone_configuration = f"{source_path}/config/wsprrypi.ini"
     binary = _require(result, "temporary WsprryPi build").strip().splitlines()[-1]
     launcher = f"{stage.root}/capability-helper"
     _write_remote(
@@ -228,7 +277,8 @@ def _prepare_transmitter(stage: RemoteStage) -> dict[str, Any]:
     return {
         "binary": binary,
         "launcher": launcher,
-        "source": f"{stage.root}/source",
+        "source": source_path,
+        "tone_configuration": tone_configuration,
         "deployment_root": deployment,
     }
 
@@ -381,7 +431,8 @@ def _delegate_automatic_complete_test(
     known_hosts: Path,
     timeout_s: float,
 ) -> dict[str, Any]:
-    source = _source_repository()
+    installed_binary = os.environ.get("WSPQ_WSPRRRYPI_INSTALLED_BINARY")
+    source = None if installed_binary else _source_repository()
     root = Path(__file__).resolve().parents[1]
     discovered_ssh = shutil.which("ssh")
     discovered_ssh_keygen = shutil.which("ssh-keygen")
@@ -427,17 +478,17 @@ def _delegate_automatic_complete_test(
         )
         native_cache_key = str(artifact(native)["sha256"])
         bundle = temporary / "wsprrypi.bundle"
-        _require(
-            _run([str(git), "-C", str(source), "bundle", "create", str(bundle), "HEAD"]),
-            "WsprryPi source packaging",
-        )
+        if source is not None:
+            _require(
+                _run([str(git), "-C", str(source), "bundle", "create", str(bundle), "HEAD"]),
+                "WsprryPi source packaging",
+            )
+        tx_files = [StagedFile(runtime, "runtime.zip"), StagedFile(gpio, "gpio-inspect")]
+        if source is not None:
+            tx_files.append(StagedFile(bundle, "wsprrypi.bundle"))
         tx_stage = RemoteStage(
             transmitter_host,
-            (
-                StagedFile(runtime, "runtime.zip"),
-                StagedFile(gpio, "gpio-inspect"),
-                StagedFile(bundle, "wsprrypi.bundle"),
-            ),
+            tuple(tx_files),
             known_hosts=known_hosts,
             remote_python=tx_python[0],
             remote_python_sha256=tx_python[1],
@@ -462,7 +513,7 @@ def _delegate_automatic_complete_test(
         with ExitStack() as stack:
             tx = stack.enter_context(tx_stage)
             rx = stack.enter_context(rx_stage)
-            tx_paths = _prepare_transmitter(tx)
+            tx_paths = _prepare_transmitter(tx, installed_binary=installed_binary)
             rx_paths = _prepare_receiver(
                 rx,
                 transmitter_host,
@@ -480,7 +531,7 @@ def _delegate_automatic_complete_test(
                     "tx_gpio": f"{tx.root}/gpio-inspect",
                     "tx_wsprrypi": tx_paths["binary"],
                     "tx_git": "/usr/bin/git",
-                    "tone_ini": f"{tx_paths['source']}/config/wsprrypi.ini",
+                    "tone_ini": tx_paths["tone_configuration"],
                 },
             )
             rx_records = _remote_records(
@@ -496,13 +547,30 @@ def _delegate_automatic_complete_test(
                     "wsprd": "/usr/bin/wsprd",
                 },
             )
-            revision = _require(
-                _run([str(git), "-C", str(source), "rev-parse", "HEAD"]), "source revision"
-            ).strip()
-            component = _require(
-                _run([str(git), "-C", str(source), "rev-parse", "HEAD:src/WSPR-Transmitter"]),
-                "component revision",
-            ).strip()
+            if source is None:
+                revision_result = tx.run_python(
+                    "import subprocess;r=subprocess.run(['/usr/bin/git','-C',sys.argv[2],"
+                    "'rev-parse','HEAD'],capture_output=True,text=True);"
+                    "assert r.returncode==0,r.stderr;print(r.stdout)",
+                    tx_paths["source"],
+                )
+                component_result = tx.run_python(
+                    "import subprocess;r=subprocess.run(['/usr/bin/git','-C',sys.argv[2],"
+                    "'rev-parse','HEAD:src/WSPR-Transmitter'],capture_output=True,text=True);"
+                    "assert r.returncode==0,r.stderr;print(r.stdout)",
+                    tx_paths["source"],
+                )
+                revision = _require(revision_result, "source revision").strip()
+                component = _require(component_result, "component revision").strip()
+            else:
+                revision = _require(
+                    _run([str(git), "-C", str(source), "rev-parse", "HEAD"]),
+                    "source revision",
+                ).strip()
+                component = _require(
+                    _run([str(git), "-C", str(source), "rev-parse", "HEAD:src/WSPR-Transmitter"]),
+                    "component revision",
+                ).strip()
             tx_config = {
                 "protocol_version": 1,
                 "helper_identity": "complete-test-transmitter",

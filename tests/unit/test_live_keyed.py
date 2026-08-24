@@ -23,7 +23,7 @@ from wsprrypi_qualification.offline import artifact
 
 
 class SealedFakeLiveProviders:
-    __slots__ = ("calls", "close_ok", "evidence_root", "failure")
+    __slots__ = ("calls", "close_ok", "evidence_root", "failure", "repeat_evidence")
 
     def __init__(
         self,
@@ -31,11 +31,13 @@ class SealedFakeLiveProviders:
         *,
         close_ok: bool = True,
         evidence_root: Path | None = None,
+        repeat_evidence: bool = False,
     ) -> None:
         if type(self) is not SealedFakeLiveProviders:
             raise TypeError("live keyed fake provider is sealed")
         self.failure, self.close_ok = failure, close_ok
         self.evidence_root = evidence_root
+        self.repeat_evidence = repeat_evidence
         self.calls: list[tuple[str, int]] = []
 
     def _perform(self, name: str, number: int) -> bool:
@@ -92,7 +94,8 @@ class SealedFakeLiveProviders:
         result = {}
         for role in ("process", "process_launch", "capture", "acquisition", "analysis"):
             path = directory / f"{role}.json"
-            path.write_text(f"{role}-{number}\n", encoding="utf-8")
+            suffix = "same" if self.repeat_evidence else str(number)
+            path.write_text(f"{role}-{suffix}\n", encoding="utf-8")
             result[role] = path
         return result
 
@@ -182,6 +185,20 @@ def test_production_evidence_bytes_are_retained_and_authenticated(tmp_path: Path
             assert retained.read_text(encoding="utf-8") == (
                 f"{record['role']}-{transaction['transaction_number']}\n"
             )
+
+
+def test_repeated_diagnostic_bytes_are_retained_once_across_session(tmp_path: Path) -> None:
+    outcome = _run(
+        tmp_path / "output",
+        SealedFakeLiveProviders(evidence_root=tmp_path / "sources", repeat_evidence=True),
+    )
+    artifacts = [
+        artifact
+        for transaction in outcome["aggregate"]["transactions"]
+        for artifact in transaction["artifacts"]
+    ]
+    assert len(artifacts) == 5
+    assert len({item["sha256"] for item in artifacts}) == len(artifacts)
 
 
 @pytest.mark.parametrize("mutation", ("alter", "remove"))

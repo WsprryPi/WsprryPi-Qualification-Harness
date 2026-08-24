@@ -340,8 +340,10 @@ def test_acquired_audio_uses_capture_utc_and_canonical_name(
             slot,
             output,
             tmp_path / f"audio-{index}.json",
+            selected_frequency_hz=frequency + 176.0,
         )
         assert result["contract"]["input_start_sample"] == (5 + index * 120) * rate
+        assert result["contract"]["selected_frequency_hz"] == frequency + 176.0
         assert result["profiles"]["test"]["id"] == "si5351-160m-production-example"
         if index == 0:
             conjugate_root = tmp_path / "conjugate"

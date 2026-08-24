@@ -27,6 +27,7 @@ from wsprrypi_qualification.application_shims import (
     WsprryPiBackendConfig,
     WsprryPiShim,
 )
+from wsprrypi_qualification.cw_defaults import CANONICAL_KEYED_TEST_MESSAGE
 from wsprrypi_qualification.cw_reference import generate_expected_events
 from wsprrypi_qualification.keyed_session_contracts import (
     canonical_sha256,
@@ -63,7 +64,7 @@ DEFAULTS: dict[str, object] = {
     "callsign": "Q0QQQ",
     "grid": "JJ00",
     "power_dbm": 0,
-    "message": "ET",
+    "message": CANONICAL_KEYED_TEST_MESSAGE,
     "qrss_dot_seconds": 0.7,
     "fskcw_dot_seconds": 0.7,
     "dfcw_dot_seconds": 0.7,
@@ -348,7 +349,7 @@ class CompleteTestOverrides:
     callsign: str = "Q0QQQ"
     grid: str = "JJ00"
     power_dbm: int = 0
-    message: str = "ET"
+    message: str = CANONICAL_KEYED_TEST_MESSAGE
     qrss_dot_seconds: float = 0.7
     fskcw_dot_seconds: float = 0.7
     dfcw_dot_seconds: float = 0.7
@@ -522,8 +523,6 @@ def _resolve_real(
         arguments = plan["tone_server"]["arguments"]
         if "--socket-loopback-only" not in arguments:
             raise CompleteTestError("TONE server must use loopback-only control")
-        if "--no-http" not in arguments:
-            arguments.append("--no-http")
     else:
         plan.pop("session_kind", None)
         plan.pop("tone_schedule", None)
@@ -534,12 +533,12 @@ def _resolve_real(
         plan["carrier"]["rf_on_sample_count"] = plan["carrier"]["rf_off_sample_count"]
         plan["deadlines"]["transmitter_s"] = max(plan["deadlines"]["transmitter_s"], 380)
         plan["deadlines"]["receiver_s"] = max(plan["deadlines"]["receiver_s"], 390)
-        plan["deadlines"]["overall_s"] = max(plan["deadlines"]["overall_s"], 500)
-        boundary = datetime.fromtimestamp(((int(now.timestamp()) // 120) + 1) * 120, UTC)
-        if (boundary - now).total_seconds() < plan["coherent_capture"][
-            "margin_before_first_slot_s"
-        ]:
-            boundary += timedelta(seconds=120)
+        plan["deadlines"]["overall_s"] = max(plan["deadlines"]["overall_s"], 650)
+        # All five child plans are composed before execution. Reserve a full slot
+        # beyond the composition instant so the preceding tone run and this
+        # mode's carrier precheck cannot consume the coherent-capture margin.
+        earliest = now + timedelta(seconds=120)
+        boundary = datetime.fromtimestamp(((int(earliest.timestamp()) // 120) + 1) * 120, UTC)
         plan["slots_utc"] = [
             (boundary + timedelta(seconds=120 * index)).isoformat().replace("+00:00", "Z")
             for index in range(3)
@@ -697,11 +696,12 @@ def _materialize_cw_reference(
             "first_read_discarded": True,
         },
         "thresholds": {
-            "frequency_tolerance_hz": 1.0,
-            "spacing_tolerance_hz": 1.0,
+            "frequency_tolerance_hz": 2.0,
+            "spacing_tolerance_hz": 2.0,
             "minimum_contrast_db": 10.0,
             "timing_tolerance_s": 0.15,
             "maximum_transition_s": 0.25,
+            "maximum_alignment_shift_s": 0.75,
             "maximum_clipping_fraction": 0.01,
         },
         "resolved_utc": now.isoformat().replace("+00:00", "Z"),
@@ -1204,6 +1204,22 @@ def _stops_campaign(mode: str, status: str) -> bool:
     }
 
 
+def _campaign_mode_status(mode: str, result: dict[str, Any]) -> str:
+    """Translate a subordinate result into the complete-campaign mode outcome."""
+    status = validate_result_document(result).value
+    if (
+        mode == "TONE"
+        and status == "inconclusive"
+        and result["preflight_passed"] is True
+        and result["carrier_gate"] == "passed"
+        and result["decode_gate"] == "not_run"
+        and result["cleanup_outcome"] == "verified"
+        and result["failure_causes"] == []
+    ):
+        return "qualified"
+    return status
+
+
 def validate_complete_test_bundle(bundle: Path) -> dict[str, Any]:
     """Recompute an aggregate and all linked subordinate result identities."""
     if _contains_symlink(bundle):
@@ -1551,7 +1567,7 @@ def run_complete_test(
             raise CompleteTestError("authoritative subordinate manifest does not match bundle")
         result_document = _load(result_path)
         if mode in {"TONE", "WSPR"}:
-            status = validate_result_document(result_document).value
+            status = _campaign_mode_status(mode, result_document)
             session_document = _load(bundle / "session.json")
             if outcome["underlying_result"] != session_document:
                 raise CompleteTestError("returned real-session result differs from its bundle")

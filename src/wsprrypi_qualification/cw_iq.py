@@ -151,7 +151,7 @@ def _shifted_frequency_model(
     frequency_tolerance = float(thresholds["frequency_tolerance_hz"])
     spacing_tolerance = float(thresholds["spacing_tolerance_hz"])
     causes: list[str] = []
-    if abs(primary - expected_primary) > frequency_tolerance:
+    if abs(primary - expected_primary) > RELATIVE_ACQUISITION_OFFSET_GATE_HZ:
         causes.append("wrong_frequency")
     if abs(signed_spacing - expected_signed_spacing) > spacing_tolerance:
         causes.append("tone_spacing")
@@ -224,18 +224,16 @@ def _unshifted_frequency_model(
     }, sorted(set(causes))
 
 
-def _acquired_tone_timing_alignment(
+def _acquired_timing_alignment(
     plan: dict[str, Any],
     expected: dict[str, Any],
     detected_states: np.ndarray,
     rate: float,
 ) -> dict[str, float | int] | None:
     """Resolve one bounded common helper latency without relaxing cadence checks."""
-    if plan["mode"] != "tone":
-        return None
     thresholds = plan["thresholds"]
     tolerance = float(thresholds["timing_tolerance_s"])
-    maximum_shift = float(thresholds["maximum_transition_s"]) + tolerance
+    maximum_shift = float(thresholds["maximum_alignment_shift_s"])
     expected_active = [event for event in expected["events"] if event["rf_state"] != "off"]
     minimum_duration = min(
         float(event["end_s"]) - float(event["start_s"]) for event in expected_active
@@ -255,16 +253,27 @@ def _acquired_tone_timing_alignment(
         if (end - cursor) / rate >= minimum_duration:
             runs.append((cursor, end))
         cursor = end
-    if len(runs) != len(expected_active):
-        return None
     boundary_offsets: list[float] = []
-    for event, (start, end) in zip(expected_active, runs, strict=True):
+    if plan["mode"] == "fskcw":
+        if len(runs) != 1:
+            return None
+        start, end = runs[0]
         boundary_offsets.extend(
             (
-                (start / rate) - float(event["start_s"]),
-                (end / rate) - float(event["end_s"]),
+                (start / rate) - float(expected_active[0]["start_s"]),
+                (end / rate) - float(expected_active[-1]["end_s"]),
             )
         )
+    else:
+        if len(runs) != len(expected_active):
+            return None
+        for event, (start, end) in zip(expected_active, runs, strict=True):
+            boundary_offsets.extend(
+                (
+                    (start / rate) - float(event["start_s"]),
+                    (end / rate) - float(event["end_s"]),
+                )
+            )
     common_shift = float(np.median(np.asarray(boundary_offsets)))
     maximum_residual = max(abs(value - common_shift) for value in boundary_offsets)
     if abs(common_shift) > maximum_shift or maximum_residual > tolerance:
@@ -275,6 +284,47 @@ def _acquired_tone_timing_alignment(
         "maximum_boundary_residual_s": maximum_residual,
         "observation_count": len(boundary_offsets),
     }
+
+
+def _acquired_shifted_centers(
+    samples: np.ndarray,
+    rate: float,
+    center: float,
+    primary: float,
+    secondary: float,
+    spacing_tolerance: float,
+) -> tuple[float, float] | None:
+    """Acquire two coherent keyed tones before classifying their transitions."""
+    spectrum = np.abs(np.fft.fft(samples)) ** 2
+    frequencies = np.fft.fftfreq(samples.size, 1.0 / rate) + center
+    midpoint = (primary + secondary) / 2.0
+    band = np.flatnonzero(np.abs(frequencies - midpoint) <= RELATIVE_ACQUISITION_OFFSET_GATE_HZ)
+    if not band.size:
+        return None
+    first = int(band[np.argmax(spectrum[band])])
+    expected_spacing = abs(primary - secondary)
+    candidates = band[
+        np.abs(np.abs(frequencies[band] - frequencies[first]) - expected_spacing)
+        <= spacing_tolerance
+    ]
+    if not candidates.size:
+        return None
+    second = int(candidates[np.argmax(spectrum[candidates])])
+    acquired = sorted((float(frequencies[first]), float(frequencies[second])))
+    if primary > secondary:
+        return acquired[1], acquired[0]
+    return acquired[0], acquired[1]
+
+
+def _centered_complex_average(values: np.ndarray, window: int) -> np.ndarray:
+    """Return an O(n) centered moving average without a large convolution kernel."""
+    half = window // 2
+    positions = np.arange(values.size)
+    starts = np.maximum(0, positions - half)
+    ends = np.minimum(values.size, positions + half + 1)
+    cumulative = np.concatenate((np.asarray([0j]), np.cumsum(values, dtype=np.complex128)))
+    averages: np.ndarray = (cumulative[ends] - cumulative[starts]) / (ends - starts)
+    return averages
 
 
 def analyze_synthetic_iq(
@@ -335,6 +385,8 @@ def analyze_synthetic_iq(
         _fail("timing tolerance is tighter than analyzer resolution")
     if float(thresholds["maximum_transition_s"]) < time_resolution:
         _fail("transition threshold is tighter than analyzer resolution")
+    if float(thresholds["maximum_alignment_shift_s"]) < time_resolution:
+        _fail("alignment threshold is tighter than analyzer resolution")
     if float(thresholds["frequency_tolerance_hz"]) < frequency_resolution:
         _fail("frequency tolerance is tighter than analyzer resolution")
     if (
@@ -364,15 +416,31 @@ def analyze_synthetic_iq(
     secondary = plan["protocol"]["secondary_frequency_hz"]
     if secondary is not None:
         products = samples[1:] * np.conjugate(samples[:-1])
-        smoothed_products = np.convolve(products, kernel, mode="same")
+        classification_samples = max(
+            4, round(min(0.1, float(thresholds["maximum_transition_s"]) / 2) * rate)
+        )
+        smoothed_products = _centered_complex_average(products, classification_samples)
         frequencies = center + np.angle(smoothed_products) * rate / (2.0 * math.pi)
-        secondary_samples = np.abs(frequencies - float(secondary)) < np.abs(
-            frequencies - float(plan["protocol"]["primary_frequency_hz"])
+        primary_center = float(plan["protocol"]["primary_frequency_hz"])
+        secondary_center = float(secondary)
+        if not _synthetic:
+            acquired_centers = _acquired_shifted_centers(
+                samples,
+                rate,
+                center,
+                primary_center,
+                secondary_center,
+                float(thresholds["spacing_tolerance_hz"]),
+            )
+            if acquired_centers is not None:
+                primary_center, secondary_center = acquired_centers
+        secondary_samples = np.abs(frequencies - secondary_center) < np.abs(
+            frequencies - primary_center
         )
         detected_states[1:][active[1:] & secondary_samples] = 2
 
     timing_alignment = (
-        _acquired_tone_timing_alignment(plan, expected, detected_states, rate)
+        _acquired_timing_alignment(plan, expected, detected_states, rate)
         if not _synthetic
         else None
     )

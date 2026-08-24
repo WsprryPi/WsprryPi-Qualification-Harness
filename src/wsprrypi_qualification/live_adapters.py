@@ -212,6 +212,7 @@ class ProductionRealSessionAdapters:
             paths.wsprd,
         ]
         self._capture_artifacts: dict[str, tuple[Path, Path]] = {}
+        self._acquired_carrier_frequency_hz: float | None = None
         self._final_quiescence: bool | None = None
         self._session_deadline: float | None = None
         self._cleanup_reserve_s = 0.0
@@ -1021,6 +1022,9 @@ class ProductionRealSessionAdapters:
         document = load_json_document(evidence, "carrier-analysis.schema.json")
         self._artifacts.append(evidence)
         metrics = document["metrics"]
+        self._acquired_carrier_frequency_hz = float(
+            metrics["strongest_transmitter_added_frequency_hz"]
+        )
         gate_outcome = document["gate_outcome"]
         mode_gate = "not_applicable"
         if plan.get("session_kind") == "cw_live_tone":
@@ -1227,6 +1231,12 @@ class ProductionRealSessionAdapters:
                     str(self.paths.bench_profile),
                     "--test-profile",
                     str(self.paths.test_profile),
+                    "--selected-frequency-hz",
+                    str(
+                        self._acquired_carrier_frequency_hz
+                        if self._acquired_carrier_frequency_hz is not None
+                        else plan["frequency_hz"]
+                    ),
                 ),
                 self._remaining(plan["deadlines"]["overall_s"], reserve_cleanup=True),
             )
@@ -1244,7 +1254,7 @@ class ProductionRealSessionAdapters:
                     "--timeout",
                     str(plan["deadlines"]["helper_s"]),
                 ),
-                self._remaining(plan["deadlines"]["helper_s"] + 5, reserve_cleanup=True),
+                self._remaining(plan["deadlines"]["helper_s"] + 30, reserve_cleanup=True),
             )
             decoded = load_json_document(decoder_evidence, "decoder-evidence.schema.json")
             slot_documents.append(decoded)
@@ -2011,18 +2021,67 @@ class KeyedCapabilityProviders:
         )
 
     def analyze(self, plan: dict[str, Any], number: int) -> tuple[str, str]:
-        result = compose_acquired_replay(
-            Path(plan["reference"]["plan"]["path"]),
-            Path(plan["reference"]["expected_events"]["path"]),
-            self.capture_metadata[number],
-            self.work_directory / f"transaction-{number}" / "analysis",
-            source_revision=plan["analyzer_revision"],
-            receiver_calibration=plan["receiver_calibration"],
-        )
-        result_path = self.work_directory / f"transaction-{number}" / "analysis" / "result.json"
-        self.analysis_evidence[number] = result_path
-        outcome = "passed" if result["measurement"]["mode_gate"] == "passed" else "failed"
-        return outcome, str(artifact(result_path)["sha256"])
+        directory = self.work_directory / f"transaction-{number}"
+        plan_path = Path(plan["reference"]["plan"]["path"])
+        expected_path = Path(plan["reference"]["expected_events"]["path"])
+        acquired_path = directory / "acquired-capture.json"
+        try:
+            mode_plan = load_json_document(plan_path, "cw-mode-plan.schema.json")
+            native = load_json_document(
+                self.capture_metadata[number], "capture-metadata.schema.json"
+            )
+            contract = mode_plan["capture_contract"]
+            write_json_new(
+                acquired_path,
+                {
+                    "schema_version": 1,
+                    "evidence_type": "cw_acquired_capture",
+                    "run_id": mode_plan["run_id"],
+                    "mode": mode_plan["mode"],
+                    "plan": artifact(plan_path),
+                    "expected_events": artifact(expected_path),
+                    "capture": artifact(self.capture_outputs[number]),
+                    "format": contract["format"],
+                    "sample_count": contract["sample_count"],
+                    "sample_rate_hz": contract["sample_rate_hz"],
+                    "center_frequency_hz": contract["center_frequency_hz"],
+                    "acquired_sample_count": native["retained_sample_count"],
+                    "overflow_count": native["overflow_count"],
+                    "fixed_gain": contract["fixed_gain"],
+                    "agc_enabled": contract["agc_enabled"],
+                    "bias_tee_enabled": contract["bias_tee_enabled"],
+                    "first_read_discarded": native["first_read"]["discarded"],
+                    "receiver": mode_plan["receiver"],
+                    "acquired_utc": native["timestamps"]["retained_capture_start_utc"],
+                    "synthetic": False,
+                },
+                schema_name="cw-acquired-capture.schema.json",
+            )
+            result = compose_acquired_replay(
+                plan_path,
+                expected_path,
+                acquired_path,
+                directory / "analysis",
+                source_revision=plan["analyzer_revision"],
+                receiver_calibration=plan["receiver_calibration"],
+            )
+            result_path = directory / "analysis" / "result.json"
+            self.analysis_evidence[number] = result_path
+            outcome = "passed" if result["measurement"]["mode_gate"] == "passed" else "failed"
+            return outcome, str(artifact(result_path)["sha256"])
+        except Exception as error:
+            diagnostic = directory / "analysis-failure.json"
+            write_json_new(
+                diagnostic,
+                {
+                    "schema_version": 1,
+                    "evidence_type": "keyed_analysis_failure",
+                    "exception_type": type(error).__name__,
+                    "message": str(error),
+                },
+            )
+            self.analysis_evidence[number] = diagnostic
+            raise
 
     def cleanup(self, plan: dict[str, Any], number: int) -> bool:
         okay = True
