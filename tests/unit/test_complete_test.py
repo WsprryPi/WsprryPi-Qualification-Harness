@@ -68,7 +68,7 @@ def _configuration(
     tmp_path: Path,
     *,
     topology: str = "split_host_ssh",
-    campaign_deadline_s: float = 1200,
+    campaign_deadline_s: float = 7200,
 ) -> Path:
     known_hosts = tmp_path / "known_hosts"
     ssh_executable = tmp_path / "ssh-fixture"
@@ -217,9 +217,9 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
 @pytest.mark.parametrize(
     ("composed_at", "expected_deadline"),
     (
-        (datetime(2026, 8, 24, 21, 0, 20, tzinfo=UTC), 858),
-        (datetime(2026, 8, 24, 21, 1, 59, tzinfo=UTC), 759),
-        (datetime(2026, 8, 24, 21, 2, 0, tzinfo=UTC), 878),
+        (datetime(2026, 8, 24, 21, 0, 20, tzinfo=UTC), 1097),
+        (datetime(2026, 8, 24, 21, 1, 59, tzinfo=UTC), 998),
+        (datetime(2026, 8, 24, 21, 2, 0, tzinfo=UTC), 1117),
     ),
 )
 def test_wspr_deadline_tracks_final_slot_boundary(

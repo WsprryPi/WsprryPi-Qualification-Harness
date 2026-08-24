@@ -249,8 +249,13 @@ translated to 1500 Hz audio, cut into its correct UTC slot, and independently
 decoded with `wsprd`. Qualification requires three consecutive correct,
 complete decodes of the expected identity. The resolved outer deadline must
 contain the actual wait to the first capture launch, the coherent capture,
-three separately bounded frame-analysis intervals, result publication,
-cleanup, final quiescence, and an explicit scheduling reserve. Runtime revalidates that bound
+three separately bounded frame-analysis intervals, summary validation, result
+publication, cleanup, and final quiescence. Receiver setup is derived from the
+bound read interval; offline-analysis, summary, and publication deadlines are
+derived from exact retained byte counts, required validation/copy passes,
+decoder subprocess bounds, and the maintained minimum sequential-I/O
+capability. No unexplained fixed allowance or scheduling reserve may
+participate in qualification timing. Runtime revalidates the complete bound
 against its actual start before installing the deadline.
 
 Successful decode qualifies only the recorded backend, band, transmitter

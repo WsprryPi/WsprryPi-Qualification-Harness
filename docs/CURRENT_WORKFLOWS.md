@@ -69,9 +69,15 @@ remote to the controller; execution is delegated to the receiver host.
 Track D; it fails before production adapter construction.
 
 The composed WSPR outer deadline follows the final three-slot schedule. It
-contains the guarded wait to coherent capture, capture duration, one bounded
-analysis interval per frame, publication, cleanup, final quiescence, and reserve; production
-rechecks the same timing envelope from its actual start.
+contains receiver setup derived from the configured read bound, the exact wait
+to coherent capture, capture duration, per-frame analysis, summary validation,
+publication, cleanup, and final quiescence. Offline bounds scale with exact CF32
+bytes and required validation/copy passes under the maintained minimum
+sequential-I/O capability; there is no fixed summary allowance or generic
+reserve. Production rechecks the same timing envelope from its actual start.
+
+The complete timer classification and formulas are maintained in
+[`development/timing-contracts.md`](development/timing-contracts.md).
 
 Until Track E supplies provenance-bound transmitter PPM resolution, every GPIO
 child process in `complete-test` explicitly disables WsprryPi's system-clock

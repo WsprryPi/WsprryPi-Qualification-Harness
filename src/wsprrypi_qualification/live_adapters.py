@@ -62,16 +62,16 @@ from wsprrypi_qualification.real_capabilities import (
 )
 from wsprrypi_qualification.real_session import (
     HELPER_VERIFICATION_OPERATIONS,
-    WSPR_CAPTURE_LAUNCH_GUARD_S,
-    WSPR_FRAME_ANALYSIS_BUDGET_S,
-    WSPR_PUBLICATION_BUDGET_S,
-    WSPR_SUMMARY_BUDGET_S,
     RealSessionError,
     helper_configuration_plan_sha256,
     helper_verification_contract,
     helper_verification_deadline,
     required_wspr_overall_deadline,
     resolved_real_plan_sha256,
+    wspr_capture_setup_deadline,
+    wspr_frame_analysis_deadline,
+    wspr_publication_deadline,
+    wspr_summary_deadline,
 )
 from wsprrypi_qualification.receiver_calibration import (
     ReceiverCalibrationError,
@@ -141,9 +141,11 @@ def _derive_scheduled_mode_plan(
     return derived, float(relative_start_decimal)
 
 
-def _coherent_capture_launch_epoch(first_slot: datetime, required_margin_s: float) -> float:
+def _coherent_capture_launch_epoch(
+    first_slot: datetime, required_margin_s: float, setup_deadline_s: float
+) -> float:
     """Start early enough for receiver setup while preserving the retained-data margin."""
-    return first_slot.timestamp() - required_margin_s - WSPR_CAPTURE_LAUNCH_GUARD_S
+    return first_slot.timestamp() - required_margin_s - setup_deadline_s
 
 
 def _retained_capture_has_margin(
@@ -250,6 +252,7 @@ class ProductionRealSessionAdapters:
         self._final_quiescence: bool | None = None
         self._session_deadline: float | None = None
         self._cleanup_reserve_s = 0.0
+        self._publication_budget_s = 0.0
         self._publication_deadline: float | None = None
         self._closed = False
 
@@ -266,10 +269,15 @@ class ProductionRealSessionAdapters:
             if plan["deadlines"]["overall_s"] < required:
                 raise RealSessionError(
                     "WSPR overall deadline cannot contain its resolved slot wait, capture, "
-                    "analysis, summary, publication, cleanup, final quiescence, and reserve"
+                    "workload-derived analysis, summary, publication, cleanup, and final "
+                    "quiescence"
                 )
         self._session_deadline = time.monotonic() + plan["deadlines"]["overall_s"]
         self._cleanup_reserve_s = plan["deadlines"]["cleanup_s"]
+        if plan.get("session_kind", "wspr_qualification") == "wspr_qualification":
+            self._publication_budget_s = wspr_publication_deadline(plan)
+        else:
+            self._publication_budget_s = plan["deadlines"]["overall_s"]
 
     def _remaining(self, requested: float, *, reserve_cleanup: bool = False) -> float:
         if self._session_deadline is None:
@@ -1176,7 +1184,9 @@ class ProductionRealSessionAdapters:
         del authorization
         first_slot = datetime.fromisoformat(plan["slots_utc"][0].replace("Z", "+00:00"))
         capture_start = _coherent_capture_launch_epoch(
-            first_slot, plan["coherent_capture"]["margin_before_first_slot_s"]
+            first_slot,
+            plan["coherent_capture"]["margin_before_first_slot_s"],
+            wspr_capture_setup_deadline(plan),
         )
         delay = capture_start - time.time()
         if delay < 0 or delay > self._remaining(
@@ -1285,7 +1295,7 @@ class ProductionRealSessionAdapters:
         slot_documents: list[dict[str, Any]] = []
         slot_paths: list[Path] = []
         for index, slot_text in enumerate(plan["slots_utc"]):
-            frame_deadline = time.monotonic() + WSPR_FRAME_ANALYSIS_BUDGET_S
+            frame_deadline = time.monotonic() + wspr_frame_analysis_deadline(plan)
 
             def frame_remaining(
                 deadline: float = frame_deadline, frame_number: int = index + 1
@@ -1344,7 +1354,7 @@ class ProductionRealSessionAdapters:
         summary_path = self.paths.work_directory / "decode-summary.json"
         self._run_offline(
             ("summarize-decodes", str(summary_path), *(str(path) for path in slot_paths)),
-            self._remaining(WSPR_SUMMARY_BUDGET_S, reserve_cleanup=True),
+            self._remaining(wspr_summary_deadline(plan), reserve_cleanup=True),
         )
         summary = load_json_document(summary_path, "decode-summary.schema.json")
         self._artifacts.append(summary_path)
@@ -1542,7 +1552,7 @@ class ProductionRealSessionAdapters:
         )
 
     def publish_artifacts(self, destination: Path) -> list[dict[str, object]]:
-        self._publication_deadline = time.monotonic() + self._remaining(WSPR_PUBLICATION_BUDGET_S)
+        self._publication_deadline = time.monotonic() + self._remaining(self._publication_budget_s)
         retained: list[dict[str, object]] = []
         records: list[dict[str, object]] = []
         unique_sources = list(dict.fromkeys(path.resolve() for path in self._artifacts))
@@ -1621,7 +1631,7 @@ class ProductionRealSessionAdapters:
     def _verify_publication_deadline(self) -> None:
         if self._publication_deadline is None or time.monotonic() > self._publication_deadline:
             raise RealSessionError("live evidence publication exceeded its hard deadline")
-        self._remaining(WSPR_PUBLICATION_BUDGET_S)
+        self._remaining(self._publication_budget_s)
 
 
 def build_production_adapters(

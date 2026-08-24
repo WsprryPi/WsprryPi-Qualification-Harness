@@ -94,9 +94,10 @@ FSKCW space and DFCW dash frequency below the primary according to the existing
 protocol ordering.
 
 The WSPR child deadline is calculated from its final slot schedule rather than
-a fixed campaign allowance. It includes the actual first-slot wait, guarded
-370-second coherent capture, three bounded frame-analysis intervals, summary
-publication, cleanup, final quiescence, and reserve. A boundary-adjacent composition can
+a fixed campaign allowance. It includes receiver setup derived from the
+configured maximum read interval, the actual first-slot wait, the 370-second
+coherent capture, byte-work-derived frame analysis, summary validation and
+publication, cleanup, and final quiescence. A boundary-adjacent composition can
 therefore select a later first slot without consuming time required after the
 capture. Production checks the same containment again using the real session
 start before installing the hard deadline.

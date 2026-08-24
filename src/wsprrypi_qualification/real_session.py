@@ -45,11 +45,49 @@ HELPER_VERIFICATION_OPERATIONS = (
     "submodule_revision_inspect",
 )
 
-WSPR_CAPTURE_LAUNCH_GUARD_S = 2
-WSPR_FRAME_ANALYSIS_BUDGET_S = 60
-WSPR_SUMMARY_BUDGET_S = 30
-WSPR_PUBLICATION_BUDGET_S = 30
-WSPR_SESSION_RESERVE_S = 15
+
+def wspr_capture_setup_deadline(plan: dict[str, Any]) -> float:
+    """Bound receiver setup by the plan's maximum blocking read interval."""
+    return float(plan["receiver"]["read_timeout_us"]) / 1_000_000.0
+
+
+CF32_BYTES_PER_SAMPLE = 8
+# Production offline processing requires at least this sustained sequential-I/O
+# rate.  It is a declared platform capability floor, not an elapsed-time guess.
+MINIMUM_OFFLINE_IO_BYTES_PER_SECOND = 25_000_000
+FRAME_ANALYSIS_CAPTURE_PASSES = 2
+SUMMARY_CAPTURE_PASSES_PER_FRAME = 2
+PUBLICATION_COHERENT_CAPTURE_PASSES = 4
+
+
+def _coherent_capture_bytes(plan: dict[str, Any]) -> int:
+    return int(plan["coherent_capture"]["sample_count"]) * CF32_BYTES_PER_SAMPLE
+
+
+def _offline_io_deadline(byte_count: int, passes: int) -> int:
+    if byte_count <= 0 or passes <= 0:
+        raise RealSessionError("offline timing work must be positive")
+    return math.ceil(byte_count * passes / MINIMUM_OFFLINE_IO_BYTES_PER_SECOND)
+
+
+def wspr_frame_analysis_deadline(plan: dict[str, Any]) -> float:
+    """Bound capture validation/render passes plus the plan-bound decoder."""
+    return _offline_io_deadline(
+        _coherent_capture_bytes(plan), FRAME_ANALYSIS_CAPTURE_PASSES
+    ) + float(plan["deadlines"]["helper_s"])
+
+
+def wspr_summary_deadline(plan: dict[str, Any]) -> float:
+    """Bound one coherent-capture semantic validation pass per frame."""
+    return _offline_io_deadline(
+        _coherent_capture_bytes(plan),
+        int(plan["frame_count"]) * SUMMARY_CAPTURE_PASSES_PER_FRAME,
+    )
+
+
+def wspr_publication_deadline(plan: dict[str, Any]) -> float:
+    """Bound source auth, copy, retained auth, and post-publication validation."""
+    return _offline_io_deadline(_coherent_capture_bytes(plan), PUBLICATION_COHERENT_CAPTURE_PASSES)
 
 
 def required_wspr_overall_deadline(plan: dict[str, Any], session_start: datetime) -> int:
@@ -61,18 +99,18 @@ def required_wspr_overall_deadline(plan: dict[str, Any], session_start: datetime
         raise RealSessionError("WSPR deadline requires one resolved slot per frame")
     capture_launch = slots[0] - timedelta(
         seconds=(
-            plan["coherent_capture"]["margin_before_first_slot_s"] + WSPR_CAPTURE_LAUNCH_GUARD_S
+            plan["coherent_capture"]["margin_before_first_slot_s"]
+            + wspr_capture_setup_deadline(plan)
         )
     )
     wait_s = (capture_launch - session_start.astimezone(UTC)).total_seconds()
     if wait_s < 0:
         raise RealSessionError("WSPR session starts after its coherent-capture launch time")
     required_s = float(wait_s) + float(plan["coherent_capture"]["duration_s"])
-    required_s += int(plan["frame_count"]) * WSPR_FRAME_ANALYSIS_BUDGET_S
-    required_s += WSPR_SUMMARY_BUDGET_S
-    required_s += WSPR_PUBLICATION_BUDGET_S
+    required_s += int(plan["frame_count"]) * wspr_frame_analysis_deadline(plan)
+    required_s += wspr_summary_deadline(plan)
+    required_s += wspr_publication_deadline(plan)
     required_s += 2 * float(plan["deadlines"]["cleanup_s"])
-    required_s += WSPR_SESSION_RESERVE_S
     return math.ceil(required_s)
 
 

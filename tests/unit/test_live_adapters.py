@@ -63,6 +63,7 @@ def bare_adapter(tmp_path: Path) -> ProductionRealSessionAdapters:
     adapter._artifacts = []
     adapter._session_deadline = float("inf")
     adapter._cleanup_reserve_s = 0.0
+    adapter._publication_budget_s = float("inf")
     adapter._capture_tasks = []
     adapter._capture_artifacts = {}
     return adapter
@@ -590,7 +591,7 @@ def test_verified_early_exit_releases_owned_process_without_claiming_intentional
 
 def test_coherent_capture_guard_and_retained_margin_are_distinct() -> None:
     slot = datetime(2026, 8, 13, 20, 44, tzinfo=UTC)
-    assert _coherent_capture_launch_epoch(slot, 5) == slot.timestamp() - 7
+    assert _coherent_capture_launch_epoch(slot, 5, 0.5) == slot.timestamp() - 5.5
     assert _retained_capture_has_margin(
         {"timestamps": {"retained_capture_start_utc": "2026-08-13T20:43:55Z"}},
         slot,

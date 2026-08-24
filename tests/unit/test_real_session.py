@@ -20,6 +20,10 @@ from wsprrypi_qualification.real_session import (
     resolved_real_plan_sha256,
     validate_real_session_document,
     validate_real_session_plan,
+    wspr_capture_setup_deadline,
+    wspr_frame_analysis_deadline,
+    wspr_publication_deadline,
+    wspr_summary_deadline,
 )
 from wsprrypi_qualification.receiver_calibration import disabled_binding
 
@@ -30,17 +34,33 @@ def test_wspr_deadline_contains_slot_wait_capture_analysis_publication_and_clean
     plan = plan_document()
     session_start = datetime(2026, 8, 12, 19, 58, 20, tzinfo=UTC)
 
-    assert required_wspr_overall_deadline(plan, session_start) == 738
+    assert required_wspr_overall_deadline(plan, session_start) == 977
 
     plan["deadlines"]["cleanup_s"] += 7
-    assert required_wspr_overall_deadline(plan, session_start) == 752
+    assert required_wspr_overall_deadline(plan, session_start) == 991
 
 
 def test_wspr_deadline_rejects_session_after_capture_launch() -> None:
     plan = plan_document()
 
     with pytest.raises(RealSessionError, match="after its coherent-capture launch"):
-        required_wspr_overall_deadline(plan, datetime(2026, 8, 12, 19, 59, 54, tzinfo=UTC))
+        required_wspr_overall_deadline(plan, datetime(2026, 8, 12, 19, 59, 55, tzinfo=UTC))
+
+
+def test_wspr_offline_deadlines_scale_from_exact_coherent_capture_work() -> None:
+    plan = plan_document()
+    assert plan["coherent_capture"]["sample_count"] * 8 == 740_000_000
+    assert wspr_capture_setup_deadline(plan) == 0.5
+    assert wspr_frame_analysis_deadline(plan) == 65
+    assert wspr_summary_deadline(plan) == 178
+    assert wspr_publication_deadline(plan) == 119
+
+    smaller = json.loads(json.dumps(plan))
+    smaller["coherent_capture"]["sample_count"] //= 2
+    larger = json.loads(json.dumps(plan))
+    larger["coherent_capture"]["sample_count"] *= 2
+    assert wspr_summary_deadline(smaller) == 89
+    assert wspr_summary_deadline(larger) == 356
 
 
 def test_failed_cleanup_retains_actual_deadline_overrun():

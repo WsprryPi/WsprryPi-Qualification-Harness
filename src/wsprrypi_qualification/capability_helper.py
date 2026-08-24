@@ -429,6 +429,12 @@ class OwnedProcessRegistry:
         except subprocess.TimeoutExpired:
             timed_out = True
             self._terminate(child)
+        else:
+            # The watchdog may enforce the same monotonic deadline and reap the
+            # child before this waiter wakes. Preserve that authoritative
+            # outcome instead of misclassifying the terminated process as a
+            # normal exit based on thread scheduling order.
+            timed_out = timed_out or child.deadline_enforced
         return self._finish(handle, child, timed_out=timed_out)
 
     def stop(self, payload: dict[str, object]) -> dict[str, object]:
