@@ -122,6 +122,8 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert wspr["output"] == "GPIO4"
     assert wspr["backend_contract"]["gpio_pin"] == 4
     assert wspr["backend_contract"]["drive_or_power_level"] == 2
+    tone = plan["mode_plans"][0]["plan"]
+    assert "--no-http" in tone["tone_server"]["arguments"]
     keyed = {entry["mode"]: entry["plan"] for entry in plan["mode_plans"][2:]}
     assert keyed["QRSS"]["application_plan"]["protocol_contract"] == {
         "message": "ET",

@@ -8,6 +8,7 @@ import secrets
 import shlex
 import shutil
 import subprocess
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -221,6 +222,72 @@ class RemoteStage:
             raise RemoteStagingError("requested file is not part of remote stage")
         return f"{self.root}/{remote_name}"
 
+    def add_file(self, item: StagedFile) -> str:
+        """Add and verify one file after stage creation."""
+        if (
+            re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", item.remote_name) is None
+            or item.remote_name in self.identities
+            or not item.local.is_file()
+            or _contains_symlink(item.local)
+        ):
+            raise RemoteStagingError("additional remote stage file is invalid")
+        identity = _identity(item.local)
+        self._check_transport_identities()
+        copied = self._run(
+            [
+                *self._scp_prefix(),
+                str(item.local),
+                f"{self.host}:{self.root}/{item.remote_name}",
+            ]
+        )
+        if (
+            copied.returncode != 0
+            or _contains_symlink(item.local)
+            or _identity(item.local) != identity
+        ):
+            raise RemoteStagingError("additional remote stage copy failed or changed")
+        size, sha256 = identity
+        verify = self._python_command(
+            (
+                "p=pathlib.Path(sys.argv[1]);owner=pathlib.Path(sys.argv[2]);"
+                "assert owner.is_file() and not owner.is_symlink() "
+                "and owner.read_text(encoding='ascii')==sys.argv[3];"
+                "assert p.is_file() and not p.is_symlink();"
+                "assert p.stat().st_size==int(sys.argv[4]);"
+                "assert hashlib.sha256(p.read_bytes()).hexdigest()==sys.argv[5]"
+            ),
+            f"{self.root}/{item.remote_name}",
+            f"{self.root}/.owner",
+            self.owner_token,
+            str(size),
+            sha256,
+        )
+        verified = self._run([*self._ssh_prefix(), verify])
+        if verified.returncode != 0:
+            raise RemoteStagingError("additional remote stage identity differs")
+        self.files = (*self.files, item)
+        self.identities[item.remote_name] = identity
+        return self.path(item.remote_name)
+
+    def run_python(
+        self, program: str, *arguments: str, timeout_s: float | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        """Run one fixed Python operation inside an owned stage."""
+        if not program or "\x00" in program or any("\x00" in item for item in arguments):
+            raise RemoteStagingError("remote stage Python operation is invalid")
+        self._check_transport_identities()
+        original_timeout = self.timeout_s
+        if timeout_s is not None:
+            if timeout_s <= 0:
+                raise RemoteStagingError("remote stage Python timeout must be positive")
+            self.timeout_s = timeout_s
+        try:
+            return self._run(
+                [*self._ssh_prefix(), self._python_command(program, self.root, *arguments)]
+            )
+        finally:
+            self.timeout_s = original_timeout
+
     def cleanup(self) -> None:
         if self.cleanup_verified:
             return
@@ -258,3 +325,74 @@ def find_scp(ssh: Path) -> Path:
     if discovered is None:
         raise RemoteStagingError("scp is unavailable")
     return Path(discovered)
+
+
+def discover_remote_python(
+    host: str,
+    *,
+    known_hosts: Path,
+    ssh: Path = Path("/usr/bin/ssh"),
+    remote_python: str = "/usr/bin/python3",
+    timeout_s: float = 30.0,
+) -> tuple[str, str]:
+    """Resolve an exact remote Python executable suitable for staging."""
+    if _HOST.fullmatch(host) is None or re.fullmatch(r"/[A-Za-z0-9._/+:-]+", remote_python) is None:
+        raise RemoteStagingError("remote Python discovery input is invalid")
+    if any(not path.is_file() or _contains_symlink(path) for path in (ssh, known_hosts)):
+        raise RemoteStagingError("remote Python discovery transport is unsafe")
+    program = (
+        "import hashlib,pathlib,sys;"
+        "p=pathlib.Path(sys.executable);"
+        "assert p.is_absolute() and p.is_file() and not p.is_symlink();"
+        "print(str(p));print(hashlib.sha256(p.read_bytes()).hexdigest())"
+    )
+    try:
+        result = subprocess.run(
+            (
+                str(ssh),
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "StrictHostKeyChecking=yes",
+                "-o",
+                f"UserKnownHostsFile={known_hosts}",
+                "--",
+                host,
+                shlex.join((remote_python, "-c", program)),
+            ),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            shell=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RemoteStagingError("remote Python discovery failed") from error
+    lines = result.stdout.splitlines()
+    if (
+        result.returncode != 0
+        or len(lines) != 2
+        or re.fullmatch(r"/[A-Za-z0-9._/+:-]+", lines[0]) is None
+        or re.fullmatch(r"[0-9a-f]{64}", lines[1]) is None
+    ):
+        raise RemoteStagingError("remote Python discovery returned an invalid identity")
+    return lines[0], lines[1]
+
+
+def build_runtime_archive(source_root: Path, destination: Path) -> Path:
+    """Build a deterministic zip-importable archive of the current runtime."""
+    package = source_root.resolve() / "wsprrypi_qualification"
+    if destination.exists() or not package.is_dir() or _contains_symlink(package):
+        raise RemoteStagingError("runtime archive input or destination is unsafe")
+    files = sorted(path for path in package.rglob("*") if path.is_file())
+    if not files or any(_contains_symlink(path) for path in files):
+        raise RemoteStagingError("runtime package is unavailable or unsafe")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(destination, "x", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in files:
+            relative = path.relative_to(source_root.resolve()).as_posix()
+            info = zipfile.ZipInfo(relative, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o100644 << 16
+            archive.writestr(info, path.read_bytes())
+    return destination

@@ -7,6 +7,8 @@ from wsprrypi_qualification.remote_staging import (
     RemoteStage,
     RemoteStagingError,
     StagedFile,
+    build_runtime_archive,
+    discover_remote_python,
 )
 
 
@@ -38,6 +40,8 @@ def test_stage_copies_explicit_files_and_always_cleans(tmp_path: Path, monkeypat
     monkeypatch.setattr("subprocess.run", run)
     with _stage(tmp_path, source) as stage:
         assert stage.path("runtime.whl") == "/tmp/wspq-0123456789abcdef01234567/runtime.whl"
+        operation = stage.run_python("print(sys.argv[1])", "argument")
+        assert operation.returncode == 0
     assert "/tmp/wspq-0123456789abcdef01234567" in calls[0][-1]
     assert ".owner" in calls[0][-1]
     assert calls[1][-1] == "wspr5:/tmp/wspq-0123456789abcdef01234567/runtime.whl"
@@ -134,3 +138,53 @@ def test_source_identity_change_before_copy_fails_and_cleans(tmp_path: Path, mon
         pass
     source.write_bytes(b"wheel")
     assert "shutil.rmtree" in calls[-1][-1]
+
+
+def test_add_file_is_verified_and_becomes_addressable(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "runtime.whl"
+    source.write_bytes(b"wheel")
+    later = tmp_path / "config.json"
+    later.write_text("{}")
+
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+    with _stage(tmp_path, source) as stage:
+        assert stage.add_file(StagedFile(later, "config.json")).endswith("/config.json")
+        assert stage.path("config.json").endswith("/config.json")
+        with pytest.raises(RemoteStagingError, match="additional"):
+            stage.add_file(StagedFile(later, "config.json"))
+
+
+def test_remote_python_discovery_is_strict(tmp_path: Path, monkeypatch) -> None:
+    known_hosts = tmp_path / "known_hosts"
+    known_hosts.write_text("host key")
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout="/usr/bin/python3\n" + "a" * 64 + "\n",
+            stderr="",
+        ),
+    )
+    assert discover_remote_python("wspr5", known_hosts=known_hosts) == (
+        "/usr/bin/python3",
+        "a" * 64,
+    )
+
+
+def test_runtime_archive_is_reproducible_and_zip_importable(tmp_path: Path) -> None:
+    source = tmp_path / "src"
+    package = source / "wsprrypi_qualification"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("VALUE = 7\n")
+    (package / "schemas").mkdir()
+    (package / "schemas/example.json").write_text("{}\n")
+    first = build_runtime_archive(source, tmp_path / "first.zip")
+    second = build_runtime_archive(source, tmp_path / "second.zip")
+    assert first.read_bytes() == second.read_bytes()
+    import zipfile
+
+    with zipfile.ZipFile(first) as archive:
+        assert archive.read("wsprrypi_qualification/__init__.py") == b"VALUE = 7\n"

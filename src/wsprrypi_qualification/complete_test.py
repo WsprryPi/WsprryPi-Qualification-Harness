@@ -507,6 +507,11 @@ def _resolve_real(
     plan["frame_count"] = 0 if mode == "TONE" else values["wspr_observations"]
     if mode == "TONE":
         plan["session_kind"] = "cw_live_tone"
+        arguments = plan["tone_server"]["arguments"]
+        if "--socket-loopback-only" not in arguments:
+            raise CompleteTestError("TONE server must use loopback-only control")
+        if "--no-http" not in arguments:
+            arguments.append("--no-http")
     else:
         plan.pop("session_kind", None)
         plan.pop("tone_schedule", None)

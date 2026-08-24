@@ -240,6 +240,7 @@ def tone_plan_document(*, execution_mode: str = "hardware_free_validation") -> d
                     "--socket-port",
                     "31416",
                     "--socket-loopback-only",
+                    "--no-http",
                 ],
                 "startup_seconds": 0.25,
             },
