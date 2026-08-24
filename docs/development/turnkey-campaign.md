@@ -109,7 +109,13 @@ Rehearsal routes and authenticates five generated plans but contacts no host,
 opens no receiver, inspects no service, touches no GPIO/I2C/GPCLK, and emits no
 RF. It is non-qualifying. Same-host local production transport is rejected as
 `unsupported_topology`; Track D owns that capability. Track E transmitter-PPM
-provenance and later prompt/qualification campaigns are also outside this work.
+provenance remains separate. Until that track closes, GPIO complete-test plans
+pin each transmitter process to the resolved fixed manual PPM value and
+explicitly disable the system-clock frequency estimate. The Tone server is not
+an exception. This prevents configuration defaults or a changing Chrony
+observation from altering RF during a campaign, but it does not establish the
+manual value's provenance. Later prompt/qualification campaigns are also
+outside this work.
 The current `main` production application/quiescence contracts support GPIO and
 Si5351, not `rp1_gpclk`; selecting RP1 therefore returns `missing_capability`
 before adapter construction. GPIO4/2 mA RP1 defaults will apply only after that

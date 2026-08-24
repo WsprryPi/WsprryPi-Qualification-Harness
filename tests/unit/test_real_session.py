@@ -201,8 +201,36 @@ def plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
     return document
 
 
-def tone_plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
+def tone_plan_document(
+    *, execution_mode: str = "hardware_free_validation", gpio: bool = False
+) -> dict:
     document = plan_document(execution_mode=execution_mode)
+    if gpio:
+        document["backend"] = "gpio"
+        document["output"] = "GPIO4"
+        document["backend_contract"] = {
+            "backend": "gpio",
+            "output": "GPIO4",
+            "gpio_pin": 4,
+            "drive_or_power_level": 2,
+            "quiescence_provider_sha256": "3" * 64,
+        }
+    tone_arguments = [
+        document["wsprrypi"]["path"],
+        "-i",
+        "/carrier-session/wsprrypi-tone.ini",
+        "--socket-port",
+        "31416",
+        "--socket-loopback-only",
+    ]
+    if gpio:
+        tone_arguments = [
+            document["wsprrypi"]["path"],
+            "--no-system-clock-frequency-estimate",
+            *tone_arguments[1:],
+            "--gpio-manual-ppm",
+            "2.3536",
+        ]
     document.update(
         {
             "session_kind": "cw_live_tone",
@@ -233,14 +261,7 @@ def tone_plan_document(*, execution_mode: str = "hardware_free_validation") -> d
                     "size_bytes": 1,
                     "sha256": "c" * 64,
                 },
-                "arguments": [
-                    document["wsprrypi"]["path"],
-                    "-i",
-                    "/carrier-session/wsprrypi-tone.ini",
-                    "--socket-port",
-                    "31416",
-                    "--socket-loopback-only",
-                ],
+                "arguments": tone_arguments,
                 "startup_seconds": 0.25,
             },
         }
@@ -276,6 +297,21 @@ def test_tone_plan_binds_loopback_endpoint_and_wsprrypi_revision() -> None:
     document["remote_helper"]["wsprrypi_revision"] = "f" * 40
     with pytest.raises(RealSessionError, match="revision differs"):
         validate_real_session_plan(document)
+
+
+def test_tone_plan_rejects_missing_or_mismatched_manual_ppm_before_adapters() -> None:
+    for mutation in ("missing", "mismatched", "estimate"):
+        document = tone_plan_document(gpio=True)
+        arguments = document["tone_server"]["arguments"]
+        if mutation == "missing":
+            position = arguments.index("--gpio-manual-ppm")
+            del arguments[position : position + 2]
+        elif mutation == "mismatched":
+            arguments[arguments.index("--gpio-manual-ppm") + 1] = "9"
+        else:
+            arguments[arguments.index("--no-system-clock-frequency-estimate")] = "-n"
+        with pytest.raises(RealSessionError, match="server arguments"):
+            validate_real_session_plan(document)
 
 
 def test_tone_helper_bindings_change_every_plan_digest() -> None:

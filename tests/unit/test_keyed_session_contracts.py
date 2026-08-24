@@ -68,6 +68,7 @@ def application_plan(mode: str) -> dict[str, object]:
             "4",
             "--gpio-power-level",
             "0",
+            "--no-system-clock-frequency-estimate",
             "--gpio-manual-ppm",
             "0",
             "--no-offset",

@@ -77,6 +77,11 @@ def test_resolved_backend_contract_authenticates_complete_arguments(
         "resolved", WsprProtocol("Q0QQQ", "JJ00", 0, 10_140_200, 3, 1500)
     )
     assert all(item in plan.arguments for item in expected)
+    if backend == "gpio":
+        assert plan.arguments.count("--no-system-clock-frequency-estimate") == 1
+        assert plan.arguments.count("--gpio-manual-ppm") == 1
+    else:
+        assert "--no-system-clock-frequency-estimate" not in plan.arguments
     validate_application_plan(plan.to_document())
     changed = plan.to_document()
     arguments = list(changed["arguments"])

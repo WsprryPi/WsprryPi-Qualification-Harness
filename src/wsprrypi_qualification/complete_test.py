@@ -489,6 +489,48 @@ def _set_real_digest(plan: dict[str, Any]) -> None:
         plan[field]["plan_sha256"] = digest
 
 
+def _fixed_gpio_ppm_arguments(arguments: list[str], ppm: object) -> list[str]:
+    """Return a GPIO argv with one explicit fixed-manual correction policy."""
+    try:
+        value = float(cast(Any, ppm))
+    except (TypeError, ValueError) as error:
+        raise CompleteTestError("resolved GPIO manual PPM must be numeric") from error
+    if not math.isfinite(value) or not -200 <= value <= 200:
+        raise CompleteTestError("resolved GPIO manual PPM must be finite and within +/-200")
+    forbidden = {"-n", "--use-system-clock-frequency-estimate", "-p", "--ppm"}
+    if any(
+        argument in forbidden
+        or argument.startswith("--use-system-clock-frequency-estimate=")
+        or argument.startswith("--gpio-manual-ppm=")
+        or argument.startswith("--ppm=")
+        for argument in arguments
+    ):
+        raise CompleteTestError("GPIO launch contradicts fixed manual PPM containment")
+    if arguments.count("--no-system-clock-frequency-estimate") > 1:
+        raise CompleteTestError("GPIO launch duplicates the estimate-disable argument")
+    positions = [
+        index for index, argument in enumerate(arguments) if argument == "--gpio-manual-ppm"
+    ]
+    if len(positions) > 1:
+        raise CompleteTestError("GPIO launch duplicates the manual PPM argument")
+    rendered = format(value, ".15g")
+    if positions:
+        position = positions[0]
+        if position + 1 >= len(arguments):
+            raise CompleteTestError("GPIO launch has a malformed manual PPM argument")
+        try:
+            observed = float(arguments[position + 1])
+        except ValueError as error:
+            raise CompleteTestError("GPIO launch has a malformed manual PPM value") from error
+        if not math.isfinite(observed) or observed != value:
+            raise CompleteTestError("GPIO launch manual PPM differs from the resolved plan")
+    else:
+        arguments.extend(("--gpio-manual-ppm", rendered))
+    if "--no-system-clock-frequency-estimate" not in arguments:
+        arguments.insert(1, "--no-system-clock-frequency-estimate")
+    return arguments
+
+
 def _resolve_real(
     template: dict[str, Any],
     mode: str,
@@ -523,6 +565,10 @@ def _resolve_real(
         arguments = plan["tone_server"]["arguments"]
         if "--socket-loopback-only" not in arguments:
             raise CompleteTestError("TONE server must use loopback-only control")
+        if plan["backend"] == "gpio":
+            plan["tone_server"]["arguments"] = _fixed_gpio_ppm_arguments(
+                arguments, plan["calibration"]["ppm"]
+            )
     else:
         plan.pop("session_kind", None)
         plan.pop("tone_schedule", None)

@@ -14,6 +14,7 @@ from wsprrypi_qualification.complete_test import (
     MODE_ORDER,
     CompleteTestError,
     CompleteTestOverrides,
+    _fixed_gpio_ppm_arguments,
     complete_test_sha256,
     compose_complete_test_plan,
     configuration_path,
@@ -137,6 +138,10 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert wspr["backend_contract"]["drive_or_power_level"] == 2
     tone = plan["mode_plans"][0]["plan"]
     assert "--no-web" not in tone["tone_server"]["arguments"]
+    tone_arguments = tone["tone_server"]["arguments"]
+    assert tone_arguments.count("--no-system-clock-frequency-estimate") == 1
+    assert tone_arguments.count("--gpio-manual-ppm") == 1
+    assert tone_arguments[tone_arguments.index("--gpio-manual-ppm") + 1] == "2.3536"
     assert Path(tone["cw_contract"]["plan"]["path"]).is_file()
     assert Path(tone["resolved_profiles"]["bench"]["path"]).is_file()
     keyed = {entry["mode"]: entry["plan"] for entry in plan["mode_plans"][2:]}
@@ -170,6 +175,14 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert keyed["QRSS"]["transmitter"]["drive"] == 0
     assert Path(keyed["QRSS"]["reference"]["plan"]["path"]).is_file()
     assert keyed["QRSS"]["application_plan"]["backend_contract"]["gpio_pin"] == 4
+    for child in keyed.values():
+        arguments = child["application_plan"]["arguments"]
+        assert arguments.count("--no-system-clock-frequency-estimate") == 1
+        assert arguments.count("--gpio-manual-ppm") == 1
+        assert (
+            float(arguments[arguments.index("--gpio-manual-ppm") + 1])
+            == child["application_plan"]["backend_contract"]["ppm"]
+        )
     with pytest.raises(SystemExit) as help_exit:
         main(["complete-test", "--help"])
     assert help_exit.value.code == 0
@@ -178,6 +191,41 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert "--enable-rf" in help_text
     assert "--operator" not in help_text
     assert "TRANSMITTER_HOST RECEIVER_HOST" in help_text
+
+
+@pytest.mark.parametrize(
+    ("arguments", "match"),
+    (
+        (["wsprrypi", "-n"], "contradicts"),
+        (["wsprrypi", "--use-system-clock-frequency-estimate"], "contradicts"),
+        (["wsprrypi", "--use-system-clock-frequency-estimate=true"], "contradicts"),
+        (["wsprrypi", "-p", "1.25"], "contradicts"),
+        (["wsprrypi", "--ppm", "1.25"], "contradicts"),
+        (["wsprrypi", "--ppm=1.25"], "contradicts"),
+        (["wsprrypi", "--gpio-manual-ppm=1.25"], "contradicts"),
+        (["wsprrypi", "--gpio-manual-ppm", "1", "--gpio-manual-ppm", "1"], "duplicates"),
+        (["wsprrypi", "--gpio-manual-ppm"], "malformed"),
+        (["wsprrypi", "--gpio-manual-ppm", "not-a-number"], "malformed"),
+        (["wsprrypi", "--gpio-manual-ppm", "2"], "differs"),
+    ),
+)
+def test_gpio_manual_ppm_containment_rejects_ambiguous_launches(
+    arguments: list[str], match: str
+) -> None:
+    with pytest.raises(CompleteTestError, match=match):
+        _fixed_gpio_ppm_arguments(arguments, 1.25)
+
+
+def test_gpio_manual_ppm_containment_overrides_configuration_defaults() -> None:
+    arguments = _fixed_gpio_ppm_arguments(["wsprrypi", "-i", "estimate-enabled.ini"], -1.25)
+    assert arguments == [
+        "wsprrypi",
+        "--no-system-clock-frequency-estimate",
+        "-i",
+        "estimate-enabled.ini",
+        "--gpio-manual-ppm",
+        "-1.25",
+    ]
 
 
 def test_default_path_needs_no_cli_configuration_argument(tmp_path: Path, monkeypatch) -> None:

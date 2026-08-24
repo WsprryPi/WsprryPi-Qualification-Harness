@@ -53,6 +53,15 @@ remote to the controller; execution is delegated to the receiver host.
 `--enable-rf`. Same-host local production transport remains unsupported until
 Track D; it fails before production adapter construction.
 
+Until Track E supplies provenance-bound transmitter PPM resolution, every GPIO
+child process in `complete-test` explicitly disables WsprryPi's system-clock
+frequency estimate and applies the fixed manual value in that child's resolved
+plan. This includes the separately owned Tone server as well as WSPR, QRSS,
+FSKCW, and DFCW. A staged configuration file cannot re-enable Chrony-derived
+correction, and contradictory or mismatched process arguments fail during plan
+composition before host or RF access. This is containment, not a Track E
+provenance claim.
+
 ## Offline WSPR analysis
 
 The maintained sequence is:
