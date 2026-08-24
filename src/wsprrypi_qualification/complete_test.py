@@ -53,6 +53,7 @@ from wsprrypi_qualification.offline import (
 from wsprrypi_qualification.progress import run_streaming
 from wsprrypi_qualification.real_session import (
     helper_configuration_plan_sha256,
+    required_wspr_overall_deadline,
     resolved_real_plan_sha256,
     validate_real_session_plan,
 )
@@ -600,7 +601,6 @@ def _resolve_real(
         plan["carrier"]["rf_on_sample_count"] = plan["carrier"]["rf_off_sample_count"]
         plan["deadlines"]["transmitter_s"] = max(plan["deadlines"]["transmitter_s"], 380)
         plan["deadlines"]["receiver_s"] = max(plan["deadlines"]["receiver_s"], 390)
-        plan["deadlines"]["overall_s"] = max(plan["deadlines"]["overall_s"], 650)
         # All five child plans are composed before execution. Reserve a full slot
         # beyond the composition instant so the preceding tone run and this
         # mode's carrier precheck cannot consume the coherent-capture margin.
@@ -610,6 +610,9 @@ def _resolve_real(
             (boundary + timedelta(seconds=120 * index)).isoformat().replace("+00:00", "Z")
             for index in range(3)
         ]
+        plan["deadlines"]["overall_s"] = max(
+            plan["deadlines"]["overall_s"], required_wspr_overall_deadline(plan, now)
+        )
     _set_real_digest(plan)
     validate_real_session_plan(plan)
     return plan

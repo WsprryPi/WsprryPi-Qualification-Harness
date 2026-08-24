@@ -1,5 +1,6 @@
 import json
 from copy import deepcopy
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -202,6 +203,30 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert "--enable-rf" in help_text
     assert "--operator" not in help_text
     assert "TRANSMITTER_HOST RECEIVER_HOST" in help_text
+
+
+@pytest.mark.parametrize(
+    ("composed_at", "expected_deadline"),
+    (
+        (datetime(2026, 8, 24, 21, 0, 20, tzinfo=UTC), 858),
+        (datetime(2026, 8, 24, 21, 1, 59, tzinfo=UTC), 759),
+        (datetime(2026, 8, 24, 21, 2, 0, tzinfo=UTC), 878),
+    ),
+)
+def test_wspr_deadline_tracks_final_slot_boundary(
+    tmp_path: Path, composed_at: datetime, expected_deadline: int
+) -> None:
+    plan = compose_complete_test_plan(
+        "wspr4.local",
+        "wspr5.local",
+        SDR,
+        configuration=_configuration(tmp_path),
+        live=False,
+        now=composed_at,
+    )
+
+    wspr = next(entry["plan"] for entry in plan["mode_plans"] if entry["mode"] == "WSPR")
+    assert wspr["deadlines"]["overall_s"] == expected_deadline
 
 
 @pytest.mark.parametrize(

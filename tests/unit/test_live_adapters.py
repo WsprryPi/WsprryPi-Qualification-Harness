@@ -79,6 +79,22 @@ def test_progress_hook_does_not_reset_live_session_state(tmp_path: Path) -> None
     assert adapter._cleanup_reserve_s == 7.0
 
 
+def test_begin_wspr_session_rejects_insufficient_resolved_deadline(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._session_deadline = None
+    plan = plan_document()
+    now = datetime(2026, 8, 12, 19, 58, 20, tzinfo=UTC)
+    monkeypatch.setattr(
+        "wsprrypi_qualification.live_adapters.datetime",
+        type("FixedDatetime", (), {"now": staticmethod(lambda tz: now)}),
+    )
+
+    with pytest.raises(RealSessionError, match="cannot contain its resolved slot wait"):
+        adapter.begin_session(plan)
+
+
 @pytest.mark.parametrize("mode", ["qrss", "fskcw", "dfcw"])
 def test_scheduled_keyed_rebase_preserves_capture_guard(tmp_path: Path, mode: str) -> None:
     plan_path, *_ = _chain(tmp_path, mode)
@@ -713,6 +729,15 @@ def test_overall_deadline_is_cumulative_and_reserves_cleanup(tmp_path: Path, mon
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: 90.1)
     with pytest.raises(RealSessionError, match="overall deadline"):
         adapter._remaining(5.0, reserve_cleanup=True)
+
+
+def test_live_publication_refuses_to_hide_its_deadline_overrun(tmp_path: Path, monkeypatch) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._publication_deadline = 100.0
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: 100.1)
+
+    with pytest.raises(RealSessionError, match="publication exceeded its hard deadline"):
+        adapter._verify_publication_deadline()
 
 
 def _bounded_tone_envelope(plan: dict, cycle: int) -> dict:

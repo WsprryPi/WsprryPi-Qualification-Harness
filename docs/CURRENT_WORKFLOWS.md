@@ -61,6 +61,11 @@ remote to the controller; execution is delegated to the receiver host.
 `--enable-rf`. Same-host local production transport remains unsupported until
 Track D; it fails before production adapter construction.
 
+The composed WSPR outer deadline follows the final three-slot schedule. It
+contains the guarded wait to coherent capture, capture duration, one bounded
+analysis interval per frame, publication, cleanup, final quiescence, and reserve; production
+rechecks the same timing envelope from its actual start.
+
 Until Track E supplies provenance-bound transmitter PPM resolution, every GPIO
 child process in `complete-test` explicitly disables WsprryPi's system-clock
 frequency estimate and applies the fixed manual value in that child's resolved

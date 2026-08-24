@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import shutil
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from itertools import pairwise
 from pathlib import Path
@@ -43,6 +44,36 @@ HELPER_VERIFICATION_OPERATIONS = (
     "parent_revision_inspect",
     "submodule_revision_inspect",
 )
+
+WSPR_CAPTURE_LAUNCH_GUARD_S = 2
+WSPR_FRAME_ANALYSIS_BUDGET_S = 60
+WSPR_SUMMARY_BUDGET_S = 30
+WSPR_PUBLICATION_BUDGET_S = 30
+WSPR_SESSION_RESERVE_S = 15
+
+
+def required_wspr_overall_deadline(plan: dict[str, Any], session_start: datetime) -> int:
+    """Return the complete wall-clock bound for a resolved WSPR session."""
+    if session_start.tzinfo is None:
+        raise RealSessionError("WSPR session start must be timezone-aware")
+    slots = [datetime.fromisoformat(value.replace("Z", "+00:00")) for value in plan["slots_utc"]]
+    if len(slots) != plan["frame_count"] or not slots:
+        raise RealSessionError("WSPR deadline requires one resolved slot per frame")
+    capture_launch = slots[0] - timedelta(
+        seconds=(
+            plan["coherent_capture"]["margin_before_first_slot_s"] + WSPR_CAPTURE_LAUNCH_GUARD_S
+        )
+    )
+    wait_s = (capture_launch - session_start.astimezone(UTC)).total_seconds()
+    if wait_s < 0:
+        raise RealSessionError("WSPR session starts after its coherent-capture launch time")
+    required_s = float(wait_s) + float(plan["coherent_capture"]["duration_s"])
+    required_s += int(plan["frame_count"]) * WSPR_FRAME_ANALYSIS_BUDGET_S
+    required_s += WSPR_SUMMARY_BUDGET_S
+    required_s += WSPR_PUBLICATION_BUDGET_S
+    required_s += 2 * float(plan["deadlines"]["cleanup_s"])
+    required_s += WSPR_SESSION_RESERVE_S
+    return math.ceil(required_s)
 
 
 def helper_verification_deadline(plan: dict[str, Any]) -> float:

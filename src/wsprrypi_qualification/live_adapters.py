@@ -62,10 +62,15 @@ from wsprrypi_qualification.real_capabilities import (
 )
 from wsprrypi_qualification.real_session import (
     HELPER_VERIFICATION_OPERATIONS,
+    WSPR_CAPTURE_LAUNCH_GUARD_S,
+    WSPR_FRAME_ANALYSIS_BUDGET_S,
+    WSPR_PUBLICATION_BUDGET_S,
+    WSPR_SUMMARY_BUDGET_S,
     RealSessionError,
     helper_configuration_plan_sha256,
     helper_verification_contract,
     helper_verification_deadline,
+    required_wspr_overall_deadline,
     resolved_real_plan_sha256,
 )
 from wsprrypi_qualification.receiver_calibration import (
@@ -73,7 +78,6 @@ from wsprrypi_qualification.receiver_calibration import (
     validate_live_binding,
 )
 
-_COHERENT_CAPTURE_STARTUP_GUARD_S = 2.0
 _T = TypeVar("_T")
 
 
@@ -139,7 +143,7 @@ def _derive_scheduled_mode_plan(
 
 def _coherent_capture_launch_epoch(first_slot: datetime, required_margin_s: float) -> float:
     """Start early enough for receiver setup while preserving the retained-data margin."""
-    return first_slot.timestamp() - required_margin_s - _COHERENT_CAPTURE_STARTUP_GUARD_S
+    return first_slot.timestamp() - required_margin_s - WSPR_CAPTURE_LAUNCH_GUARD_S
 
 
 def _retained_capture_has_margin(
@@ -246,6 +250,7 @@ class ProductionRealSessionAdapters:
         self._final_quiescence: bool | None = None
         self._session_deadline: float | None = None
         self._cleanup_reserve_s = 0.0
+        self._publication_deadline: float | None = None
         self._closed = False
 
     def set_progress(
@@ -256,6 +261,13 @@ class ProductionRealSessionAdapters:
     def begin_session(self, plan: dict[str, Any]) -> None:
         if self._session_deadline is not None:
             raise RealSessionError("production adapter session already began")
+        if plan.get("session_kind", "wspr_qualification") == "wspr_qualification":
+            required = required_wspr_overall_deadline(plan, datetime.now(UTC))
+            if plan["deadlines"]["overall_s"] < required:
+                raise RealSessionError(
+                    "WSPR overall deadline cannot contain its resolved slot wait, capture, "
+                    "analysis, summary, publication, cleanup, final quiescence, and reserve"
+                )
         self._session_deadline = time.monotonic() + plan["deadlines"]["overall_s"]
         self._cleanup_reserve_s = plan["deadlines"]["cleanup_s"]
 
@@ -1273,6 +1285,18 @@ class ProductionRealSessionAdapters:
         slot_documents: list[dict[str, Any]] = []
         slot_paths: list[Path] = []
         for index, slot_text in enumerate(plan["slots_utc"]):
+            frame_deadline = time.monotonic() + WSPR_FRAME_ANALYSIS_BUDGET_S
+
+            def frame_remaining(
+                deadline: float = frame_deadline, frame_number: int = index + 1
+            ) -> float:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RealSessionError(
+                        f"WSPR frame {frame_number} analysis exceeded its hard deadline"
+                    )
+                return self._remaining(remaining, reserve_cleanup=True)
+
             audio_evidence = self.paths.work_directory / f"audio-{index}.json"
             self._run_offline(
                 (
@@ -1294,7 +1318,7 @@ class ProductionRealSessionAdapters:
                         else plan["frequency_hz"]
                     ),
                 ),
-                self._remaining(plan["deadlines"]["overall_s"], reserve_cleanup=True),
+                frame_remaining(),
             )
             audio = load_json_document(audio_evidence, "audio-conversion.schema.json")
             wav = Path(cast(str, cast(dict[str, object], audio["output"])["path"]))
@@ -1310,7 +1334,7 @@ class ProductionRealSessionAdapters:
                     "--timeout",
                     str(plan["deadlines"]["helper_s"]),
                 ),
-                self._remaining(plan["deadlines"]["helper_s"] + 30, reserve_cleanup=True),
+                frame_remaining(),
             )
             decoded = load_json_document(decoder_evidence, "decoder-evidence.schema.json")
             slot_documents.append(decoded)
@@ -1320,7 +1344,7 @@ class ProductionRealSessionAdapters:
         summary_path = self.paths.work_directory / "decode-summary.json"
         self._run_offline(
             ("summarize-decodes", str(summary_path), *(str(path) for path in slot_paths)),
-            self._remaining(plan["deadlines"]["overall_s"], reserve_cleanup=True),
+            self._remaining(WSPR_SUMMARY_BUDGET_S, reserve_cleanup=True),
         )
         summary = load_json_document(summary_path, "decode-summary.schema.json")
         self._artifacts.append(summary_path)
@@ -1518,6 +1542,7 @@ class ProductionRealSessionAdapters:
         )
 
     def publish_artifacts(self, destination: Path) -> list[dict[str, object]]:
+        self._publication_deadline = time.monotonic() + self._remaining(WSPR_PUBLICATION_BUDGET_S)
         retained: list[dict[str, object]] = []
         records: list[dict[str, object]] = []
         unique_sources = list(dict.fromkeys(path.resolve() for path in self._artifacts))
@@ -1546,10 +1571,10 @@ class ProductionRealSessionAdapters:
         index_identity = artifact(index_path)
         index_identity["path"] = index_path.name
         retained.append(index_identity)
+        self._verify_publication_deadline()
         return retained
 
-    @staticmethod
-    def validate_published_artifacts(bundle: Path) -> None:
+    def validate_published_artifacts(self, bundle: Path) -> None:
         index = json.loads((bundle / "live-artifact-index.json").read_text(encoding="utf-8"))
         if set(index) != {"schema_version", "evidence_type", "artifacts"}:
             raise RealSessionError("live artifact index structure is invalid")
@@ -1591,6 +1616,12 @@ class ProductionRealSessionAdapters:
                     matched[key] != reference[key] for key in ("size_bytes", "sha256")
                 ):
                     raise RealSessionError("published JSON has an unauthenticated dependency")
+        self._verify_publication_deadline()
+
+    def _verify_publication_deadline(self) -> None:
+        if self._publication_deadline is None or time.monotonic() > self._publication_deadline:
+            raise RealSessionError("live evidence publication exceeded its hard deadline")
+        self._remaining(WSPR_PUBLICATION_BUDGET_S)
 
 
 def build_production_adapters(

@@ -232,7 +232,11 @@ one coherent 370-second capture spanning three consecutive bounded frames,
 with exactly 92,500,000 samples at 250 ksps and zero overflows. Each frame is
 translated to 1500 Hz audio, cut into its correct UTC slot, and independently
 decoded with `wsprd`. Qualification requires three consecutive correct,
-complete decodes of the expected identity.
+complete decodes of the expected identity. The resolved outer deadline must
+contain the actual wait to the first capture launch, the coherent capture,
+three separately bounded frame-analysis intervals, result publication,
+cleanup, final quiescence, and an explicit scheduling reserve. Runtime revalidates that bound
+against its actual start before installing the deadline.
 
 Successful decode qualifies only the recorded backend, band, transmitter
 hardware/profile, source revisions, receiver path, and production settings. It

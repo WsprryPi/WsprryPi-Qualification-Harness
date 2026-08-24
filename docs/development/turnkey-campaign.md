@@ -86,6 +86,14 @@ WSPR dial frequency from its maintained 1500 Hz audio offset and derives the
 FSKCW space and DFCW dash frequency below the primary according to the existing
 protocol ordering.
 
+The WSPR child deadline is calculated from its final slot schedule rather than
+a fixed campaign allowance. It includes the actual first-slot wait, guarded
+370-second coherent capture, three bounded frame-analysis intervals, summary
+publication, cleanup, final quiescence, and reserve. A boundary-adjacent composition can
+therefore select a later first slot without consuming time required after the
+capture. Production checks the same containment again using the real session
+start before installing the hard deadline.
+
 Each keyed capture is sized from its final generated timeline, not a nominal
 duration reconstructed elsewhere. The composer adds a one-second guard and
 rounds upward to a whole sample, then expands the transaction and overall

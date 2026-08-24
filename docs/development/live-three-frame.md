@@ -57,6 +57,17 @@ The lifecycle is intentionally ordered:
     inspect backend quiescence, close both helpers, and publish new-file-only
     evidence plus SHA256SUMS.
 
+WSPR timing is derived after the three UTC slots are final. The outer session
+deadline contains the wait from session start to the guarded coherent-capture
+launch, the fixed 370-second capture, a 60-second shared conversion-and-decode
+budget for each frame, separate 30-second summary and evidence-publication
+budgets, the configured cleanup and final-quiescence intervals, and a 15-second
+scheduling reserve. Each frame shares its
+single budget across WAV construction and `wsprd`; it does not receive a fresh
+timeout for each substep. Production re-evaluates the same formula from the
+actual runtime start and fails before session setup if the retained outer bound
+is insufficient or the capture-launch instant has already passed.
+
 This software path does not itself qualify hardware. Before invoking it,
 maintainers must perform the non-interference preflight on both Pis and prepare
 a complete current plan whose UTC slots leave enough time for RF-off capture

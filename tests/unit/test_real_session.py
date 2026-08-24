@@ -16,6 +16,7 @@ from wsprrypi_qualification.real_session import (
     helper_configuration_plan_sha256,
     helper_verification_contract,
     helper_verification_deadline,
+    required_wspr_overall_deadline,
     resolved_real_plan_sha256,
     validate_real_session_document,
     validate_real_session_plan,
@@ -23,6 +24,23 @@ from wsprrypi_qualification.real_session import (
 from wsprrypi_qualification.receiver_calibration import disabled_binding
 
 NOW = datetime(2026, 8, 12, 20, 0, tzinfo=UTC)
+
+
+def test_wspr_deadline_contains_slot_wait_capture_analysis_publication_and_cleanup() -> None:
+    plan = plan_document()
+    session_start = datetime(2026, 8, 12, 19, 58, 20, tzinfo=UTC)
+
+    assert required_wspr_overall_deadline(plan, session_start) == 738
+
+    plan["deadlines"]["cleanup_s"] += 7
+    assert required_wspr_overall_deadline(plan, session_start) == 752
+
+
+def test_wspr_deadline_rejects_session_after_capture_launch() -> None:
+    plan = plan_document()
+
+    with pytest.raises(RealSessionError, match="after its coherent-capture launch"):
+        required_wspr_overall_deadline(plan, datetime(2026, 8, 12, 19, 59, 54, tzinfo=UTC))
 
 
 def test_failed_cleanup_retains_actual_deadline_overrun():
