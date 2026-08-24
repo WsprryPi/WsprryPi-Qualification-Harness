@@ -136,11 +136,26 @@ the plan. A hostname, username, host key, or known-hosts change requires a new
 resolved plan and digest; do not repair trust with `StrictHostKeyChecking=no`.
 
 Within the process-start boundary, the production adapter starts the exact-count
-capture worker first, waits for its retained `.incomplete` output to prove that
-capture is established, and then observes the mode plan's complete RF-off
-preamble before launching WsprryPi. If capture setup fails or the worker exits
-before launch, RF remains disabled. Capture cancellation and bounded join are
-part of unconditional transaction cleanup.
+capture worker first and waits for its retained `.incomplete` output to prove
+that capture is established. It then asks the authenticated transmitter helper
+to arm WsprryPi for a future UTC instant with a required remaining margin. The
+helper converts that remaining wall-clock interval once to a local monotonic
+deadline and waits cancellably on the transmitter; SSH arms the operation but
+does not trigger RF. The coordinator verifies the acknowledgement and clock
+uncertainty, monitors capture through the complete RF-off preamble, and cancels
+the armed process if the capture worker exits before the scheduled instant.
+
+The acquired observation derives a transaction-local expected timeline from
+the authenticated transmitter schedule and the receiver's retained capture
+start. The derivation moves pre-quiet and compensates post-quiet so total capture
+length and the complete generated waveform remain unchanged. Consequently a
+change to message, dot duration, or FSKCW/DFCW frequencies and spacing continues
+to flow from the resolved mode plan; the implementation does not widen analyzer
+timing tolerance to conceal launch latency. Each transaction retains the
+requested and accepted start, helper observation and margin, actual launch,
+schedule error, receiver capture start, and derived capture-relative start.
+Capture cancellation and bounded join remain part of unconditional transaction
+cleanup.
 
 If the worker fails after process launch, the transaction records fixture
 blockage rather than keyed transmitter failure. The provider preserves a

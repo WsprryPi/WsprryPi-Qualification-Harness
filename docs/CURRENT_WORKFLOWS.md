@@ -133,9 +133,15 @@ Each of the three transactions sends one keyed message. Plans bind receiver
 services that must run for capture separately from the complete service
 allowlist; they start only after cleanup installation, and all listed services
 return to their observed initial state during transaction cleanup.
-The production adapter establishes the exact-count capture and completes the
-resolved RF-off preamble before it launches WsprryPi; capture setup failure
-therefore blocks RF rather than producing a knowingly truncated observation.
+The production adapter establishes the exact-count capture, then arms WsprryPi
+on the transmitter for a future UTC start. The transmitter helper converts the
+accepted wall-clock interval to a local monotonic deadline, so SSH latency does
+not select the RF start instant. The coordinator monitors capture through the
+resolved RF-off preamble and cancels the armed process before RF if capture
+fails. Each transaction retains the accepted schedule, actual launch, schedule
+error, receiver capture start, and derived capture-relative start. Capture setup
+failure therefore blocks RF rather than producing a knowingly truncated
+observation.
 If capture fails after launch, the transaction is classified as receiver or
 fixture blockage. Its partial bundle retains authenticated native failure
 metadata and the bounded helper execution diagnostic, while incomplete or

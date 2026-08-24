@@ -236,6 +236,10 @@ class LaunchResult:
     handle_id: str = "fake-handle"
     stop_requested: bool = False
     running_before_stop: bool | None = None
+    scheduled_start_utc: str | None = None
+    actual_start_utc: str | None = None
+    schedule_error_ms: float | None = None
+    launch_error: str | None = None
 
 
 class ExternalLauncher(Protocol):
@@ -383,8 +387,14 @@ class LocalOwnedProcessLauncher:
 
 
 class _SshOwnedProcess:
-    def __init__(self, client: JsonHelperClient, handle_id: str) -> None:
+    def __init__(
+        self,
+        client: JsonHelperClient,
+        handle_id: str,
+        arming_acknowledgement: dict[str, object],
+    ) -> None:
         self.client, self.handle_id = client, handle_id
+        self.arming_acknowledgement = arming_acknowledgement
 
     def wait(self, timeout_s: float, cancellation: threading.Event | None) -> LaunchResult:
         if cancellation is not None and cancellation.is_set():
@@ -422,22 +432,35 @@ class SshOwnedProcessLauncher:
         self.privilege_wrapper_sha256 = privilege_wrapper_sha256
 
     def begin(self, arguments: tuple[str, ...]) -> OwnedProcess:
+        return self.begin_scheduled(arguments)
+
+    def begin_scheduled(
+        self,
+        arguments: tuple[str, ...],
+        *,
+        scheduled_start_utc: str | None = None,
+        minimum_arm_margin_s: float = 0.0,
+    ) -> OwnedProcess:
+        payload: dict[str, object] = {
+            "arguments": list(arguments),
+            "executable_sha256": self.executable_sha256,
+            "privilege_wrapper_path": self.privilege_wrapper_path,
+            "privilege_wrapper_sha256": self.privilege_wrapper_sha256,
+            "pinned_arguments": self.pinned_arguments,
+            "hard_timeout_s": self.hard_timeout_s,
+            "environment": {},
+        }
+        if scheduled_start_utc is not None:
+            payload["scheduled_start_utc"] = scheduled_start_utc
+            payload["minimum_arm_margin_s"] = minimum_arm_margin_s
         response = self.client.request(
             "process-start",
-            {
-                "arguments": list(arguments),
-                "executable_sha256": self.executable_sha256,
-                "privilege_wrapper_path": self.privilege_wrapper_path,
-                "privilege_wrapper_sha256": self.privilege_wrapper_sha256,
-                "pinned_arguments": self.pinned_arguments,
-                "hard_timeout_s": self.hard_timeout_s,
-                "environment": {},
-            },
+            payload,
         )
         handle = response.get("handle_id")
         if not isinstance(handle, str) or not handle:
             raise CapabilityError("remote process helper omitted ownership handle")
-        return _SshOwnedProcess(self.client, handle)
+        return _SshOwnedProcess(self.client, handle, response)
 
 
 def _launch_result_from_helper(document: dict[str, object], handle: str) -> LaunchResult:
@@ -461,6 +484,27 @@ def _launch_result_from_helper(document: dict[str, object], handle: str) -> Laun
         running_before_stop=(
             cast(bool, document.get("running_before_stop"))
             if isinstance(document.get("running_before_stop"), bool)
+            else None
+        ),
+        scheduled_start_utc=(
+            cast(str, document.get("scheduled_start_utc"))
+            if isinstance(document.get("scheduled_start_utc"), str)
+            else None
+        ),
+        actual_start_utc=(
+            cast(str, document.get("actual_start_utc"))
+            if isinstance(document.get("actual_start_utc"), str)
+            else None
+        ),
+        schedule_error_ms=(
+            float(cast(float, document["schedule_error_ms"]))
+            if isinstance(document.get("schedule_error_ms"), (int, float))
+            and not isinstance(document.get("schedule_error_ms"), bool)
+            else None
+        ),
+        launch_error=(
+            cast(str, document.get("launch_error"))
+            if isinstance(document.get("launch_error"), str)
             else None
         ),
     )

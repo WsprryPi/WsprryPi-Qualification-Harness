@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -32,7 +33,7 @@ from wsprrypi_qualification.application_shims import (
     WsprryPiShim,
 )
 from wsprrypi_qualification.cw_iq import analyze_synthetic_iq
-from wsprrypi_qualification.cw_reference import generate_expected_events
+from wsprrypi_qualification.cw_reference import generate_expected_events, write_expected_events
 from wsprrypi_qualification.cw_replay import compose_acquired_replay
 from wsprrypi_qualification.keyed_session_contracts import resolved_keyed_plan_sha256
 from wsprrypi_qualification.offline import artifact, load_json_document, write_json_new
@@ -106,6 +107,29 @@ def _derive_rebound_expected_events(
         schema_name="cw-expected-events.schema.json",
     )
     return artifact(derived_destination)
+
+
+def _replace_json_document(path: Path, document: dict[str, Any], *, schema_name: str) -> None:
+    """Atomically replace mutable in-progress evidence without an absent-file window."""
+    temporary = path.with_name(f".{path.name}.updated")
+    write_json_new(temporary, document, schema_name=schema_name)
+    temporary.replace(path)
+
+
+def _derive_scheduled_mode_plan(
+    mode_plan: dict[str, Any], capture_start: datetime, scheduled_start: datetime
+) -> tuple[dict[str, Any], float]:
+    """Rebase only the quiet margins while preserving waveform and capture duration."""
+    relative_start = (scheduled_start - capture_start).total_seconds()
+    original_prequiet = float(mode_plan["protocol"]["pre_quiet_seconds"])
+    original_postquiet = float(mode_plan["protocol"]["post_quiet_seconds"])
+    adjusted_postquiet = original_postquiet - (relative_start - original_prequiet)
+    if relative_start <= 0 or adjusted_postquiet <= 0:
+        raise RealSessionError("scheduled process start falls outside retained capture")
+    derived = deepcopy(mode_plan)
+    derived["protocol"]["pre_quiet_seconds"] = relative_start
+    derived["protocol"]["post_quiet_seconds"] = adjusted_postquiet
+    return derived, relative_start
 
 
 def _coherent_capture_launch_epoch(first_slot: datetime, required_margin_s: float) -> float:
@@ -1770,6 +1794,8 @@ class KeyedCapabilityProviders:
         self.validated_captures: set[int] = set()
         self.process_evidence: dict[int, Path] = {}
         self.process_outcomes: dict[int, Path] = {}
+        self.schedule_evidence: dict[int, Path] = {}
+        self.schedule_acknowledgements: dict[int, dict[str, object]] = {}
         self.analysis_evidence: dict[int, Path] = {}
         self.capture_diagnostics: dict[int, Path] = {}
         self.capture_tasks: dict[
@@ -1846,7 +1872,41 @@ class KeyedCapabilityProviders:
     def start_process(self, arguments: tuple[str, ...], number: int) -> str | None:
         if not self._start_capture(number):
             return None
-        process = self.launcher.begin(arguments)
+        mode_plan = load_json_document(
+            Path(self.plan["reference"]["plan"]["path"]), "cw-mode-plan.schema.json"
+        )
+        pre_quiet = float(mode_plan["protocol"]["pre_quiet_seconds"])
+        minimum_margin = min(0.25, pre_quiet / 2.0)
+        scheduled = datetime.now(UTC) + timedelta(seconds=pre_quiet)
+        scheduled_text = scheduled.isoformat().replace("+00:00", "Z")
+        request_sent = datetime.now(UTC)
+        process = self.launcher.begin_scheduled(
+            arguments,
+            scheduled_start_utc=scheduled_text,
+            minimum_arm_margin_s=minimum_margin,
+        )
+        response_received = datetime.now(UTC)
+        acknowledgement = cast(Any, process).arming_acknowledgement
+        try:
+            helper_observed = datetime.fromisoformat(
+                str(acknowledgement.get("helper_observed_utc", "")).replace("Z", "+00:00")
+            )
+        except ValueError:
+            helper_observed = datetime.min.replace(tzinfo=UTC)
+        clock_uncertainty_s = max(
+            abs((helper_observed - request_sent).total_seconds()),
+            abs((helper_observed - response_received).total_seconds()),
+        )
+        if (
+            acknowledgement.get("scheduled_start_utc") != scheduled_text
+            or not isinstance(acknowledgement.get("helper_observed_utc"), str)
+            or not isinstance(acknowledgement.get("arm_margin_s"), (int, float))
+            or isinstance(acknowledgement.get("arm_margin_s"), bool)
+            or float(acknowledgement["arm_margin_s"]) < minimum_margin
+            or clock_uncertainty_s > 1.0
+        ):
+            process.stop()
+            return None
         if process.handle_id in {owned.handle_id for owned in self.owned.values()}:
             process.stop()
             return None
@@ -1858,7 +1918,41 @@ class KeyedCapabilityProviders:
             process_path,
             {"handle_id": process.handle_id, "arguments": list(arguments)},
         )
+        schedule_path = directory / "process-schedule.json"
+        write_json_new(
+            schedule_path,
+            {
+                "schema_version": 1,
+                "evidence_type": "scheduled_process_start",
+                "requested_start_utc": scheduled_text,
+                "minimum_arm_margin_s": minimum_margin,
+                "helper_acknowledgement": acknowledgement,
+                "actual_start_utc": None,
+                "schedule_error_ms": None,
+                "capture_start_utc": None,
+                "capture_relative_start_s": None,
+            },
+            schema_name="keyed-process-schedule.schema.json",
+        )
+        if not hasattr(self, "schedule_evidence"):
+            self.schedule_evidence = {}
+        if not hasattr(self, "schedule_acknowledgements"):
+            self.schedule_acknowledgements = {}
+        self.schedule_evidence[number] = schedule_path
+        self.schedule_acknowledgements[number] = dict(acknowledgement)
         self.process_evidence[number] = process_path
+        task = self.capture_tasks[number]
+        worker, _, _, errors = task
+        monitor_deadline = time.monotonic() + max(
+            0.0, (scheduled - response_received).total_seconds()
+        )
+        while time.monotonic() < monitor_deadline:
+            if errors or not worker.is_alive():
+                stopped = process.stop()
+                if stopped.cleanup_verified:
+                    self.owned.pop(number, None)
+                return None
+            time.sleep(min(0.01, max(0.0, monitor_deadline - time.monotonic())))
         return process.handle_id
 
     def _start_capture(self, number: int) -> bool:
@@ -1942,12 +2036,6 @@ class KeyedCapabilityProviders:
             time.sleep(0.01)
         else:
             return False
-        pre_quiet = float(mode_plan["protocol"]["pre_quiet_seconds"])
-        quiet_deadline = time.monotonic() + pre_quiet
-        while time.monotonic() < quiet_deadline:
-            if errors or not worker.is_alive():
-                return False
-            time.sleep(min(0.01, quiet_deadline - time.monotonic()))
         return not errors and worker.is_alive()
 
     def _retain_process_outcome(self, number: int, result: object) -> None:
@@ -1955,6 +2043,16 @@ class KeyedCapabilityProviders:
         path = self.work_directory / f"transaction-{number}" / "process-outcome.json"
         if path.exists():
             return
+        schedule_path = getattr(self, "schedule_evidence", {}).get(number)
+        schedule: dict[str, Any] | None = None
+        if schedule_path is not None and schedule_path.exists():
+            schedule = load_json_document(schedule_path, "keyed-process-schedule.schema.json")
+            accepted = schedule["helper_acknowledgement"]["scheduled_start_utc"]
+            completed = getattr(execution, "scheduled_start_utc", None)
+            if accepted != schedule["requested_start_utc"] or (
+                completed is not None and completed != schedule["requested_start_utc"]
+            ):
+                raise RealSessionError("scheduled process response changed the accepted start")
         write_json_new(
             path,
             {
@@ -1968,9 +2066,21 @@ class KeyedCapabilityProviders:
                 "cleanup_verified": execution.cleanup_verified,
                 "stop_requested": execution.stop_requested,
                 "running_before_stop": execution.running_before_stop,
+                "scheduled_start_utc": getattr(execution, "scheduled_start_utc", None),
+                "actual_start_utc": getattr(execution, "actual_start_utc", None),
+                "schedule_error_ms": getattr(execution, "schedule_error_ms", None),
+                "launch_error": getattr(execution, "launch_error", None),
             },
         )
         self.process_outcomes[number] = path
+        if schedule_path is not None and schedule is not None:
+            schedule["actual_start_utc"] = getattr(execution, "actual_start_utc", None)
+            schedule["schedule_error_ms"] = getattr(execution, "schedule_error_ms", None)
+            _replace_json_document(
+                schedule_path,
+                schedule,
+                schema_name="keyed-process-schedule.schema.json",
+            )
 
     def capture(self, plan: dict[str, Any], number: int) -> tuple[str, str, str] | None:
         task = self.capture_tasks.get(number)
@@ -2023,7 +2133,6 @@ class KeyedCapabilityProviders:
     def analyze(self, plan: dict[str, Any], number: int) -> tuple[str, str]:
         directory = self.work_directory / f"transaction-{number}"
         plan_path = Path(plan["reference"]["plan"]["path"])
-        expected_path = Path(plan["reference"]["expected_events"]["path"])
         acquired_path = directory / "acquired-capture.json"
         try:
             mode_plan = load_json_document(plan_path, "cw-mode-plan.schema.json")
@@ -2031,6 +2140,39 @@ class KeyedCapabilityProviders:
                 self.capture_metadata[number], "capture-metadata.schema.json"
             )
             contract = mode_plan["capture_contract"]
+            schedule_path = self.schedule_evidence[number]
+            schedule = load_json_document(schedule_path, "keyed-process-schedule.schema.json")
+            if (
+                schedule["helper_acknowledgement"]["scheduled_start_utc"]
+                != schedule["requested_start_utc"]
+                or schedule["actual_start_utc"] is None
+                or schedule["schedule_error_ms"] is None
+            ):
+                raise RealSessionError("scheduled process evidence is incomplete or inconsistent")
+            capture_start = datetime.fromisoformat(
+                native["timestamps"]["retained_capture_start_utc"].replace("Z", "+00:00")
+            )
+            scheduled_start = datetime.fromisoformat(
+                schedule["requested_start_utc"].replace("Z", "+00:00")
+            )
+            mode_plan, relative_start = _derive_scheduled_mode_plan(
+                mode_plan, capture_start, scheduled_start
+            )
+            derived_plan_path = directory / "scheduled-plan.json"
+            derived_expected_path = directory / "scheduled-expected-events.json"
+            write_json_new(derived_plan_path, mode_plan, schema_name="cw-mode-plan.schema.json")
+            write_expected_events(
+                derived_plan_path,
+                derived_expected_path,
+                source_revision=mode_plan["source"]["parent_revision"],
+            )
+            schedule["capture_start_utc"] = native["timestamps"]["retained_capture_start_utc"]
+            schedule["capture_relative_start_s"] = relative_start
+            _replace_json_document(
+                schedule_path,
+                schedule,
+                schema_name="keyed-process-schedule.schema.json",
+            )
             write_json_new(
                 acquired_path,
                 {
@@ -2038,8 +2180,8 @@ class KeyedCapabilityProviders:
                     "evidence_type": "cw_acquired_capture",
                     "run_id": mode_plan["run_id"],
                     "mode": mode_plan["mode"],
-                    "plan": artifact(plan_path),
-                    "expected_events": artifact(expected_path),
+                    "plan": artifact(derived_plan_path),
+                    "expected_events": artifact(derived_expected_path),
                     "capture": artifact(self.capture_outputs[number]),
                     "format": contract["format"],
                     "sample_count": contract["sample_count"],
@@ -2058,8 +2200,8 @@ class KeyedCapabilityProviders:
                 schema_name="cw-acquired-capture.schema.json",
             )
             result = compose_acquired_replay(
-                plan_path,
-                expected_path,
+                derived_plan_path,
+                derived_expected_path,
                 acquired_path,
                 directory / "analysis",
                 source_revision=plan["analyzer_revision"],
@@ -2121,6 +2263,7 @@ class KeyedCapabilityProviders:
         paths = {
             "process": self.process_outcomes.get(number, self.process_evidence.get(number)),
             "process_launch": self.process_evidence.get(number),
+            "process_schedule": getattr(self, "schedule_evidence", {}).get(number),
             "capture": self.capture_outputs.get(number) if capture_validated else None,
             "acquisition": self.capture_metadata.get(number) if capture_validated else None,
             "analysis": self.analysis_evidence.get(number),

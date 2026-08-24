@@ -1,6 +1,7 @@
 import json
 import threading
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -549,11 +550,21 @@ def test_keyed_capture_is_ready_and_prequiet_completes_before_process_launch(
             return self.wait(0, None)
 
     class FakeLauncher:
-        def begin(self, arguments):
+        def begin_scheduled(self, arguments, *, scheduled_start_utc, minimum_arm_margin_s):
             assert arguments
             assert calls == ["capture_ready"]
-            calls.append("process_started")
-            return FakeProcess()
+            assert minimum_arm_margin_s > 0
+            calls.append("process_armed")
+            process = FakeProcess()
+            process.arming_acknowledgement = {
+                "handle_id": process.handle_id,
+                "child_identity": "armed",
+                "cleanup_verified": False,
+                "scheduled_start_utc": scheduled_start_utc,
+                "helper_observed_utc": scheduled_start_utc,
+                "arm_margin_s": minimum_arm_margin_s,
+            }
+            return process
 
     providers = object.__new__(live_adapters_module.KeyedCapabilityProviders)
     providers.plan = resolved
@@ -571,10 +582,92 @@ def test_keyed_capture_is_ready_and_prequiet_completes_before_process_launch(
     providers.capture_tasks = {}
     started = time.monotonic()
     assert providers.start_process(("wsprrypi",), 1) == "process-1"
-    assert time.monotonic() - started >= 0.015
-    assert calls == ["capture_ready", "process_started"]
+    assert time.monotonic() - started < 0.5
+    assert calls == ["capture_ready", "process_armed"]
     release.set()
     assert providers.capture(resolved, 1) is not None
+
+
+def test_scheduled_rebase_preserves_dynamic_fskcw_waveform_contract() -> None:
+    original = {
+        "protocol": {
+            "pre_quiet_seconds": 2.0,
+            "post_quiet_seconds": 2.0,
+            "message": "CUSTOM",
+            "dot_seconds": 1.25,
+            "primary_frequency_hz": 14_097_123,
+            "secondary_frequency_hz": 14_097_116,
+        }
+    }
+    capture_start = datetime.now(UTC)
+    derived, relative = live_adapters_module._derive_scheduled_mode_plan(
+        original, capture_start, capture_start + timedelta(seconds=2.4)
+    )
+    assert relative == pytest.approx(2.4)
+    assert derived["protocol"]["pre_quiet_seconds"] == pytest.approx(2.4)
+    assert derived["protocol"]["post_quiet_seconds"] == pytest.approx(1.6)
+    for field in (
+        "message",
+        "dot_seconds",
+        "primary_frequency_hz",
+        "secondary_frequency_hz",
+    ):
+        assert derived["protocol"][field] == original["protocol"][field]
+    assert original["protocol"]["pre_quiet_seconds"] == 2.0
+
+
+def test_scheduled_completion_cannot_substitute_accepted_start(tmp_path: Path) -> None:
+    directory = tmp_path / "transaction-1"
+    directory.mkdir()
+    accepted = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    schedule_path = directory / "process-schedule.json"
+    live_adapters_module.write_json_new(
+        schedule_path,
+        {
+            "schema_version": 1,
+            "evidence_type": "scheduled_process_start",
+            "requested_start_utc": accepted,
+            "minimum_arm_margin_s": 0.25,
+            "helper_acknowledgement": {
+                "handle_id": "owned-1",
+                "child_identity": "armed",
+                "cleanup_verified": False,
+                "scheduled_start_utc": accepted,
+                "helper_observed_utc": accepted,
+                "arm_margin_s": 1.0,
+            },
+            "actual_start_utc": None,
+            "schedule_error_ms": None,
+            "capture_start_utc": None,
+            "capture_relative_start_s": None,
+        },
+        schema_name="keyed-process-schedule.schema.json",
+    )
+    providers = object.__new__(live_adapters_module.KeyedCapabilityProviders)
+    providers.work_directory = tmp_path
+    providers.process_outcomes = {}
+    providers.schedule_evidence = {1: schedule_path}
+    result = SimpleNamespace(
+        handle_id="owned-1",
+        return_code=0,
+        stdout="",
+        stderr="",
+        timed_out=False,
+        cancelled=False,
+        disconnected=False,
+        cleanup_verified=True,
+        stop_requested=False,
+        running_before_stop=False,
+        scheduled_start_utc=(datetime.now(UTC) + timedelta(seconds=10))
+        .isoformat()
+        .replace("+00:00", "Z"),
+        actual_start_utc=accepted,
+        schedule_error_ms=0.0,
+        launch_error=None,
+    )
+    with pytest.raises(live_adapters_module.RealSessionError, match="changed the accepted start"):
+        providers._retain_process_outcome(1, result)
+    assert not (directory / "process-outcome.json").exists()
 
 
 @pytest.mark.parametrize(
@@ -702,9 +795,33 @@ def test_keyed_capture_failure_prevents_process_launch(
                 capture_plan.metadata_path.write_text("{}", encoding="utf-8")
             raise RuntimeError("injected capture failure")
 
+    armed_started: list[bool] = []
+    armed_stopped: list[bool] = []
+
     class ForbiddenLauncher:
-        def begin(self, arguments):
-            pytest.fail(f"transmitter launch was not blocked: {arguments!r}")
+        def begin_scheduled(self, arguments, *, scheduled_start_utc, minimum_arm_margin_s):
+            assert arguments
+            armed_started.append(True)
+
+            class ArmedProcess:
+                handle_id = "armed-only"
+
+                def __init__(self):
+                    self.arming_acknowledgement = {
+                        "handle_id": self.handle_id,
+                        "child_identity": "armed",
+                        "cleanup_verified": False,
+                        "scheduled_start_utc": scheduled_start_utc,
+                        "helper_observed_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                        "arm_margin_s": minimum_arm_margin_s,
+                    }
+
+                @staticmethod
+                def stop():
+                    armed_stopped.append(True)
+                    return SimpleNamespace(cleanup_verified=True)
+
+            return ArmedProcess()
 
     providers = object.__new__(live_adapters_module.KeyedCapabilityProviders)
     providers.plan = resolved
@@ -722,6 +839,8 @@ def test_keyed_capture_failure_prevents_process_launch(
     providers.capture_tasks = {}
     providers.initial_services = {}
     assert providers.start_process(("wsprrypi",), 1) is None
+    if armed_started:
+        assert armed_stopped == [True]
     diagnostic = providers.evidence_paths(1)["capture_diagnostic"]
     failure = json.loads(diagnostic.read_text(encoding="utf-8"))
     assert failure["evidence_type"] == "capture_background_failure"
