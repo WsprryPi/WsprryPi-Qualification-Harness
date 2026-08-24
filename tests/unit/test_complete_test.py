@@ -26,6 +26,7 @@ from wsprrypi_qualification.complete_test import (
 )
 from wsprrypi_qualification.manifests import write_manifest
 from wsprrypi_qualification.offline import artifact
+from wsprrypi_qualification.progress import ProgressReporter
 
 SDR = "driver=sdrplay,serial=2404058C60"
 DISCOVERED_SDR = {
@@ -475,13 +476,16 @@ def test_live_order_early_stop_and_not_attempted(tmp_path: Path) -> None:
         write_manifest(bundle)
         return {"authoritative_bundle": str(bundle), "underlying_result": session}
 
-    outcome = run_complete_test(
-        plan,
-        tmp_path / "runs",
-        ssh_executable=tmp_path / "ssh-fixture",
-        work_directory=tmp_path / "work",
-        dispatcher=dispatch,
-    )
+    progress_path = tmp_path / "campaign progress.jsonl"
+    with ProgressReporter(progress_path) as reporter:
+        outcome = run_complete_test(
+            plan,
+            tmp_path / "runs",
+            ssh_executable=tmp_path / "ssh-fixture",
+            work_directory=tmp_path / "work",
+            dispatcher=dispatch,
+            progress=reporter.emit,
+        )
     assert calls == ["TONE", "WSPR"]
     assert [entry["state"] for entry in outcome["result"]["modes"]] == [
         "attempted",
@@ -492,6 +496,17 @@ def test_live_order_early_stop_and_not_attempted(tmp_path: Path) -> None:
     ]
     assert outcome["result"]["final_status"] == "fixture_blocked"
     assert outcome["result"]["modes"][0]["final_status"] == "qualified"
+    progress = [json.loads(line) for line in progress_path.read_text().splitlines()]
+    assert [(item["mode"], item["status"]) for item in progress if item["stage"] == "mode"] == [
+        ("TONE", "started"),
+        ("TONE", "completed"),
+        ("WSPR", "started"),
+        ("WSPR", "completed"),
+        ("QRSS", "skipped"),
+        ("FSKCW", "skipped"),
+        ("DFCW", "skipped"),
+    ]
+    assert progress[-1]["stage"] == "campaign" and progress[-1]["status"] == "terminal"
     (tmp_path / "runs/child-tone/extra.txt").write_text("tampered", encoding="utf-8")
     with pytest.raises(CompleteTestError, match="bundle evidence changed"):
         validate_complete_test_bundle(Path(outcome["bundle"]))

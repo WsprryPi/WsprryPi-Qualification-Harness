@@ -404,6 +404,7 @@ def delegate_automatic_complete_test(
     forwarded_arguments: list[str],
     *,
     timeout_s: float = 7500.0,
+    progress: Any | None = None,
 ) -> dict[str, Any]:
     """Stage current runtimes, execute on the receiver, validate, and clean both hosts."""
     controller_known_hosts = Path.home() / ".ssh" / "known_hosts"
@@ -419,6 +420,7 @@ def delegate_automatic_complete_test(
             forwarded_arguments,
             known_hosts=known_hosts,
             timeout_s=timeout_s,
+            progress=progress,
         )
 
 
@@ -430,6 +432,7 @@ def _delegate_automatic_complete_test(
     *,
     known_hosts: Path,
     timeout_s: float,
+    progress: Any | None = None,
 ) -> dict[str, Any]:
     installed_binary = os.environ.get("WSPQ_WSPRRRYPI_INSTALLED_BINARY")
     source = None if installed_binary else _source_repository()
@@ -718,16 +721,22 @@ def _delegate_automatic_complete_test(
             encoded = base64.urlsafe_b64encode(
                 json.dumps(command, separators=(",", ":")).encode()
             ).decode()
-            result = rx.run_python(
+            if progress is not None:
+                progress.emit("delegation", "started", "receiver campaign execution started")
+            runner = rx.run_python_stream if progress is not None else rx.run_python
+            result = runner(
                 "import base64,json,subprocess;"
                 "argv=json.loads(base64.urlsafe_b64decode(sys.argv[2]));"
-                "r=subprocess.run(argv,capture_output=True,text=True,timeout=float(sys.argv[3]));"
-                "print(json.dumps({'returncode':r.returncode,'stdout':r.stdout,'stderr':r.stderr}))",
+                "r=subprocess.run(argv,stdout=subprocess.PIPE,text=True,timeout=float(sys.argv[3]));"
+                "print(json.dumps({'returncode':r.returncode,'stdout':r.stdout,'stderr':''}))",
                 encoded,
                 str(timeout_s),
+                **({"reporter": progress} if progress is not None else {}),
                 timeout_s=timeout_s + 30,
             )
             envelope = json.loads(_require(result, "receiver campaign execution"))
+            if progress is not None:
+                progress.emit("delegation", "completed", "receiver campaign execution completed")
             if envelope["returncode"] not in {0, 3, 4, 5, 6}:
                 raise AutomaticDeploymentError(
                     f"receiver campaign failed: {envelope['stderr'].strip()}"

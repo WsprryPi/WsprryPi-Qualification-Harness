@@ -68,6 +68,9 @@ The harness provides:
     explicit overrides, prepares all five bounded mode executions,
     and routes TONE, WSPR, QRSS, FSKCW, and DFCW in order through those same
     coordinators with one invocation authorization and one authenticated aggregate.
+19. a durable JSON Lines `complete-test` progress stream, flushed after each
+    campaign, mode, capture/lifecycle, WSPR-frame, keyed-observation, cleanup,
+    and terminal transition and forwarded to the invoking controller.
 
 The keyed schema/validator layer is validation-only: it exposes no process,
 transport, receiver, transmitter, service, or RF operation. Its three

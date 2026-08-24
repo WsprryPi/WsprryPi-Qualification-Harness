@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from wsprrypi_qualification.progress import ProgressReporter, run_streaming
+from wsprrypi_qualification.transports import CommandPlan
+
 
 class RemoteStagingError(RuntimeError):
     """A temporary remote stage could not be created or removed safely."""
@@ -287,6 +290,32 @@ class RemoteStage:
             )
         finally:
             self.timeout_s = original_timeout
+
+    def run_python_stream(
+        self,
+        program: str,
+        *arguments: str,
+        reporter: ProgressReporter,
+        timeout_s: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        """Run a fixed remote operation while forwarding progress protocol lines."""
+        deadline = self.timeout_s if timeout_s is None else timeout_s
+        if deadline <= 0 or not program or "\x00" in program:
+            raise RemoteStagingError("remote stage streaming operation is invalid")
+        self._check_transport_identities()
+        return run_streaming(
+            CommandPlan(
+                self.ssh,
+                tuple(
+                    [
+                        *self._ssh_prefix()[1:],
+                        self._python_command(program, self.root, *arguments),
+                    ]
+                ),
+                timeout_s=deadline,
+            ),
+            reporter,
+        )
 
     def cleanup(self) -> None:
         if self.cleanup_verified:

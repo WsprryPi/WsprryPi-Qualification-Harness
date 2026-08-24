@@ -79,6 +79,7 @@ from wsprrypi_qualification.offline import (
     write_offline_failure,
 )
 from wsprrypi_qualification.profiles import ProfileError, load_profile
+from wsprrypi_qualification.progress import default_progress_path, stderr_reporter
 from wsprrypi_qualification.real_session import (
     RealQualificationSession,
     RealRuntimeAuthorization,
@@ -408,6 +409,12 @@ def _parser() -> argparse.ArgumentParser:
         "--rehearse", action="store_true", help="hardware-free plan and routing rehearsal"
     )
     complete.add_argument("--configuration", type=Path)
+    complete.add_argument(
+        "--progress-log",
+        type=Path,
+        help="append-only JSON Lines progress log (default: a new temporary file)",
+    )
+    complete.add_argument("--progress-stream", action="store_true", help=argparse.SUPPRESS)
     complete.add_argument("--band", default="20m")
     complete.add_argument("--frequency-hz", type=int, default=14_097_100)
     complete.add_argument("--callsign", default="Q0QQQ")
@@ -465,7 +472,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(validated_complete, indent=2, sort_keys=True))
         return 0
     if args.command == "complete-test":
+        progress_path = (
+            None
+            if args.progress_stream and args.progress_log is None
+            else args.progress_log or default_progress_path()
+        )
+        reporter = stderr_reporter(progress_path, stream=args.progress_stream)
+        if not args.progress_stream:
+            print(f"Progress log: {reporter.path}", file=sys.stderr, flush=True)
         try:
+            reporter.emit("command", "started", "complete-test command accepted")
             if args.rehearse and args.enable_rf:
                 raise CompleteTestError("--rehearse conflicts with --enable-rf")
             if not args.rehearse and not args.enable_rf:
@@ -492,6 +508,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     raise CompleteTestError("delegation evidence must be an object")
             if not args.rehearse and not args.receiver_local and not receiver_local:
                 forwarded = ["--enable-rf"]
+                forwarded.append("--progress-stream")
                 if args.configuration is not None:
                     forwarded.extend(("--configuration", str(args.configuration)))
                 forwarded.extend(
@@ -526,6 +543,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         args.receiver_host,
                         args.sdr,
                         forwarded,
+                        progress=reporter,
                     )
                 else:
                     delegated = delegate_complete_test(
@@ -534,9 +552,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                         args.sdr,
                         forwarded,
                         configuration=args.configuration,
+                        progress=reporter,
                     )
                 print(json.dumps(_complete_test_summary(delegated), indent=2, sort_keys=True))
                 status = delegated["result"]["final_status"]
+                reporter.close()
                 return {
                     "qualified": 0,
                     "fixture_blocked": 3,
@@ -582,6 +602,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     output_parent,
                     ssh_executable=Path(execution["ssh_executable"]["path"]),
                     work_directory=Path(execution["work_directory"]),
+                    progress=reporter.emit,
                 )
         except (
             AutomaticDeploymentError,
@@ -592,12 +613,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             OSError,
             ValueError,
         ) as error:
+            reporter.emit("command", "failed", f"{type(error).__name__}: {error}")
             print(str(error), file=sys.stderr)
+            reporter.close()
             return 2
         rendered_complete = (
             complete_result if args.delegated_output else _complete_test_summary(complete_result)
         )
         print(json.dumps(rendered_complete, indent=2, sort_keys=True))
+        reporter.close()
         if args.rehearse:
             return 0
         status = complete_result["result"]["final_status"]
