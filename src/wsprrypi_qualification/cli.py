@@ -412,7 +412,7 @@ def _parser() -> argparse.ArgumentParser:
     complete.add_argument(
         "--progress-log",
         type=Path,
-        help="append-only JSON Lines progress log (default: a new temporary file)",
+        help="append-only JSON Lines progress log (default: a new durable user-state file)",
     )
     complete.add_argument("--progress-stream", action="store_true", help=argparse.SUPPRESS)
     complete.add_argument("--band", default="20m")

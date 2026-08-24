@@ -1,4 +1,5 @@
 import json
+import shutil
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -7,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import wsprrypi_qualification.cli as cli_module
+import wsprrypi_qualification.complete_test as complete_test_module
 from tests.unit.test_keyed_session_contracts import plan as keyed_plan
 from tests.unit.test_real_session import tone_plan_document
 from wsprrypi_qualification.cli import main
@@ -16,6 +18,7 @@ from wsprrypi_qualification.complete_test import (
     CompleteTestError,
     CompleteTestOverrides,
     _fixed_gpio_ppm_arguments,
+    _validate_campaign_input,
     complete_test_sha256,
     compose_complete_test_plan,
     configuration_path,
@@ -24,6 +27,7 @@ from wsprrypi_qualification.complete_test import (
     resolve_local_sdr,
     run_complete_test,
     validate_complete_test_bundle,
+    validate_complete_test_plan,
 )
 from wsprrypi_qualification.cw_reference import validate_keyed_capture_margin
 from wsprrypi_qualification.manifests import write_manifest
@@ -60,7 +64,12 @@ def _write(path: Path, document: dict) -> Path:
     return path
 
 
-def _configuration(tmp_path: Path, *, topology: str = "split_host_ssh") -> Path:
+def _configuration(
+    tmp_path: Path,
+    *,
+    topology: str = "split_host_ssh",
+    campaign_deadline_s: float = 1200,
+) -> Path:
     known_hosts = tmp_path / "known_hosts"
     ssh_executable = tmp_path / "ssh-fixture"
     known_hosts.parent.mkdir(parents=True, exist_ok=True)
@@ -117,7 +126,7 @@ def _configuration(tmp_path: Path, *, topology: str = "split_host_ssh") -> Path:
             "ssh_executable": str(ssh_executable),
             "work_directory": str(tmp_path / "work"),
             "output_parent": str(tmp_path / "runs"),
-            "campaign_deadline_s": 1200,
+            "campaign_deadline_s": campaign_deadline_s,
         },
     )
 
@@ -371,9 +380,15 @@ def test_remote_receiver_returns_classified_nonpassing_result(tmp_path: Path, mo
 
 
 def test_every_override_is_bound_and_changes_digest(tmp_path: Path) -> None:
-    config = _configuration(tmp_path)
+    config = _configuration(tmp_path, campaign_deadline_s=7200)
+    composed_at = datetime(2026, 8, 24, 21, 0, 20, tzinfo=UTC)
     baseline = compose_complete_test_plan(
-        "wspr4.local", "wspr5.local", SDR, configuration=config, live=False
+        "wspr4.local",
+        "wspr5.local",
+        SDR,
+        configuration=config,
+        live=False,
+        now=composed_at,
     )
     override = CompleteTestOverrides(
         band="30m",
@@ -389,7 +404,13 @@ def test_every_override_is_bound_and_changes_digest(tmp_path: Path) -> None:
         dfcw_separation_hz=7.0,
     )
     changed = compose_complete_test_plan(
-        "wspr4.local", "wspr5.local", SDR, configuration=config, overrides=override, live=False
+        "wspr4.local",
+        "wspr5.local",
+        SDR,
+        configuration=config,
+        overrides=override,
+        live=False,
+        now=composed_at,
     )
     assert changed["resolved_values"] == override.validated()
     assert complete_test_sha256(changed) != complete_test_sha256(baseline)
@@ -450,6 +471,96 @@ def test_hardware_free_rehearsal_publishes_five_mode_immutable_bundle(tmp_path: 
     write_manifest(bundle)
     with pytest.raises(CompleteTestError, match="broader than evidence"):
         validate_complete_test_bundle(bundle)
+
+
+def test_campaign_inputs_survive_runtime_work_cleanup_and_remain_separate(
+    tmp_path: Path,
+) -> None:
+    plan = compose_complete_test_plan(
+        "wspr4.local",
+        "wspr5.local",
+        SDR,
+        configuration=_configuration(tmp_path),
+        live=False,
+        now=datetime(2026, 8, 24, 21, 0, 20, tzinfo=UTC),
+    )
+    input_store = Path(plan["input_store"]["directory"])
+    work_directory = Path(plan["execution_paths"]["work_directory"])
+    output_parent = Path(plan["execution_paths"]["output_parent"])
+
+    assert input_store.parent == output_parent / "complete-test-inputs"
+    assert not input_store.is_relative_to(work_directory)
+    assert plan["input_store"] == {
+        "directory": str(input_store),
+        "ownership": "campaign",
+        "retention": "retain_while_campaign_or_subordinate_result_exists",
+        "cleanup": "manual_only",
+    }
+
+    shutil.rmtree(work_directory, ignore_errors=True)
+    validate_complete_test_plan(plan)
+    outcome = rehearse_complete_test(plan, output_parent)
+    assert Path(outcome["bundle"]).is_dir()
+    assert input_store.is_dir()
+    validate_complete_test_bundle(Path(outcome["bundle"]))
+
+
+def test_campaign_input_missing_changed_symlink_and_escape_fail_closed(tmp_path: Path) -> None:
+    plan = compose_complete_test_plan(
+        "wspr4.local",
+        "wspr5.local",
+        SDR,
+        configuration=_configuration(tmp_path),
+        live=False,
+        now=datetime(2026, 8, 24, 21, 0, 20, tzinfo=UTC),
+    )
+    input_store = Path(plan["input_store"]["directory"])
+    qrss = plan["mode_plans"][2]["plan"]["reference"]["plan"]
+    reference = Path(qrss["path"])
+    original = reference.read_bytes()
+
+    reference.unlink()
+    with pytest.raises(CompleteTestError, match="unavailable or unsafe"):
+        validate_complete_test_plan(plan)
+
+    reference.write_bytes(original + b" ")
+    with pytest.raises(CompleteTestError, match="changed"):
+        validate_complete_test_plan(plan)
+
+    reference.write_bytes(original)
+    outside = tmp_path / "outside-reference.json"
+    outside.write_bytes(original)
+    escaped = {**qrss, **artifact(outside)}
+    with pytest.raises(CompleteTestError, match="escapes the campaign input store"):
+        _validate_campaign_input(escaped, input_store, label="QRSS reference plan")
+
+    reference.unlink()
+    reference.symlink_to(outside)
+    with pytest.raises(CompleteTestError, match="unavailable or unsafe"):
+        validate_complete_test_plan(plan)
+
+
+def test_failed_composition_removes_unretained_campaign_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _configuration(tmp_path)
+
+    def fail_profiles(*args, **kwargs):
+        raise CompleteTestError("injected profile failure")
+
+    monkeypatch.setattr(complete_test_module, "_materialize_real_profiles", fail_profiles)
+    with pytest.raises(CompleteTestError, match="injected profile failure"):
+        compose_complete_test_plan(
+            "wspr4.local",
+            "wspr5.local",
+            SDR,
+            configuration=config,
+            live=False,
+            now=datetime(2026, 8, 24, 21, 0, 20, tzinfo=UTC),
+        )
+
+    parent = tmp_path / "runs/complete-test-inputs"
+    assert not parent.exists() or list(parent.iterdir()) == []
 
 
 def test_unsupported_topology_and_invalid_input_fail_before_dispatch(tmp_path: Path) -> None:
@@ -638,6 +749,7 @@ def test_coordinator_exception_publishes_partial_authenticated_campaign(tmp_path
     }
     assert all(entry["state"] == "not_attempted" for entry in outcome["result"]["modes"][1:])
     assert "capability unavailable" in outcome["result"]["modes"][0]["stopping_reason"]
+    assert Path(plan["input_store"]["directory"]).is_dir()
 
 
 def test_complete_validation_precedes_dispatch_and_rehearsal_has_no_contact(
@@ -691,6 +803,7 @@ def test_keyboard_interrupt_is_authenticated_as_campaign_abort(tmp_path: Path) -
         dispatcher=cancelled,
     )
     assert outcome["result"]["final_status"] == "aborted"
+    assert Path(plan["input_store"]["directory"]).is_dir()
 
 
 @pytest.mark.parametrize(
@@ -706,6 +819,7 @@ def test_keyboard_interrupt_is_authenticated_as_campaign_abort(tmp_path: Path) -
 def test_live_cli_classified_exit_codes(
     tmp_path: Path, monkeypatch, capsys, status: str, exit_code: int
 ) -> None:
+    monkeypatch.setenv("WSPQ_PROGRESS_DIR", str(tmp_path / "progress"))
     config = _configuration(tmp_path)
 
     def outcome(*args, **kwargs):
@@ -744,6 +858,7 @@ def test_live_cli_classified_exit_codes(
 def test_receiver_delegation_returns_full_machine_result(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
+    monkeypatch.setenv("WSPQ_PROGRESS_DIR", str(tmp_path / "progress"))
     config = _configuration(tmp_path)
     expected = {
         "bundle": str(tmp_path / "remote-run"),

@@ -164,6 +164,21 @@ internally and does not require an operator identity. Internal evidence binding
 is automatic and is not part of the user interface. Advanced explicit-plan
 commands retain their existing confirmation interfaces.
 
+Generated complete-test mode plans, expected events, and resolved profiles are
+campaign inputs, not temporary deployment files and not result evidence. They
+must be created in a campaign-owned store outside source repositories and
+runtime deployment roots before authorization. The resolved campaign binds
+that store and retains it while the campaign result or any subordinate result
+depends on it. Deployment cleanup must not remove it; disposal is a separate
+manual evidence-retention action.
+
+The complete-test progress JSON Lines stream belongs to the invoking control
+host, regardless of whether execution is local, receiver-delegated, or launched
+from a third system. Its default is a new exclusive file in durable user-state
+storage, never an operating-system temporary directory or remote deployment
+stage. It remains available for review until explicitly removed. An operator
+may select another durable location with `--progress-log`.
+
 Receiver authorization and RF-path resolution are separate. An operator may
 record either single-run or universal authorization for receiver-only access,
 but every live run must still record the current antenna state, termination,

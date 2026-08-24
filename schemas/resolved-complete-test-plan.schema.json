@@ -24,6 +24,7 @@
     "transport",
     "campaign_deadline_s",
     "execution_paths",
+    "input_store",
     "production_adapters_constructed",
     "qualification_claim"
   ],
@@ -217,6 +218,31 @@
         "output_parent": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "input_store": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "directory",
+        "ownership",
+        "retention",
+        "cleanup"
+      ],
+      "properties": {
+        "directory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ownership": {
+          "const": "campaign"
+        },
+        "retention": {
+          "const": "retain_while_campaign_or_subordinate_result_exists"
+        },
+        "cleanup": {
+          "const": "manual_only"
         }
       }
     },

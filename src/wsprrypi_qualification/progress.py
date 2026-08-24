@@ -7,7 +7,6 @@ import os
 import secrets
 import subprocess
 import sys
-import tempfile
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
@@ -99,7 +98,26 @@ class ProgressReporter:
 
 
 def default_progress_path() -> Path:
-    return Path(tempfile.gettempdir()) / (
+    configured = os.environ.get("WSPQ_PROGRESS_DIR")
+    if configured:
+        directory = Path(configured).expanduser()
+    elif os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or os.environ.get("PROGRAMDATA")
+        directory = (
+            Path(base) / "wsprrypi-qualification" / "progress"
+            if base
+            else Path.home() / "AppData/Local/wsprrypi-qualification/progress"
+        )
+    elif sys.platform == "darwin":
+        directory = Path.home() / "Library/Application Support/wsprrypi-qualification/progress"
+    else:
+        state_home = os.environ.get("XDG_STATE_HOME")
+        directory = (
+            Path(state_home) / "wsprrypi-qualification/progress"
+            if state_home
+            else Path.home() / ".local/state/wsprrypi-qualification/progress"
+        )
+    return directory.resolve() / (
         f"complete-test-progress-{os.getpid()}-{secrets.token_hex(4)}.jsonl"
     )
 

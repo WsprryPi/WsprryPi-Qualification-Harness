@@ -505,6 +505,21 @@ def _contains_symlink(path: Path) -> bool:
     return False
 
 
+def _validate_campaign_input(binding: dict[str, Any], input_store: Path, *, label: str) -> Path:
+    candidate = Path(binding["path"])
+    if _contains_symlink(candidate) or not candidate.is_file():
+        raise CompleteTestError(f"{label} is unavailable or unsafe")
+    try:
+        candidate.resolve().relative_to(input_store.resolve())
+    except ValueError as error:
+        raise CompleteTestError(f"{label} escapes the campaign input store") from error
+    current = artifact(candidate)
+    fields = ("size_bytes", "sha256") if "size_bytes" in binding else ("sha256",)
+    if any(current[field] != binding[field] for field in fields):
+        raise CompleteTestError(f"{label} changed")
+    return candidate
+
+
 def _set_real_digest(plan: dict[str, Any]) -> None:
     digest = helper_configuration_plan_sha256(plan)
     for field in ("remote_helper", "receiver_helper", "capture_helper", "wsprd", "wsprrypi"):
@@ -944,6 +959,71 @@ def _materialize_real_profiles(plan: dict[str, Any], destination: Path, *, now: 
         plan["resolved_profiles"][name] = binding
 
 
+def _compose_complete_mode_plans(
+    *,
+    config_path: Path,
+    config: dict[str, Any],
+    values: dict[str, object],
+    campaign_id: str,
+    composed_at: datetime,
+    input_path: Path,
+    transmitter_host: str,
+    receiver_host: str,
+    sdr_selector: str,
+    selector_fields: dict[str, str],
+) -> list[dict[str, Any]]:
+    bindings: list[dict[str, Any]] = []
+    for mode in MODE_ORDER:
+        family = "real_session" if mode in {"TONE", "WSPR"} else "keyed_session"
+        source = _mode_plan_path(config_path, config["production_templates"][family])
+        template = _load(source)
+        plan = (
+            _resolve_real(template, mode, values, campaign_id=campaign_id, now=composed_at)
+            if mode in {"TONE", "WSPR"}
+            else _resolve_keyed(
+                template,
+                mode,
+                values,
+                campaign_id=campaign_id,
+                sdr_selector=sdr_selector,
+            )
+        )
+        if mode != "WSPR":
+            _materialize_cw_reference(plan, mode, input_path / mode.lower(), now=composed_at)
+        if mode in {"TONE", "WSPR"}:
+            _materialize_real_profiles(
+                plan, input_path / mode.lower() / "profiles", now=composed_at
+            )
+            _set_real_digest(plan)
+            validate_real_session_plan(plan)
+        else:
+            validate_resolved_keyed_plan(plan)
+        resolved_host = plan["host"] if mode in {"TONE", "WSPR"} else plan["transmitter"]["host"]
+        if resolved_host != transmitter_host:
+            raise CompleteTestError(f"{mode} plan transmitter differs from TRANSMITTER_HOST")
+        if plan["receiver"]["host"] != receiver_host:
+            raise CompleteTestError(f"{mode} plan receiver differs from RECEIVER_HOST")
+        receiver = plan["receiver"]
+        expected_driver = selector_fields.get("driver")
+        if expected_driver is not None and receiver["driver"] != expected_driver:
+            raise CompleteTestError(f"{mode} plan receiver driver differs from --sdr")
+        plan_device = receiver["serial"] if mode in {"TONE", "WSPR"} else receiver["device"]
+        if plan_device != selector_fields["serial"]:
+            raise CompleteTestError(f"{mode} plan receiver serial differs from --sdr")
+        bindings.append(
+            {
+                "mode": mode,
+                "source": artifact(source),
+                "plan": plan,
+                "plan_sha256": resolved_real_plan_sha256(plan)
+                if mode in {"TONE", "WSPR"}
+                else canonical_sha256(plan),
+                "production_route": "real_session" if mode in {"TONE", "WSPR"} else "live_keyed",
+            }
+        )
+    return bindings
+
+
 def compose_complete_test_plan(
     transmitter_host: str,
     receiver_host: str,
@@ -975,62 +1055,30 @@ def compose_complete_test_plan(
     campaign_id = validate_manifest_name(
         f"{composed_at.strftime('%Y%m%dT%H%M%S%fZ')}-{secrets.token_hex(4)}-{config['campaign_id']}"
     )
-    bindings: list[dict[str, Any]] = []
     ssh_path = _mode_plan_path(config_path, config["ssh_executable"])
     if ssh_path.is_symlink() or not ssh_path.is_file():
         raise CompleteTestError("saved SSH executable is unavailable or unsafe")
     work_path = _mode_plan_path(config_path, config["work_directory"])
     output_path = _mode_plan_path(config_path, config["output_parent"])
-    for mode in MODE_ORDER:
-        family = "real_session" if mode in {"TONE", "WSPR"} else "keyed_session"
-        source = _mode_plan_path(config_path, config["production_templates"][family])
-        template = _load(source)
-        plan = (
-            _resolve_real(template, mode, values, campaign_id=campaign_id, now=composed_at)
-            if mode in {"TONE", "WSPR"}
-            else _resolve_keyed(
-                template,
-                mode,
-                values,
-                campaign_id=campaign_id,
-                sdr_selector=sdr_selector,
-            )
+    input_path = output_path / "complete-test-inputs" / campaign_id
+    if input_path.exists() or _contains_symlink(input_path.parent):
+        raise CompleteTestError("campaign input destination is unavailable or unsafe")
+    try:
+        bindings = _compose_complete_mode_plans(
+            config_path=config_path,
+            config=config,
+            values=values,
+            campaign_id=campaign_id,
+            composed_at=composed_at,
+            input_path=input_path,
+            transmitter_host=transmitter_host,
+            receiver_host=receiver_host,
+            sdr_selector=sdr_selector,
+            selector_fields=selector_fields,
         )
-        if mode != "WSPR":
-            reference_directory = work_path / f"{campaign_id}-inputs" / mode.lower()
-            _materialize_cw_reference(plan, mode, reference_directory, now=composed_at)
-        if mode in {"TONE", "WSPR"}:
-            profile_directory = work_path / f"{campaign_id}-inputs" / mode.lower() / "profiles"
-            _materialize_real_profiles(plan, profile_directory, now=composed_at)
-        if mode in {"TONE", "WSPR"}:
-            _set_real_digest(plan)
-            validate_real_session_plan(plan)
-        else:
-            validate_resolved_keyed_plan(plan)
-        resolved_host = plan["host"] if mode in {"TONE", "WSPR"} else plan["transmitter"]["host"]
-        if resolved_host != transmitter_host:
-            raise CompleteTestError(f"{mode} plan transmitter differs from TRANSMITTER_HOST")
-        if plan["receiver"]["host"] != receiver_host:
-            raise CompleteTestError(f"{mode} plan receiver differs from RECEIVER_HOST")
-        receiver = plan["receiver"]
-        expected_driver = selector_fields.get("driver")
-        if expected_driver is not None and receiver["driver"] != expected_driver:
-            raise CompleteTestError(f"{mode} plan receiver driver differs from --sdr")
-        plan_device = receiver["serial"] if mode in {"TONE", "WSPR"} else receiver["device"]
-        expected_device = selector_fields["serial"]
-        if plan_device != expected_device:
-            raise CompleteTestError(f"{mode} plan receiver serial differs from --sdr")
-        bindings.append(
-            {
-                "mode": mode,
-                "source": artifact(source),
-                "plan": plan,
-                "plan_sha256": resolved_real_plan_sha256(plan)
-                if mode in {"TONE", "WSPR"}
-                else canonical_sha256(plan),
-                "production_route": "real_session" if mode in {"TONE", "WSPR"} else "live_keyed",
-            }
-        )
+    except BaseException:
+        shutil.rmtree(input_path, ignore_errors=True)
+        raise
     document = {
         "schema_version": 1,
         "evidence_type": "resolved_complete_test_plan",
@@ -1069,10 +1117,20 @@ def compose_complete_test_plan(
             "work_directory": str(work_path),
             "output_parent": str(output_path),
         },
+        "input_store": {
+            "directory": str(input_path),
+            "ownership": "campaign",
+            "retention": "retain_while_campaign_or_subordinate_result_exists",
+            "cleanup": "manual_only",
+        },
         "production_adapters_constructed": False,
         "qualification_claim": False,
     }
-    validate_complete_test_plan(document)
+    try:
+        validate_complete_test_plan(document)
+    except BaseException:
+        shutil.rmtree(input_path, ignore_errors=True)
+        raise
     return document
 
 
@@ -1134,6 +1192,20 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
         raise CompleteTestError("campaign deadline cannot contain all subordinate deadlines")
     if document["campaign_deadline_s"] > 7200:
         raise CompleteTestError("campaign deadline exceeds the maintained two-hour safety bound")
+    input_store = Path(document["input_store"]["directory"])
+    output_parent = Path(document["execution_paths"]["output_parent"])
+    expected_input_store = output_parent / "complete-test-inputs" / document["campaign_id"]
+    if input_store != expected_input_store:
+        raise CompleteTestError("campaign input store differs from its owned output location")
+    if _contains_symlink(input_store) or not input_store.is_dir():
+        raise CompleteTestError("campaign input store is unavailable or unsafe")
+    try:
+        input_store.resolve().relative_to(output_parent.resolve())
+    except ValueError as error:
+        raise CompleteTestError("campaign input store escapes its output parent") from error
+    work_directory = Path(document["execution_paths"]["work_directory"])
+    if input_store.resolve().is_relative_to(work_directory.resolve()):
+        raise CompleteTestError("campaign input store cannot belong to runtime deployment")
     config_binding = document["configuration"]
     config_document = config_binding["document"]
     if (
@@ -1205,10 +1277,32 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
             current_source[field] != entry["source"][field] for field in ("size_bytes", "sha256")
         ):
             raise CompleteTestError(f"{mode} source template changed")
+        if mode in {"TONE", "WSPR"}:
+            for profile_name, binding in child["resolved_profiles"].items():
+                _validate_campaign_input(
+                    binding,
+                    input_store,
+                    label=f"{mode} {profile_name} profile",
+                )
+            if mode == "TONE":
+                for reference_name, binding in child["cw_contract"].items():
+                    if reference_name == "analyzer_source_revision":
+                        continue
+                    _validate_campaign_input(
+                        binding,
+                        input_store,
+                        label=f"TONE {reference_name.replace('_', ' ')}",
+                    )
         if mode not in {"TONE", "WSPR"}:
-            reference_path = Path(child["reference"]["plan"]["path"])
-            if _contains_symlink(reference_path) or not reference_path.is_file():
-                raise CompleteTestError(f"{mode} reference plan is unavailable or unsafe")
+            references = child["reference"]
+            reference_path = _validate_campaign_input(
+                references["plan"], input_store, label=f"{mode} reference plan"
+            )
+            _validate_campaign_input(
+                references["expected_events"],
+                input_store,
+                label=f"{mode} expected events",
+            )
             try:
                 reference = _load(reference_path)
                 validate_document(reference, "cw-mode-plan.schema.json")
@@ -1579,11 +1673,7 @@ def run_complete_test(
         if production_dispatch:
             from wsprrypi_qualification.turnkey_campaign import compose_resolved_campaign_plan
 
-            generated = (
-                work_directory.resolve().parent
-                / f"{resolved['campaign_id']}-generated"
-                / mode.lower()
-            )
+            generated = Path(resolved["input_store"]["directory"]) / "dispatch" / mode.lower()
             generated.mkdir(parents=True, exist_ok=False)
             request_path = generated / "request.json"
             child_path = generated / "resolved-mode-plan.json"

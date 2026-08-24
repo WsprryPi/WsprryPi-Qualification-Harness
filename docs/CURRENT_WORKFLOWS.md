@@ -42,8 +42,10 @@ wsprrypi-qualification complete-test TRANSMITTER_HOST RECEIVER_HOST \
 ```
 
 Every invocation creates an exclusive JSON Lines progress log and prints its
-absolute path to stderr before long-running work begins. Use `--progress-log
-PATH` to select it explicitly. Records are flushed individually and carry the
+absolute path to stderr before long-running work begins. By default it is kept
+in the invoking host's durable user-state directory, not temporary or remote
+deployment storage, so stage cleanup cannot remove it before review. Use
+`--progress-log PATH` to select another durable location explicitly. Records are flushed individually and carry the
 campaign, mode, stage, status, and optional frame or observation number; stdout
 remains reserved for the final structured result. Delegated receiver execution
 forwards protocol records into the invoking controller's local log, so the same
@@ -51,7 +53,12 @@ tailing interface works from either endpoint or a third system.
 
 The default path packages the current harness and local WsprryPi source, stages
 only the required runtime on both hosts, builds independently owned durable
-per-campaign executables, and removes both temporary stages. `--enable-rf`
+per-campaign executables, and removes both temporary stages. Generated mode
+plans, expected events, resolved profiles, and dispatch wrapper inputs are placed separately under
+`OUTPUT_PARENT/complete-test-inputs/CAMPAIGN_ID`; they are neither deployment
+scratch nor result-bundle contents. The resolved campaign retains that store
+while its aggregate or subordinate results exist, and only an explicit manual
+retention action may remove it. `--enable-rf`
 confirms the documented conducted default: antenna disconnected and a direct
 50-ohm SDR input through 20 dB attenuation. The receiver uniquely resolves the
 selected SDR through SoapySDR, validates all five generated subordinate plans, then

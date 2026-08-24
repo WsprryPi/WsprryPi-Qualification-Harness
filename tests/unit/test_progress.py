@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 
 from wsprrypi_qualification.offline import validate_document
-from wsprrypi_qualification.progress import ProgressError, ProgressReporter, run_streaming
+from wsprrypi_qualification.progress import (
+    ProgressError,
+    ProgressReporter,
+    default_progress_path,
+    run_streaming,
+)
 from wsprrypi_qualification.transports import CommandPlan
 
 
@@ -44,3 +49,22 @@ def test_progress_protocol_streams_without_polluting_stdout(tmp_path: Path) -> N
     assert json.loads(result.stdout) == {"final": True}
     assert result.stderr == ""
     assert json.loads(log.read_text(encoding="utf-8"))["item"] == 1
+
+
+def test_default_progress_log_is_durable_and_independent_of_runtime_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    durable = tmp_path / "durable progress"
+    runtime_stage = tmp_path / "temporary deployment"
+    runtime_stage.mkdir()
+    monkeypatch.setenv("WSPQ_PROGRESS_DIR", str(durable))
+
+    first = default_progress_path()
+    second = default_progress_path()
+    assert first.parent == durable.resolve()
+    assert first != second
+
+    with ProgressReporter(first) as reporter:
+        reporter.emit("command", "started", "accepted")
+    runtime_stage.rmdir()
+    assert first.is_file()

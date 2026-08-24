@@ -78,6 +78,13 @@ path on stderr; stdout remains final-result JSON only. Delegated processes
 mirror schema-identified records over stderr, and the controller resequences
 them into its local log. Other stderr remains diagnostic text.
 
+The default log is a new exclusive file in durable user-state storage on the
+invoking host: macOS Application Support, Windows local application data, or
+the Linux XDG state directory (with the documented home-state fallback).
+`WSPQ_PROGRESS_DIR` provides a deployment-level override, while
+`--progress-log` selects an exact file. Automatic stage cleanup never owns or
+deletes this log; review and removal are explicit operator retention actions.
+
 Defaults are 20 m, 14,097,100 Hz, `Q0QQQ`, `JJ00`, 0 dBm, keyed message `ET`,
 0.7-second QRSS/FSKCW/DFCW dots, and 5.0 Hz FSKCW/DFCW separation. All are
 named CLI overrides. WSPR retains the maintained three-frame contract; keyed
@@ -137,6 +144,20 @@ an exception. This prevents configuration defaults or a changing Chrony
 observation from altering RF during a campaign, but it does not establish the
 manual value's provenance. Later prompt/qualification campaigns are also
 outside this work.
+
+The simple complete-test composer gives generated mode plans, expected-event
+documents, resolved profiles, and production-dispatch wrapper inputs their own
+campaign ownership. It writes them
+under `OUTPUT_PARENT/complete-test-inputs/CAMPAIGN_ID`, outside source
+repositories, runtime staging directories, and the published result bundle.
+The resolved campaign records the exact directory and the policy
+`retain_while_campaign_or_subordinate_result_exists` with `manual_only`
+cleanup. Runtime staging cleanup therefore cannot invalidate a retained plan,
+and post-cleanup validation must reopen and authenticate every generated input
+from that store. Missing, changed, symlinked, or path-escaping inputs fail
+closed. Normal WsprryPi installation and `/usr/local/etc/wsprrypi.ini` behavior
+remain unchanged.
+
 The current `main` production application/quiescence contracts support GPIO and
 Si5351, not `rp1_gpclk`; selecting RP1 therefore returns `missing_capability`
 before adapter construction. GPIO4/2 mA RP1 defaults will apply only after that
