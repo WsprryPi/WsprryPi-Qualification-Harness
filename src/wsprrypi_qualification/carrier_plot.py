@@ -47,6 +47,9 @@ def render_carrier_plot(
     residual_power: npt.NDArray[np.float64],
     requested_frequency_hz: float,
     strongest_frequency_hz: float,
+    center_frequency_hz: float,
+    dc_exclusion_hz: float,
+    target_search_half_width_hz: float,
     source_analysis_sha256: str,
 ) -> dict[str, Any]:
     """Render an immutable relative residual-spectrum PNG or SVG and describe it."""
@@ -82,7 +85,21 @@ def render_carrier_plot(
             color="#388e3c",
             linestyle=":",
             linewidth=1.0,
-            label="Strongest transmitter-added feature",
+            label="Selected target carrier",
+        )
+        axes.axvspan(
+            requested_frequency_hz - target_search_half_width_hz,
+            requested_frequency_hz + target_search_half_width_hz,
+            color="#388e3c",
+            alpha=0.08,
+            label="Target acquisition window",
+        )
+        axes.axvspan(
+            center_frequency_hz - dc_exclusion_hz,
+            center_frequency_hz + dc_exclusion_hz,
+            color="#616161",
+            alpha=0.15,
+            label="DC exclusion",
         )
         axes.set(
             title="RF-on minus RF-off residual spectrum",

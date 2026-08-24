@@ -125,6 +125,7 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert [entry["mode"] for entry in plan["mode_plans"]] == list(MODE_ORDER)
     wspr = plan["mode_plans"][1]["plan"]
     assert wspr["frequency_hz"] == 14_097_100
+    assert wspr["receiver"]["center_frequency_hz"] == 14_072_100
     assert wspr["frame_count"] == 3
     assert plan["derived_frequencies"]["wspr_dial_frequency_hz"] == 14_095_600
     assert wspr["backend"] == "gpio"
@@ -136,6 +137,19 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert Path(tone["cw_contract"]["plan"]["path"]).is_file()
     assert Path(tone["resolved_profiles"]["bench"]["path"]).is_file()
     keyed = {entry["mode"]: entry["plan"] for entry in plan["mode_plans"][2:]}
+    assert plan["receiver_tuning"] == {
+        "policy": "zero_if_offset_target_window_v1",
+        "requested_frequency_hz": 14_097_100.0,
+        "center_frequency_hz": 14_072_100.0,
+        "tuning_offset_hz": 25_000.0,
+        "dc_exclusion_hz": 1_000.0,
+        "target_search_half_width_hz": 500.0,
+        "usable_half_span_hz": 100_000.0,
+    }
+    assert all(
+        entry["plan"]["receiver"]["center_frequency_hz"] == 14_072_100
+        for entry in plan["mode_plans"]
+    )
     assert keyed["QRSS"]["application_plan"]["protocol_contract"] == {
         "message": "ET",
         "dot_seconds": 0.7,

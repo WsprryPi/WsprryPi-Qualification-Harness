@@ -120,7 +120,7 @@ def plan(mode: str = "QRSS") -> dict[str, object]:
             "identity_sha256": digest("RSP1B-2404058C60"),
             "sample_rate_hz": 250_000,
             "bandwidth_hz": 200_000,
-            "center_frequency_hz": 14_097_100,
+            "center_frequency_hz": 14_072_100,
             "gain_db": 20,
             "channel": 0,
             "read_timeout_us": 100_000,

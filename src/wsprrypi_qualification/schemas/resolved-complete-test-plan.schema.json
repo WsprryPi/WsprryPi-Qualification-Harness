@@ -17,6 +17,7 @@
     "defaults",
     "resolved_values",
     "derived_frequencies",
+    "receiver_tuning",
     "mode_order",
     "mode_plans",
     "topology",
@@ -111,6 +112,28 @@
           "type": "number",
           "exclusiveMinimum": 0
         }
+      }
+    },
+    "receiver_tuning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy",
+        "requested_frequency_hz",
+        "center_frequency_hz",
+        "tuning_offset_hz",
+        "dc_exclusion_hz",
+        "target_search_half_width_hz",
+        "usable_half_span_hz"
+      ],
+      "properties": {
+        "policy": {"const": "zero_if_offset_target_window_v1"},
+        "requested_frequency_hz": {"type": "number", "exclusiveMinimum": 0},
+        "center_frequency_hz": {"type": "number", "exclusiveMinimum": 0},
+        "tuning_offset_hz": {"const": 25000.0},
+        "dc_exclusion_hz": {"const": 1000.0},
+        "target_search_half_width_hz": {"const": 500.0},
+        "usable_half_span_hz": {"const": 100000.0}
       }
     },
     "mode_order": {

@@ -141,7 +141,7 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
                     "strongest_feature_contrast_db": 20.0,
                 },
                 "contract": {
-                    "gate_policy": "bounded_relative_carrier_acquisition",
+                    "gate_policy": "target_window_relative_carrier_acquisition_v2",
                     "relative_acquisition_offset_gate_hz": 500.0,
                     "relative_acquisition_contrast_gate_db": 10.0,
                 },
@@ -245,7 +245,7 @@ def test_live_tone_analysis_propagates_detailed_carrier_failure(
                     "strongest_feature_contrast_db": 110.0,
                 },
                 "contract": {
-                    "gate_policy": "bounded_relative_carrier_acquisition",
+                    "gate_policy": "target_window_relative_carrier_acquisition_v2",
                     "relative_acquisition_offset_gate_hz": 500.0,
                     "relative_acquisition_contrast_gate_db": 10.0,
                 },

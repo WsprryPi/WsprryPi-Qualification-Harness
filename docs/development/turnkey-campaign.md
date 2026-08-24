@@ -79,6 +79,16 @@ WSPR dial frequency from its maintained 1500 Hz audio offset and derives the
 FSKCW space and DFCW dash frequency below the primary according to the existing
 protocol ordering.
 
+For every mode, the normal composer tunes the receiver 25 kHz below requested
+RF while leaving transmitter and protocol frequencies unchanged. This places
+the target at positive complex baseband, outside the maintained zero-IF DC
+exclusion and inside the 200-kHz usable receiver span. The carrier gate selects
+only within the requested target window; globally stronger features remain
+diagnostic. Any expert-authored receiver center whose target window overlaps DC
+or leaves the usable span is rejected during plan validation, before capture or
+RF. This gate is relative acquisition, not calibrated-power or spectral-
+compliance evidence.
+
 The command validates the complete bounded execution before constructing a
 production adapter. One deliberate invocation is the campaign authorization. Modes
 run as TONE, WSPR, QRSS, FSKCW, DFCW. Cleanup, abort, preflight, fixture,

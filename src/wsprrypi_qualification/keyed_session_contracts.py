@@ -21,6 +21,7 @@ from wsprrypi_qualification.receiver_calibration import (
 from wsprrypi_qualification.receiver_calibration import (
     validate_binding as validate_receiver_calibration,
 )
+from wsprrypi_qualification.receiver_tuning import ReceiverTuningError, ReceiverTuningGeometry
 
 KEYED_MODES = frozenset({"QRSS", "FSKCW", "DFCW"})
 LIFECYCLE_STAGES = (
@@ -96,6 +97,16 @@ def validate_resolved_keyed_plan(document: dict[str, Any]) -> dict[str, Any]:
     if not required_receiver_services.issubset(bindings["services"]):
         _fail("required keyed receiver services must be included in the service allowlist")
     receiver = document["receiver"]
+    protocol = application["protocol_contract"]
+    try:
+        ReceiverTuningGeometry(
+            requested_frequency_hz=float(protocol["primary_frequency_hz"]),
+            center_frequency_hz=float(receiver["center_frequency_hz"]),
+            sample_rate_hz=float(receiver["sample_rate_hz"]),
+            bandwidth_hz=float(receiver["bandwidth_hz"]),
+        ).validate()
+    except ReceiverTuningError as error:
+        _fail(f"invalid keyed receiver tuning geometry: {error}")
     if (
         hashlib.sha256(receiver["device"].encode("utf-8")).hexdigest()
         != receiver["identity_sha256"]

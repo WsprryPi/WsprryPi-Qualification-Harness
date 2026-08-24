@@ -25,6 +25,7 @@ from wsprrypi_qualification.receiver_calibration import (
 from wsprrypi_qualification.receiver_calibration import (
     validate_binding as validate_receiver_calibration,
 )
+from wsprrypi_qualification.receiver_tuning import ReceiverTuningError, ReceiverTuningGeometry
 from wsprrypi_qualification.results import validate_result_document
 
 
@@ -579,6 +580,16 @@ class RealQualificationSession:
 
 def validate_real_session_plan(document: dict[str, Any]) -> None:
     validate_document(document, "resolved-real-session-plan.schema.json")
+    receiver = document["receiver"]
+    try:
+        ReceiverTuningGeometry(
+            requested_frequency_hz=float(document["frequency_hz"]),
+            center_frequency_hz=float(receiver["center_frequency_hz"]),
+            sample_rate_hz=float(receiver["sample_rate_hz"]),
+            bandwidth_hz=float(receiver["bandwidth_hz"]),
+        ).validate()
+    except ReceiverTuningError as error:
+        raise RealSessionError(f"invalid receiver tuning geometry: {error}") from error
     try:
         validate_receiver_calibration(
             document["receiver_calibration"], receiver=document["receiver"]
@@ -1140,7 +1151,7 @@ def _validate_carrier(document: dict[str, object], plan: dict[str, Any], digest:
     if requested != plan["frequency_hz"] or abs((strongest - requested) - offset) > 1e-6:
         raise RealSessionError("carrier evidence frequency contradicts the plan")
     claimed = cast(str, details["gate_outcome"])
-    if policy != "bounded_relative_carrier_acquisition":
+    if policy != "target_window_relative_carrier_acquisition_v2":
         raise RealSessionError("carrier evidence uses an unsupported gate policy")
     carrier_derived = (
         "passed"

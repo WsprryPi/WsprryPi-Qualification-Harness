@@ -45,6 +45,13 @@ from wsprrypi_qualification.real_session import (
     resolved_real_plan_sha256,
     validate_real_session_plan,
 )
+from wsprrypi_qualification.receiver_tuning import (
+    DEFAULT_DC_EXCLUSION_HZ,
+    DEFAULT_TARGET_SEARCH_HALF_WIDTH_HZ,
+    ReceiverTuningError,
+    ReceiverTuningGeometry,
+    default_receiver_center_hz,
+)
 from wsprrypi_qualification.results import validate_result_document
 from wsprrypi_qualification.tool_discovery import discover_executable
 from wsprrypi_qualification.transports import CommandPlan, LocalCommandTransport
@@ -499,7 +506,9 @@ def _resolve_real(
     plan["run_id"] = f"{now.strftime('%Y%m%dT%H%M%SZ')}-{suffix}"
     plan["test_id"] = suffix
     plan["frequency_hz"] = values["frequency_hz"]
-    plan["receiver"]["center_frequency_hz"] = values["frequency_hz"]
+    plan["receiver"]["center_frequency_hz"] = default_receiver_center_hz(
+        float(cast(int, values["frequency_hz"]))
+    )
     plan["band"] = values["band"]
     plan["identity"] = {
         "callsign": values["callsign"],
@@ -574,7 +583,7 @@ def _resolve_keyed(
     )
     plan["mode"] = mode
     plan["transmitter"]["frequency_hz"] = values["frequency_hz"]
-    plan["receiver"]["center_frequency_hz"] = values["frequency_hz"]
+    plan["receiver"]["center_frequency_hz"] = default_receiver_center_hz(frequency)
     device_identity = _parse_sdr_selector(sdr_selector)["serial"]
     plan["receiver"]["device"] = device_identity
     plan["receiver"]["identity_sha256"] = hashlib.sha256(
@@ -881,6 +890,7 @@ def compose_complete_test_plan(
     if config["sdr_selector"] != sdr_selector:
         raise CompleteTestError("specified SDR differs from the deployed receiver binding")
     values = (overrides or CompleteTestOverrides()).validated()
+    requested_frequency = float(cast(int, values["frequency_hz"]))
     composed_at = datetime.now(UTC) if now is None else now.astimezone(UTC)
     campaign_id = validate_manifest_name(
         f"{composed_at.strftime('%Y%m%dT%H%M%S%fZ')}-{secrets.token_hex(4)}-{config['campaign_id']}"
@@ -963,6 +973,12 @@ def compose_complete_test_plan(
             "dfcw_secondary_frequency_hz": float(cast(int, values["frequency_hz"]))
             - float(cast(float, values["dfcw_separation_hz"])),
         },
+        "receiver_tuning": ReceiverTuningGeometry(
+            requested_frequency_hz=requested_frequency,
+            center_frequency_hz=default_receiver_center_hz(requested_frequency),
+            sample_rate_hz=250_000,
+            bandwidth_hz=200_000,
+        ).to_document(),
         "mode_order": list(MODE_ORDER),
         "mode_plans": bindings,
         "topology": config["topology"],
@@ -1010,6 +1026,19 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
     }
     if document["derived_frequencies"] != expected_derived:
         raise CompleteTestError("derived frequency evidence contradicts resolved overrides")
+    try:
+        expected_tuning = ReceiverTuningGeometry(
+            requested_frequency_hz=float(values["frequency_hz"]),
+            center_frequency_hz=default_receiver_center_hz(float(values["frequency_hz"])),
+            sample_rate_hz=250_000,
+            bandwidth_hz=200_000,
+            dc_exclusion_hz=DEFAULT_DC_EXCLUSION_HZ,
+            target_search_half_width_hz=DEFAULT_TARGET_SEARCH_HALF_WIDTH_HZ,
+        ).to_document()
+    except ReceiverTuningError as error:
+        raise CompleteTestError(str(error)) from error
+    if document["receiver_tuning"] != expected_tuning:
+        raise CompleteTestError("complete-test receiver tuning policy changed")
     if [entry["mode"] for entry in document["mode_plans"]] != list(MODE_ORDER):
         raise CompleteTestError(
             "complete-test subordinate plans are missing, duplicated, or reordered"
@@ -1067,6 +1096,17 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
             child["host"] if mode in {"TONE", "WSPR"} else child["transmitter"]["host"]
         )
         receiver = child["receiver"]
+        try:
+            geometry = ReceiverTuningGeometry(
+                requested_frequency_hz=float(values["frequency_hz"]),
+                center_frequency_hz=float(receiver["center_frequency_hz"]),
+                sample_rate_hz=float(receiver["sample_rate_hz"]),
+                bandwidth_hz=float(receiver["bandwidth_hz"]),
+            ).validate()
+        except ReceiverTuningError as error:
+            raise CompleteTestError(f"{mode} receiver tuning is invalid: {error}") from error
+        if geometry.to_document() != document["receiver_tuning"]:
+            raise CompleteTestError(f"{mode} receiver tuning differs from campaign policy")
         if transmitter_host != document["transmitter_host"]:
             raise CompleteTestError(f"{mode} retained transmitter binding changed")
         if receiver["host"] != document["receiver_host"]:

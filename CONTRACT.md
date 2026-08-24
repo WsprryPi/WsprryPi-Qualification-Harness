@@ -195,14 +195,24 @@ exact requested sample count, and explicit overflow reporting. These values are
 profile defaults for the preserved bench, not universal requirements.
 
 The carrier gate compares fixed-gain RF-on and RF-off intervals in linear
-power, using a Hann window and a documented FFT/averaging contract. Record the
-strongest transmitter-added feature, requested-frequency offset, on/off
-contrast, and best-20-Hz share. When the receiver is not frequency-calibrated,
-the gate uses bounded relative acquisition: the strongest transmitter-added
-feature must be within 500 Hz of the requested frequency and at least 10 dB
-above its RF-off power. The historical 100-Hz offset and 50-percent best-20-Hz
-thresholds remain recorded as nominal diagnostics; they are not calibrated
-frequency or thermal-stability claims.
+power, using a Hann window and a documented FFT/averaging contract. Zero-IF
+capture must place the complete requested-carrier search window outside the DC
+exclusion and inside the usable receiver span. The maintained complete-test
+policy tunes the receiver 25 kHz below requested RF. Invalid tuning geometry is
+a preflight/configuration failure, not transmitter unqualification.
+
+Carrier qualification selects the strongest resolved feature only inside the
+500-Hz target window around requested RF and requires at least 10 dB RF-on/off
+contrast. Record its requested-frequency offset, contrast, and target-window
+best-20-Hz share. Stronger features elsewhere in the captured span remain
+diagnostic and cannot redefine the requested carrier. The historical 100-Hz
+offset and 50-percent best-20-Hz thresholds remain nominal diagnostics; neither
+the carrier gate nor global feature reporting establishes calibrated power or
+spectral compliance.
+
+This target-window behavior is carrier-analysis schema version 2. Version-1
+evidence records the historical span-wide policy and is not silently
+reinterpreted or accepted as version-2 evidence.
 
 When a frozen receiver calibration is applied, retain both the indicated and
 estimated-true frequency, expanded uncertainty, selected model segment,

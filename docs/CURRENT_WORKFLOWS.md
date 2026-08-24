@@ -14,6 +14,12 @@ Profiles are schema-valid only after both JSON Schema and maintained semantic
 validation pass. Runtime authorization and current RF-path facts cannot be
 supplied by a committed example.
 
+Receiver plans must keep the complete requested-carrier acquisition window
+outside the zero-IF DC exclusion and inside the usable sample-rate/bandwidth
+span. The complete-test composer supplies the maintained 25-kHz offset for all
+five modes. Expert-authored plans with contradictory tuning geometry are
+rejected before production adapters can operate.
+
 ## Turnkey campaign orchestration
 
 Use `turnkey-campaign plan`, `validate`, and `rehearse` for one typed workflow
@@ -53,7 +59,9 @@ The maintained sequence is:
 
 1. `validate-capture-metadata` authenticates exact-count capture metadata and
    its IQ artifact.
-2. `analyze-carrier` compares distinct RF-off and RF-on captures. Add
+2. `analyze-carrier` compares distinct RF-off and RF-on captures and selects
+   the carrier inside the requested target window; stronger span-wide features
+   remain diagnostic. Add
    `--plot OUTPUT.png` or `--plot OUTPUT.svg` for an authenticated relative-spectrum
    rendering using Matplotlib Agg.
 3. `make-slot-wav` creates a canonical WAV for each bounded UTC slot.
