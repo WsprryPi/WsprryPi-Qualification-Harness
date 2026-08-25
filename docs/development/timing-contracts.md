@@ -23,6 +23,7 @@ correctness are forbidden.
 | Supervisor lifecycle | exact sum of its authenticated sequential `OperationDeadlines` fields | plan-bound and work-derived |
 | Local and SSH commands | `CommandPlan.timeout_s` | plan-bound safety ceiling |
 | Helper verification | resolved helper bound times exact operation count; every sequential operation shares the remaining aggregate envelope | work-derived |
+| Helper request transport | operation-specific server work plus any cleanup it may perform: process start includes repository inspection, process wait includes the requested wait and cleanup, and process stop includes cleanup | parent/work-derived |
 | Repository discovery/snapshot | the repository guard carries its parent helper or keyed-transaction envelope into every Git subprocess | parent-derived |
 | Remote child termination | the request carries a cleanup envelope; TERM and KILL escalation split that exact remainder into two stages | parent-derived |
 | Forwarded remote command termination | the capability plan separates command work from cleanup; INT, TERM, and KILL split the exact cleanup remainder into three stages and the local SSH process owns their sum | parent-derived |
@@ -64,6 +65,14 @@ one aggregate monotonic deadline. A slow valid `git rev-parse` may consume more
 than one nominal helper-operation share as long as all four operations complete
 inside that aggregate. This prevents the former five-second
 `parent_revision_inspect` failure while preserving a finite pre-RF bound.
+
+The helper response channel must remain open for the server work authorized by
+each request. It must not reuse the generic helper-operation timeout when the
+request explicitly authorizes longer nested work. `process-start` therefore
+uses the helper request envelope plus the repository-inspection envelope;
+`process-wait` uses the requested child wait plus its cleanup envelope; and
+`process-stop` uses the cleanup envelope. These are response-transport bounds,
+not additional permission for the child process or RF operation to run.
 
 The OpenSSH capability likewise does not give the remote command and its
 cleanup the same deadline. Its authenticated overall envelope must exceed the

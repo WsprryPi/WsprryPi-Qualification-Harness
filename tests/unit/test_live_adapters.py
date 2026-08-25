@@ -1000,6 +1000,7 @@ def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, mo
             executable_sha256,
             pinned_arguments=None,
             repository_guard=None,
+            cleanup_timeout_s=None,
         ):
             observed.update(
                 client=client,
@@ -1007,6 +1008,7 @@ def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, mo
                 executable_sha256=executable_sha256,
                 pinned_arguments=pinned_arguments,
                 repository_guard=repository_guard,
+                cleanup_timeout_s=cleanup_timeout_s,
             )
 
         def begin(self, arguments):
@@ -1044,6 +1046,7 @@ def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, mo
     assert observed["pinned_arguments"] == {
         plan["tone_server"]["configuration"]["path"]: plan["tone_server"]["configuration"]["sha256"]
     }
+    assert observed["cleanup_timeout_s"] == plan["deadlines"]["cleanup_s"]
     assert adapter._owned == []
 
 
@@ -1223,6 +1226,7 @@ def test_each_live_tone_cycle_uses_its_resolved_remote_watchdog(
             executable_sha256,
             pinned_arguments=None,
             repository_guard=None,
+            cleanup_timeout_s=None,
         ):
             observed.update(
                 client=client,
@@ -1230,6 +1234,7 @@ def test_each_live_tone_cycle_uses_its_resolved_remote_watchdog(
                 executable_sha256=executable_sha256,
                 pinned_arguments=pinned_arguments,
                 repository_guard=repository_guard,
+                cleanup_timeout_s=cleanup_timeout_s,
             )
 
         def begin(self, arguments):
@@ -1252,6 +1257,7 @@ def test_each_live_tone_cycle_uses_its_resolved_remote_watchdog(
     assert process in adapter._owned
     assert observed["hard_timeout_s"] == 2
     assert observed["executable_sha256"] == plan["wsprrypi"]["sha256"]
+    assert observed["cleanup_timeout_s"] == plan["deadlines"]["cleanup_s"]
 
 
 def test_partial_receiver_service_change_retains_restoration_intent(tmp_path: Path) -> None:

@@ -393,20 +393,28 @@ class _SshOwnedProcess:
         client: JsonHelperClient,
         handle_id: str,
         arming_acknowledgement: dict[str, object],
+        cleanup_timeout_s: float,
     ) -> None:
         self.client, self.handle_id = client, handle_id
         self.arming_acknowledgement = arming_acknowledgement
+        self.cleanup_timeout_s = cleanup_timeout_s
 
     def wait(self, timeout_s: float, cancellation: threading.Event | None) -> LaunchResult:
         if cancellation is not None and cancellation.is_set():
             return self.stop()
         response = self.client.request(
-            "process-wait", {"handle_id": self.handle_id, "timeout_s": timeout_s}
+            "process-wait",
+            {"handle_id": self.handle_id, "timeout_s": timeout_s},
+            response_timeout_s=timeout_s + self.cleanup_timeout_s,
         )
         return _launch_result_from_helper(response, self.handle_id)
 
     def stop(self) -> LaunchResult:
-        response = self.client.request("process-stop", {"handle_id": self.handle_id})
+        response = self.client.request(
+            "process-stop",
+            {"handle_id": self.handle_id},
+            response_timeout_s=self.cleanup_timeout_s,
+        )
         return _launch_result_from_helper(response, self.handle_id)
 
 
@@ -422,10 +430,20 @@ class SshOwnedProcessLauncher:
         repository_guard: dict[str, object] | None = None,
         privilege_wrapper_path: str | None = None,
         privilege_wrapper_sha256: str | None = None,
+        cleanup_timeout_s: float | None = None,
     ) -> None:
         if hard_timeout_s <= 0:
             raise CapabilityError("remote process hard deadline must be positive")
         self.client, self.hard_timeout_s = client, hard_timeout_s
+        self.cleanup_timeout_s = (
+            client.timeout_s if cleanup_timeout_s is None else cleanup_timeout_s
+        )
+        if (
+            isinstance(self.cleanup_timeout_s, bool)
+            or not math.isfinite(self.cleanup_timeout_s)
+            or self.cleanup_timeout_s <= 0
+        ):
+            raise CapabilityError("remote process cleanup deadline must be positive")
         self.executable_sha256 = executable_sha256
         self.pinned_arguments = dict(pinned_arguments or {})
         if self.pinned_arguments and repository_guard is None:
@@ -455,7 +473,7 @@ class SshOwnedProcessLauncher:
             "privilege_wrapper_sha256": self.privilege_wrapper_sha256,
             "pinned_arguments": self.pinned_arguments,
             "hard_timeout_s": self.hard_timeout_s,
-            "cleanup_timeout_s": self.client.timeout_s,
+            "cleanup_timeout_s": self.cleanup_timeout_s,
             "environment": {},
         }
         if self.repository_guard is not None:
@@ -463,14 +481,26 @@ class SshOwnedProcessLauncher:
         if scheduled_start_utc is not None:
             payload["scheduled_start_utc"] = scheduled_start_utc
             payload["minimum_arm_margin_s"] = minimum_arm_margin_s
+        inspection_timeout_s = 0.0
+        if self.repository_guard is not None:
+            raw_timeout = self.repository_guard.get("inspection_timeout_s")
+            if (
+                not isinstance(raw_timeout, (int, float))
+                or isinstance(raw_timeout, bool)
+                or not math.isfinite(float(raw_timeout))
+                or float(raw_timeout) <= 0
+            ):
+                raise CapabilityError("repository inspection deadline is invalid")
+            inspection_timeout_s = float(raw_timeout)
         response = self.client.request(
             "process-start",
             payload,
+            response_timeout_s=self.client.timeout_s + inspection_timeout_s,
         )
         handle = response.get("handle_id")
         if not isinstance(handle, str) or not handle:
             raise CapabilityError("remote process helper omitted ownership handle")
-        return _SshOwnedProcess(self.client, handle, response)
+        return _SshOwnedProcess(self.client, handle, response, self.cleanup_timeout_s)
 
 
 def _launch_result_from_helper(document: dict[str, object], handle: str) -> LaunchResult:
@@ -900,10 +930,27 @@ class JsonHelperClient:
         self.plan_sha256, self.helper_identity = plan_sha256, helper_identity
         self.executable_sha256 = executable_sha256 or artifact(executable)["sha256"]
 
-    def request(self, operation: str, payload: dict[str, object]) -> dict[str, object]:
-        return cast(dict[str, object], self.request_evidence(operation, payload)["result"])
+    def request(
+        self,
+        operation: str,
+        payload: dict[str, object],
+        *,
+        response_timeout_s: float | None = None,
+    ) -> dict[str, object]:
+        return cast(
+            dict[str, object],
+            self.request_evidence(operation, payload, response_timeout_s=response_timeout_s)[
+                "result"
+            ],
+        )
 
-    def request_evidence(self, operation: str, payload: dict[str, object]) -> dict[str, object]:
+    def request_evidence(
+        self,
+        operation: str,
+        payload: dict[str, object],
+        *,
+        response_timeout_s: float | None = None,
+    ) -> dict[str, object]:
         if artifact(self.executable)["sha256"] != self.executable_sha256:
             raise CapabilityError("capability helper executable identity changed")
         request_id = str(uuid.uuid4())
@@ -915,7 +962,14 @@ class JsonHelperClient:
             "payload": payload,
         }
         encoded = encode_request(request)
-        raw_response = self.transport.exchange(encoded, self.timeout_s)
+        response_timeout = self.timeout_s if response_timeout_s is None else response_timeout_s
+        if (
+            isinstance(response_timeout, bool)
+            or not math.isfinite(response_timeout)
+            or response_timeout <= 0
+        ):
+            raise CapabilityError("helper response deadline must be positive")
+        raw_response = self.transport.exchange(encoded, response_timeout)
         try:
             document = json.loads(raw_response)
         except json.JSONDecodeError as exc:

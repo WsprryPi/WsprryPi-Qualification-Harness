@@ -841,6 +841,7 @@ class ProductionRealSessionAdapters:
                     "writable_paths": [],
                     "inspection_timeout_s": helper_verification_deadline(plan),
                 },
+                cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
             )
         process = launcher.begin(application.arguments)
         self._owned.append(process)
@@ -995,6 +996,7 @@ class ProductionRealSessionAdapters:
                 "writable_paths": [server_plan["configuration"]["path"]],
                 "inspection_timeout_s": helper_verification_deadline(plan),
             },
+            cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
         )
         server = launcher.begin(tuple(server_plan["arguments"]))
         epoch = time.monotonic()
@@ -1972,11 +1974,13 @@ def build_production_adapters(
                 tx_client,
                 plan["deadlines"]["transmitter_s"],
                 plan["wsprrypi"]["sha256"],
+                cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
             ),
             source_launcher=SshOwnedProcessLauncher(
                 tx_client,
                 plan["deadlines"]["helper_s"],
                 plan["source"]["git_sha256"],
+                cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
             ),
             capture_capability=SoapyCaptureCapability(LocalTransportLauncher()),
             paths=paths,
@@ -2037,6 +2041,7 @@ class KeyedCapabilityProviders:
             privilege_wrapper_sha256=plan["capability_bindings"][
                 "transmitter_process_privilege_wrapper"
             ]["sha256"],
+            cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
         )
         self.capture_capability = SoapyCaptureCapability(LocalTransportLauncher())
         self.work_directory = work_directory
