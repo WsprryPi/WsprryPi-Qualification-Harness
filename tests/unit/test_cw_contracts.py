@@ -12,6 +12,7 @@ from wsprrypi_qualification.cw_iq import (
     CwIqError,
     _acquired_timing_alignment,
     _shifted_frequency_model,
+    _unmatched_event_cause,
     _unshifted_frequency_model,
     analyze_synthetic_iq,
     generate_synthetic_iq,
@@ -978,6 +979,22 @@ def test_synthetic_iq_interrupted_required_carrier_is_detected(tmp_path: Path) -
     )
     assert measured["analysis_outcome"] == "failed"
     assert "missing_carrier" in measured["failure_causes"]
+
+
+@pytest.mark.parametrize(
+    ("state", "continuous", "expected"),
+    (
+        ("primary", False, "missing_carrier"),
+        ("secondary", None, "missing_carrier"),
+        ("primary", True, "unresolved_frequency_transition"),
+        ("secondary", True, "unresolved_frequency_transition"),
+        ("off", None, "false_silence"),
+    ),
+)
+def test_unmatched_event_classifies_presence_independently_from_transition_resolution(
+    state: str, continuous: bool | None, expected: str
+) -> None:
+    assert _unmatched_event_cause(state, continuous) == expected
 
 
 def test_acquired_replay_enforces_transition_limit_independently_of_timing_tolerance(

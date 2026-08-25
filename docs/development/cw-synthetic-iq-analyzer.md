@@ -26,6 +26,13 @@ limit. Tone, CW, and QRSS use a bounded common receiver offset of at most
 Shifted modes retain their separate spacing, state, transition, and drift model.
 Spacing resolution is therefore applicable only to FSKCW and DFCW.
 
+For acquired shifted-CW evidence, carrier presence and frequency-transition
+resolution are independent facts. An active expected interval with continuous
+RF but no uniquely resolved primary/secondary run is reported as
+`unresolved_frequency_transition`; `missing_carrier` is reserved for an active
+interval whose RF-presence test fails. The analyzer does not reinterpret a
+backend's variable startup latency as part of the requested dot duration.
+
 ```text
 wsprrypi-qualification generate-cw-synthetic-iq \
   PLAN.json EXPECTED.json CAPTURE.cf32 CAPTURE.json --seed 1
