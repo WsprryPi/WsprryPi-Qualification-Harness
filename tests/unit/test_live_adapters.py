@@ -28,6 +28,7 @@ from wsprrypi_qualification.live_adapters import (
     _reject_git_worktree_runtime,
     _retained_capture_covers_wspr_frames,
     _stage_bound_artifact,
+    _wspr_frame_transitions,
 )
 from wsprrypi_qualification.manifests import build_manifest, render_manifest, write_manifest
 from wsprrypi_qualification.offline import artifact
@@ -615,6 +616,80 @@ def test_coherent_capture_guard_covers_complete_bounded_receiver_setup() -> None
         sample_rate_hz=250_000,
         required_margin_s=5,
     )
+
+
+def test_wspr_frames_transition_independently_at_exact_utc_boundaries() -> None:
+    slots = [1_000.0, 1_120.0, 1_240.0]
+    announced: set[int] = set()
+    completed: set[int] = set()
+
+    assert _wspr_frame_transitions(slots, 999.999, announced, completed) == []
+    assert _wspr_frame_transitions(slots, 1_000.0, announced, completed) == [(1, "started")]
+    assert _wspr_frame_transitions(slots, 1_110.591, announced, completed) == []
+    assert _wspr_frame_transitions(slots, 1_110.592, announced, completed) == [(1, "completed")]
+    assert _wspr_frame_transitions(slots, 1_120.0, announced, completed) == [(2, "started")]
+    assert announced == {1, 2}
+    assert completed == {1}
+
+
+def test_wspr_wav_and_decode_emit_started_and_completed_per_frame(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = bare_adapter(tmp_path)
+    iq = tmp_path / "coherent.cf32"
+    metadata = tmp_path / "coherent.json"
+    iq.write_bytes(b"12345678")
+    metadata.write_text("{}", encoding="utf-8")
+    adapter._capture_artifacts["coherent"] = (iq, metadata)
+    adapter._acquired_carrier_frequency_hz = None
+    updates: list[tuple[str, str, int | None, int | None]] = []
+    adapter.set_progress(
+        lambda stage, status, detail, item, item_count: updates.append(
+            (stage, status, item, item_count)
+        )
+    )
+
+    def run_offline(arguments: tuple[str, ...], timeout_s: float) -> None:
+        del timeout_s
+        command = arguments[0]
+        if command == "make-slot-wav":
+            Path(arguments[4]).write_text("{}", encoding="utf-8")
+            (tmp_path / f"slot-{len(list(tmp_path.glob('slot-*.wav')))}.wav").write_bytes(b"RIFF")
+        elif command == "decode-wspr":
+            Path(arguments[3]).write_text("{}", encoding="utf-8")
+        else:
+            Path(arguments[1]).write_text("{}", encoding="utf-8")
+
+    def load_document(path: Path, schema: str) -> dict:
+        if schema == "audio-conversion.schema.json":
+            number = int(path.stem.split("-")[-1])
+            wav = tmp_path / f"slot-{number}.wav"
+            wav.write_bytes(b"RIFF")
+            return {"output": {"path": str(wav)}}
+        if schema == "decoder-evidence.schema.json":
+            return {
+                "slot_utc": "2026-08-25T00:00:00Z",
+                "gate_outcome": "passed",
+                "decoder_data_artifacts": [],
+            }
+        return {"gate_outcome": "passed"}
+
+    monkeypatch.setattr(adapter, "_run_offline", run_offline)
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.load_json_document", load_document)
+    monkeypatch.setattr(adapter, "_stage", lambda *args, **kwargs: {"outcome": "completed"})
+    plan = plan_document()
+    adapter.create_wavs_and_decode(plan, {})
+
+    assert updates == [
+        (stage, status, item, 3)
+        for item in range(1, 4)
+        for stage, status in (
+            ("wspr_wav", "started"),
+            ("wspr_wav", "completed"),
+            ("wspr_decode", "started"),
+            ("wspr_decode", "completed"),
+        )
+    ]
 
 
 @pytest.mark.parametrize(

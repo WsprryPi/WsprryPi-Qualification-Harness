@@ -44,7 +44,7 @@ def event(**overrides: object) -> dict[str, object]:
 
 
 def test_format_step_is_bounded_and_colors_only_outside_visible_text() -> None:
-    step = Step("WSPR", "x" * 200, "completed", "success")
+    step = Step("2026-08-24T19:08:04Z", "WSPR", "x" * 200, "completed", "success")
     plain = format_step(step, color=False)
     colored = format_step(step, color=True)
 
@@ -53,10 +53,11 @@ def test_format_step_is_bounded_and_colors_only_outside_visible_text() -> None:
     assert "…" in plain
     assert colored.endswith("\x1b[0m")
     assert plain in colored
+    assert plain.startswith("✓ 2026-08-24T19:08:04Z ")
 
 
 def test_format_step_bounds_untrusted_scope_and_state() -> None:
-    step = Step("SCOPE" * 100, "label", "state" * 100, "failure")
+    step = Step("2026-08-24T19:08:04Z", "SCOPE" * 100, "label", "state" * 100, "failure")
 
     assert len(format_step(step, color=False)) == MAX_COLUMNS
 
@@ -111,18 +112,39 @@ def test_interactive_update_redraws_one_stable_row_and_reset_clears_it() -> None
 
     output = stream.getvalue()
     assert output.count("\x1b[1F") == 2
-    assert "\x1b[2K✓ TONE" in output
+    assert "\x1b[2K✓ 2026-08-24T19:08:04Z TONE" in output
     assert not renderer._steps
 
 
-def test_aggregate_completion_closes_frame_and_command_rows() -> None:
+def test_each_frame_completion_updates_only_its_own_row() -> None:
+    stream = io.StringIO()
+    renderer = Renderer(stream, color=False)
+    renderer.update(event(mode="WSPR", stage="wspr_frame", item=1, item_count=3))
+    renderer.update(
+        event(
+            sequence=2,
+            mode="WSPR",
+            stage="wspr_frame",
+            status="completed",
+            item=1,
+            item_count=3,
+        )
+    )
+    renderer.update(event(sequence=3, mode="WSPR", stage="wspr_frame", item=2, item_count=3))
+    renderer.update(event(mode="WSPR", stage="wspr_frames", status="completed"))
+
+    steps = list(renderer._steps.values())
+    assert steps[0].state == "completed"
+    assert steps[1].state == "started"
+
+
+def test_campaign_completion_closes_command_row_with_terminal_timestamp() -> None:
     stream = io.StringIO()
     renderer = Renderer(stream, color=False)
     renderer.update(event(campaign_id=None, mode=None, stage="command", status="started"))
-    renderer.update(event(mode="WSPR", stage="wspr_frame", item=1, item_count=3))
-    renderer.update(event(mode="WSPR", stage="wspr_frames", status="completed"))
     renderer.update(
         event(
+            timestamp_utc="2026-08-24T20:09:05.123456Z",
             mode=None,
             stage="campaign",
             status="terminal",
@@ -132,7 +154,36 @@ def test_aggregate_completion_closes_frame_and_command_rows() -> None:
 
     steps = list(renderer._steps.values())
     assert steps[0].state == "completed"
-    assert steps[1].state == "completed"
+    assert steps[0].timestamp == "2026-08-24T20:09:05Z"
+
+
+def test_wav_and_decode_lifecycle_rows_are_independent() -> None:
+    stream = io.StringIO()
+    renderer = Renderer(stream, color=False)
+    renderer.update(event(mode="WSPR", stage="wspr_wav", item=1, item_count=3))
+    renderer.update(
+        event(
+            sequence=2,
+            mode="WSPR",
+            stage="wspr_wav",
+            status="completed",
+            item=1,
+            item_count=3,
+        )
+    )
+    renderer.update(event(sequence=3, mode="WSPR", stage="wspr_decode", item=1, item_count=3))
+
+    steps = list(renderer._steps.values())
+    assert [(step.label, step.state) for step in steps] == [
+        ("WAV generation 1/3", "completed"),
+        ("WSPR decode 1/3", "started"),
+    ]
+
+
+def test_invalid_timestamp_is_bounded_and_visible() -> None:
+    stream = io.StringIO()
+    Renderer(stream, color=False).update(event(timestamp_utc="not-a-time"))
+    assert stream.getvalue().startswith("▶ ????-??-??T??:??:??Z ")
 
 
 def test_replay_handles_partial_final_record_and_ignores_other_json(tmp_path: Path) -> None:
