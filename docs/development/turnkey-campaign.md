@@ -71,6 +71,21 @@ wsprrypi-qualification complete-test wspr4 wspr5 \
 wsprrypi-qualification validate-complete-test CAMPAIGN-BUNDLE
 ```
 
+When the complete-test progress producer reports its JSONL path and tracking
+command, follow that file from another terminal with the compact viewer:
+
+```text
+wspq-progress /path/to/complete-test-progress.jsonl
+```
+
+The viewer keeps each logical campaign, mode, capture, frame, observation, and
+cleanup step on one terminal row. Later queued, started, and terminal records
+replace that row with a status glyph and color, and visible output is limited to
+79 columns. It exits after receiver delegation completes; direct receiver runs
+exit at the campaign terminal record. Use `--replay` to render an existing log
+without waiting for another record. This display is operational convenience;
+the authenticated campaign bundle remains authoritative evidence.
+
 Defaults are 20 m, 14,097,100 Hz, `Q0QQQ`, `JJ00`, 0 dBm, keyed message `ET`,
 0.7-second QRSS/FSKCW/DFCW dots, and 5.0 Hz FSKCW/DFCW separation. All are
 named CLI overrides. WSPR retains the maintained three-frame contract; keyed
