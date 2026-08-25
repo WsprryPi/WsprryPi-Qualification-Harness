@@ -25,7 +25,7 @@ from wsprrypi_qualification.live_adapters import (
     _derive_scheduled_mode_plan,
     _intentional_carrier_stop_verified,
     _owned_process_released,
-    _retained_capture_has_margin,
+    _retained_capture_covers_wspr_frames,
     _stage_bound_artifact,
 )
 from wsprrypi_qualification.manifests import build_manifest, render_manifest, write_manifest
@@ -589,18 +589,51 @@ def test_verified_early_exit_releases_owned_process_without_claiming_intentional
     )
 
 
-def test_coherent_capture_guard_and_retained_margin_are_distinct() -> None:
+def test_coherent_capture_guard_covers_complete_bounded_receiver_setup() -> None:
     slot = datetime(2026, 8, 13, 20, 44, tzinfo=UTC)
-    assert _coherent_capture_launch_epoch(slot, 5, 0.5) == slot.timestamp() - 5.5
-    assert _retained_capture_has_margin(
-        {"timestamps": {"retained_capture_start_utc": "2026-08-13T20:43:55Z"}},
-        slot,
-        5,
+    launch = _coherent_capture_launch_epoch(slot, 5, 5)
+    assert launch == slot.timestamp() - 10
+    # The live failure took 591 ms from helper start to retained capture.  With
+    # the complete readiness bound as the guard, the same startup is safely early.
+    retained = datetime.fromtimestamp(launch + 0.591, UTC)
+    assert _retained_capture_covers_wspr_frames(
+        {
+            "timestamps": {"retained_capture_start_utc": retained.isoformat()},
+            "retained_sample_count": 92_500_000,
+        },
+        [slot, slot + timedelta(seconds=120), slot + timedelta(seconds=240)],
+        sample_rate_hz=250_000,
+        required_margin_s=5,
     )
-    assert not _retained_capture_has_margin(
-        {"timestamps": {"retained_capture_start_utc": "2026-08-13T20:43:55.001Z"}},
-        slot,
-        5,
+
+
+@pytest.mark.parametrize(
+    ("start_offset_s", "sample_count", "expected"),
+    [
+        (-5.0, 92_500_000, True),
+        (-5.001, 92_500_000, True),
+        (-4.999, 92_500_000, False),
+        (-4.909, 92_500_000, False),
+        (-5.0, 91_249_999, False),
+        (-5.091, 92_500_000, True),
+    ],
+)
+def test_retained_capture_proves_all_decoder_windows(
+    start_offset_s: float, sample_count: int, expected: bool
+) -> None:
+    slot = datetime(2026, 8, 13, 20, 44, tzinfo=UTC)
+    retained = slot + timedelta(seconds=start_offset_s)
+    assert (
+        _retained_capture_covers_wspr_frames(
+            {
+                "timestamps": {"retained_capture_start_utc": retained.isoformat()},
+                "retained_sample_count": sample_count,
+            },
+            [slot, slot + timedelta(seconds=120), slot + timedelta(seconds=240)],
+            sample_rate_hz=250_000,
+            required_margin_s=5,
+        )
+        is expected
     )
 
 

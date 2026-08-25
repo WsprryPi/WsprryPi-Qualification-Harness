@@ -34,10 +34,10 @@ def test_wspr_deadline_contains_slot_wait_capture_analysis_publication_and_clean
     plan = plan_document()
     session_start = datetime(2026, 8, 12, 19, 58, 20, tzinfo=UTC)
 
-    assert required_wspr_overall_deadline(plan, session_start) == 977
+    assert required_wspr_overall_deadline(plan, session_start) == 972
 
     plan["deadlines"]["cleanup_s"] += 7
-    assert required_wspr_overall_deadline(plan, session_start) == 991
+    assert required_wspr_overall_deadline(plan, session_start) == 986
 
 
 def test_wspr_deadline_rejects_session_after_capture_launch() -> None:
@@ -50,7 +50,7 @@ def test_wspr_deadline_rejects_session_after_capture_launch() -> None:
 def test_wspr_offline_deadlines_scale_from_exact_coherent_capture_work() -> None:
     plan = plan_document()
     assert plan["coherent_capture"]["sample_count"] * 8 == 740_000_000
-    assert wspr_capture_setup_deadline(plan) == 0.5
+    assert wspr_capture_setup_deadline(plan) == 5
     assert wspr_frame_analysis_deadline(plan) == 65
     assert wspr_summary_deadline(plan) == 178
     assert wspr_publication_deadline(plan) == 119

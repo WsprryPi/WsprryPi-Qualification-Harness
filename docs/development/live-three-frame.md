@@ -57,8 +57,14 @@ The lifecycle is intentionally ordered:
     inspect backend quiescence, close both helpers, and publish new-file-only
     evidence plus SHA256SUMS.
 
-WSPR timing is derived after the three UTC slots are final. The outer session
-deadline contains receiver setup derived from the configured read interval,
+WSPR timing is derived after the three UTC slots are final. The coherent helper
+is launched one complete helper-readiness bound before the required retained
+margin. That enforced bound covers device configuration, stream activation,
+the discarded first read, and retained-output establishment; a receiver read
+timeout alone does not cover that sequence. After capture, the adapter proves
+from the authenticated retained timestamp, sample rate, and exact sample count
+that every resolved slot has its required pre-slot margin and complete frame.
+The outer session deadline contains that receiver-readiness bound,
 the wait from session start to coherent-capture launch, the fixed 370-second
 protocol capture, and workload-derived offline bounds. Frame analysis accounts
 for two complete CF32 validation/render passes plus the plan-bound decoder;

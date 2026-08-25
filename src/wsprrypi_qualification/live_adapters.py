@@ -77,6 +77,7 @@ from wsprrypi_qualification.receiver_calibration import (
     ReceiverCalibrationError,
     validate_live_binding,
 )
+from wsprrypi_qualification.timing import sample_index_at_utc
 
 _T = TypeVar("_T")
 
@@ -148,13 +149,31 @@ def _coherent_capture_launch_epoch(
     return first_slot.timestamp() - required_margin_s - setup_deadline_s
 
 
-def _retained_capture_has_margin(
-    metadata: dict[str, Any], first_slot: datetime, required_margin_s: float
+def _retained_capture_covers_wspr_frames(
+    metadata: dict[str, Any],
+    slots: list[datetime],
+    *,
+    sample_rate_hz: int,
+    required_margin_s: float,
+    frame_duration_s: int = 120,
 ) -> bool:
-    retained_start = datetime.fromisoformat(
-        metadata["timestamps"]["retained_capture_start_utc"].replace("Z", "+00:00")
-    )
-    return retained_start <= first_slot - timedelta(seconds=required_margin_s)
+    """Prove the retained sample interval contains every required decoder window."""
+    try:
+        retained_start = datetime.fromisoformat(
+            metadata["timestamps"]["retained_capture_start_utc"].replace("Z", "+00:00")
+        )
+        retained_count = int(metadata["retained_sample_count"])
+        margin_samples = sample_rate_hz * required_margin_s
+        frame_samples = sample_rate_hz * frame_duration_s
+        if not margin_samples.is_integer():
+            return False
+        for slot in slots:
+            start = sample_index_at_utc(retained_start, slot, sample_rate_hz)
+            if start < int(margin_samples) or start + frame_samples > retained_count:
+                return False
+    except (KeyError, TypeError, ValueError):
+        return False
+    return bool(slots)
 
 
 def _intentional_carrier_stop_verified(result: object) -> bool:
@@ -1035,6 +1054,11 @@ class ProductionRealSessionAdapters:
             if errors or not worker.is_alive():
                 break
             time.sleep(0.01)
+        # Do not turn poll cadence into an undeclared subtraction from the
+        # resolved readiness bound. Accept an output established at the exact
+        # boundary, but never wait beyond it.
+        if expected.exists() and not errors and worker.is_alive():
+            return
         raise RealSessionError("receiver capture did not establish its retained output before RF")
 
     def analyze_carrier(
@@ -1255,13 +1279,17 @@ class ProductionRealSessionAdapters:
                 raise RealSessionError(f"coherent capture failed: {capture_error[0]}")
             metadata_path = self._capture_artifacts["coherent"][1]
             metadata = load_json_document(metadata_path, "capture-metadata.schema.json")
-            if not _retained_capture_has_margin(
+            slot_datetimes = [
+                datetime.fromisoformat(value.replace("Z", "+00:00")) for value in plan["slots_utc"]
+            ]
+            if not _retained_capture_covers_wspr_frames(
                 metadata,
-                first_slot,
-                plan["coherent_capture"]["margin_before_first_slot_s"],
+                slot_datetimes,
+                sample_rate_hz=plan["coherent_capture"]["sample_rate_hz"],
+                required_margin_s=plan["coherent_capture"]["margin_before_first_slot_s"],
             ):
                 raise RealSessionError(
-                    "coherent capture retained start missed its resolved UTC margin"
+                    "coherent capture cannot supply every resolved WSPR decoder window"
                 )
             wait = process.wait(
                 self._remaining(plan["deadlines"]["transmitter_s"], reserve_cleanup=True), None

@@ -47,8 +47,14 @@ HELPER_VERIFICATION_OPERATIONS = (
 
 
 def wspr_capture_setup_deadline(plan: dict[str, Any]) -> float:
-    """Bound receiver setup by the plan's maximum blocking read interval."""
-    return float(plan["receiver"]["read_timeout_us"]) / 1_000_000.0
+    """Bound receiver setup by the enforced capture-readiness deadline.
+
+    Setup includes device configuration, stream activation, the discarded first
+    read, and creation of the retained output.  A single read timeout bounds only
+    one of those operations; the adapter's helper deadline bounds the complete
+    readiness transition and is therefore the launch guard that can be enforced.
+    """
+    return float(plan["deadlines"]["helper_s"])
 
 
 CF32_BYTES_PER_SAMPLE = 8
