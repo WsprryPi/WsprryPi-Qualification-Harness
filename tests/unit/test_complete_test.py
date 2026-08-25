@@ -26,6 +26,7 @@ from wsprrypi_qualification.complete_test import (
 from wsprrypi_qualification.manifests import write_manifest
 from wsprrypi_qualification.offline import artifact
 from wsprrypi_qualification.progress import ProgressReporter
+from wsprrypi_qualification.progress_viewer import tracking_command
 
 SDR = "driver=sdrplay,serial=2404058C60"
 DISCOVERED_SDR = {
@@ -167,6 +168,31 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
 def test_default_path_needs_no_cli_configuration_argument(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("WSPQ_CONFIG_DIR", str(tmp_path))
     assert configuration_path("wspr5", "wspr6") == (tmp_path / "complete-test/wspr5--wspr6.json")
+
+
+def test_complete_test_announces_runnable_progress_command(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    progress_path = tmp_path / "Application Support/progress.jsonl"
+
+    assert (
+        main(
+            [
+                "complete-test",
+                "wspr4.local",
+                "wspr5.local",
+                "--sdr",
+                SDR,
+                "--progress-log",
+                str(progress_path),
+            ]
+        )
+        == 2
+    )
+
+    stderr = capsys.readouterr().err
+    assert f"Progress log: {progress_path.resolve()}" in stderr
+    assert f"Track progress: {tracking_command(progress_path)}" in stderr
 
 
 def test_exact_sdr_selector_resolves_unique_driver_and_serial(monkeypatch) -> None:

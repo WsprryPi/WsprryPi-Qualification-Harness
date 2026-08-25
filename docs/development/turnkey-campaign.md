@@ -72,11 +72,13 @@ wsprrypi-qualification complete-test wspr4 wspr5 \
 wsprrypi-qualification validate-complete-test CAMPAIGN-BUNDLE
 ```
 
-When the complete-test progress producer reports its JSONL path and tracking
-command, follow that file from another terminal with the compact viewer:
+When the complete-test progress producer opens its JSONL file, it prints the
+exact tracking command for another terminal. The command binds the running
+Python interpreter and resolved viewer source, so it does not depend on a
+separately installed console script or shell `PATH`:
 
 ```text
-wspq-progress /path/to/complete-test-progress.jsonl
+/path/to/python /path/to/progress_viewer.py /path/to/complete-test-progress.jsonl
 ```
 
 The viewer keeps each logical campaign, mode, capture, frame, observation, and

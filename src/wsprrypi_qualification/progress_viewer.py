@@ -65,13 +65,24 @@ class Step:
     kind: str
 
 
-def tracking_command(path: Path, *, windows: bool | None = None) -> str:
-    """Return the command a producer can print when its progress log opens."""
+def tracking_command(
+    path: Path,
+    *,
+    python_executable: Path | None = None,
+    viewer_path: Path | None = None,
+    windows: bool | None = None,
+) -> str:
+    """Return a self-contained command for the producer's exact viewer."""
     if windows is None:
         windows = os.name == "nt"
+    arguments = [
+        str(python_executable or Path(sys.executable).resolve()),
+        str(viewer_path or Path(__file__).resolve()),
+        str(path),
+    ]
     if windows:
-        return subprocess.list2cmdline(["wspq-progress", str(path)])
-    return f"wspq-progress {shlex.quote(str(path))}"
+        return subprocess.list2cmdline(arguments)
+    return shlex.join(arguments)
 
 
 def _semantic_state(status: str, detail: str) -> tuple[str, str]:
@@ -229,8 +240,10 @@ def _is_terminal(event: dict[str, object], *, delegation_seen: bool) -> bool:
     return not delegation_seen and stage == "campaign" and status == "terminal"
 
 
-def view(path: Path, *, follow: bool, stream: TextIO = sys.stdout) -> int:
+def view(path: Path, *, follow: bool, stream: TextIO | None = None) -> int:
     """Render a progress log, optionally following until the run terminates."""
+    if stream is None:
+        stream = sys.stdout
     renderer = Renderer(stream, emit_updates=follow)
     delegation_seen = False
     offset = 0
@@ -315,8 +328,6 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     path = args.log_file.expanduser()
-    print(f"Tracking: {path}")
-    print(f"Command:  {tracking_command(path)}")
     try:
         return view(path, follow=not args.replay)
     except KeyboardInterrupt:

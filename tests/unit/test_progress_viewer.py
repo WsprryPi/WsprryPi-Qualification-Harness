@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import shlex
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from wsprrypi_qualification.progress_viewer import (
     MAX_COLUMNS,
     Renderer,
     Step,
     format_step,
+    main,
     tracking_command,
     view,
 )
@@ -161,8 +167,72 @@ def test_malformed_field_types_do_not_crash_renderer() -> None:
 
 
 def test_tracking_command_quotes_paths() -> None:
-    assert tracking_command(Path("a progress.jsonl")) == "wspq-progress 'a progress.jsonl'"
-    assert (
-        tracking_command(Path("a progress.jsonl"), windows=True)
-        == 'wspq-progress "a progress.jsonl"'
+    python = Path("/opt/Python 3/python")
+    viewer = Path("/opt/Harness Source/progress_viewer.py")
+    log = Path("/tmp/a progress.jsonl")
+    assert tracking_command(log, python_executable=python, viewer_path=viewer) == (
+        "'/opt/Python 3/python' '/opt/Harness Source/progress_viewer.py' '/tmp/a progress.jsonl'"
     )
+    assert (
+        tracking_command(
+            Path("C:/Application Data/progress.jsonl"),
+            python_executable=Path("C:/Program Files/Python/python.exe"),
+            viewer_path=Path("C:/Harness Source/progress_viewer.py"),
+            windows=True,
+        )
+        == '"C:/Program Files/Python/python.exe" "C:/Harness Source/progress_viewer.py" '
+        '"C:/Application Data/progress.jsonl"'
+    )
+
+
+def test_viewer_does_not_repeat_its_invocation(tmp_path: Path, capsys) -> None:
+    path = tmp_path / "progress.jsonl"
+    path.write_text(
+        json.dumps(
+            event(
+                mode=None,
+                stage="campaign",
+                status="terminal",
+                detail="campaign ended with qualified",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert main(["--replay", str(path)]) == 0
+    output = capsys.readouterr().out
+    assert "Tracking:" not in output
+    assert "Command:" not in output
+    assert "Five-mode campaign" in output
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX copy-paste command execution")
+def test_tracking_command_is_directly_executable_with_spaces(tmp_path: Path) -> None:
+    path = tmp_path / "Application Support/progress.jsonl"
+    path.parent.mkdir()
+    path.write_text(
+        json.dumps(
+            event(
+                mode=None,
+                stage="campaign",
+                status="terminal",
+                detail="campaign ended with qualified",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    command = tracking_command(path)
+
+    result = subprocess.run(
+        [*shlex.split(command), "--replay"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert "Five-mode campaign" in result.stdout
