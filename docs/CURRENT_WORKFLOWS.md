@@ -45,8 +45,13 @@ Every invocation creates an exclusive JSON Lines progress log and prints its
 absolute path to stderr before long-running work begins. By default it is kept
 in the invoking host's durable user-state directory, not temporary or remote
 deployment storage, so stage cleanup cannot remove it before review. Use
-`--progress-log PATH` to select another durable location explicitly. Records are flushed individually and carry the
-campaign, mode, stage, status, and optional frame or observation number; stdout
+`--progress-log PATH` to select another durable location explicitly. Records are
+flushed individually and carry the timestamp, campaign, mode, stage, status,
+and optional frame or observation number. The viewer places a normalized
+second-resolution UTC timestamp immediately after every status glyph. Each WSPR
+frame changes from started to completed at its own RF-window boundary, and each
+per-frame WAV generation and decode operation reports both started and
+completed states; stdout
 remains reserved for the final structured result. Delegated receiver execution
 forwards protocol records into the invoking controller's local log, so the same
 tailing interface works from either endpoint or a third system.

@@ -97,9 +97,13 @@ separately installed console script or shell `PATH`:
 ```
 
 The viewer keeps each logical campaign, mode, capture, frame, observation, and
-cleanup step on one terminal row. Later queued, started, and terminal records
-replace that row with a status glyph and color, and visible output is limited to
-79 columns. It exits after receiver delegation completes; direct receiver runs
+cleanup step on one terminal row. Every row begins with its status glyph followed
+immediately by a normalized `YYYY-MM-DDTHH:MM:SSZ` timestamp. Later queued,
+started, and terminal records replace that row, and visible output is limited to
+79 columns. WSPR frames complete independently at their 110.592-second RF-window
+boundaries. Per-frame WAV generation and WSPR decoding each expose distinct
+started and completed rows, so offline processing never creates an unexplained
+multi-minute gap. The viewer exits after receiver delegation completes; direct receiver runs
 exit at the campaign terminal record. Use `--replay` to render an existing log
 without waiting for another record. This display is operational convenience;
 the authenticated campaign bundle remains authoritative evidence.
