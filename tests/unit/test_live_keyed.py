@@ -501,7 +501,7 @@ def test_required_receiver_service_restoration_failure_fails_cleanup() -> None:
     assert rx.running is True
 
 
-def test_keyed_capture_is_ready_and_prequiet_completes_before_process_launch(
+def test_keyed_process_is_armed_before_capture_and_rf_waits_for_readiness(
     tmp_path: Path,
 ) -> None:
     from tests.unit.test_cw_contracts import _chain
@@ -511,7 +511,7 @@ def test_keyed_capture_is_ready_and_prequiet_completes_before_process_launch(
     mode_plan_path = _chain(reference, "qrss")[0]
     mode_document = json.loads(mode_plan_path.read_text(encoding="utf-8"))
     mode_document["protocol"]["repetitions"] = 1
-    mode_document["protocol"]["pre_quiet_seconds"] = 0.02
+    mode_document["protocol"]["pre_quiet_seconds"] = 0.2
     mode_document["capture_contract"]["sample_count"] = 10
     mode_plan_path.write_text(json.dumps(mode_document), encoding="utf-8")
     helper = tmp_path / "capture-helper"
@@ -561,19 +561,23 @@ def test_keyed_capture_is_ready_and_prequiet_completes_before_process_launch(
             return self.wait(0, None)
 
     class FakeLauncher:
-        def begin_scheduled(self, arguments, *, scheduled_start_utc, minimum_arm_margin_s):
+        def begin_scheduled(self, arguments, *, schedule_after_arm_s, minimum_arm_margin_s):
             assert arguments
-            assert calls == ["capture_ready"]
+            assert calls == []
             assert minimum_arm_margin_s > 0
+            assert schedule_after_arm_s == pytest.approx(0.2)
             calls.append("process_armed")
             process = FakeProcess()
+            helper_observed_utc = datetime.now(UTC)
+            scheduled_start_utc = datetime.now(UTC) + timedelta(seconds=schedule_after_arm_s)
+            scheduled_start_utc = scheduled_start_utc.isoformat().replace("+00:00", "Z")
             process.arming_acknowledgement = {
                 "handle_id": process.handle_id,
                 "child_identity": "armed",
                 "cleanup_verified": False,
                 "scheduled_start_utc": scheduled_start_utc,
-                "helper_observed_utc": scheduled_start_utc,
-                "arm_margin_s": minimum_arm_margin_s,
+                "helper_observed_utc": helper_observed_utc.isoformat().replace("+00:00", "Z"),
+                "arm_margin_s": schedule_after_arm_s,
             }
             return process
 
@@ -594,7 +598,7 @@ def test_keyed_capture_is_ready_and_prequiet_completes_before_process_launch(
     started = time.monotonic()
     assert providers.start_process(("wsprrypi",), 1) == "process-1"
     assert time.monotonic() - started < 0.5
-    assert calls == ["capture_ready", "process_armed"]
+    assert calls == ["process_armed", "capture_ready"]
     release.set()
     assert providers.capture(resolved, 1) is not None
 
@@ -810,9 +814,11 @@ def test_keyed_capture_failure_prevents_process_launch(
     armed_stopped: list[bool] = []
 
     class ForbiddenLauncher:
-        def begin_scheduled(self, arguments, *, scheduled_start_utc, minimum_arm_margin_s):
+        def begin_scheduled(self, arguments, *, schedule_after_arm_s, minimum_arm_margin_s):
             assert arguments
             armed_started.append(True)
+            scheduled_start_utc = datetime.now(UTC) + timedelta(seconds=schedule_after_arm_s)
+            scheduled_start_utc = scheduled_start_utc.isoformat().replace("+00:00", "Z")
 
             class ArmedProcess:
                 handle_id = "armed-only"
@@ -863,3 +869,23 @@ def test_keyed_capture_failure_prevents_process_launch(
     assert not providers.capture_outputs[1].exists()
     assert not Path(f"{providers.capture_outputs[1]}.incomplete").exists()
     assert not providers.cleanup(resolved, 1)
+
+
+def test_verified_pre_rf_capture_cancellation_is_successful_cleanup(tmp_path: Path) -> None:
+    diagnostic = tmp_path / "capture-diagnostic.json"
+    diagnostic.write_text(
+        json.dumps(
+            {
+                "evidence_type": "soapy_capture_failure_diagnostic",
+                "execution": {
+                    "cancelled": True,
+                    "timed_out": False,
+                    "disconnected": False,
+                    "cleanup_verified": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    error = live_adapters_module.CaptureCapabilityError("cancelled", diagnostic)
+    assert live_adapters_module.KeyedCapabilityProviders._verified_capture_cancellation(error)

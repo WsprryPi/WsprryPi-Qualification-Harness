@@ -12,6 +12,7 @@ import re
 import secrets
 import shutil
 import socket
+import subprocess
 import time
 from collections.abc import Callable
 from copy import deepcopy
@@ -50,9 +51,12 @@ from wsprrypi_qualification.offline import (
     validate_document,
     write_json_new,
 )
-from wsprrypi_qualification.progress import run_streaming
+from wsprrypi_qualification.progress import run_streaming, run_streaming_to_completion
 from wsprrypi_qualification.real_session import (
     helper_configuration_plan_sha256,
+    helper_verification_deadline,
+    required_keyed_transaction_deadline,
+    required_tone_overall_deadline,
     required_wspr_overall_deadline,
     resolved_real_plan_sha256,
     validate_real_session_plan,
@@ -90,6 +94,32 @@ class CompleteTestError(RuntimeError):
     """The complete campaign cannot be safely composed or executed."""
 
 
+def _run_to_completion(
+    executable: Path, arguments: tuple[str, ...]
+) -> subprocess.CompletedProcess[str]:
+    """Run a self-bounded coordinator without an unrelated observer deadline."""
+    process = subprocess.Popen(
+        [str(executable), *arguments],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        shell=False,
+    )
+    try:
+        stdout, stderr = process.communicate()
+    except BaseException:
+        process.terminate()
+        process.wait()
+        raise
+    return subprocess.CompletedProcess(
+        [str(executable), *arguments], process.returncode, stdout, stderr
+    )
+
+
+def _completed_return_code(record: object) -> int | None:
+    return cast(int | None, getattr(record, "returncode", getattr(record, "return_code", None)))
+
+
 def receiver_is_local(receiver_host: str) -> bool:
     """Return whether the requested receiver names this execution host."""
     requested = receiver_host.rstrip(".").casefold()
@@ -107,7 +137,7 @@ def delegate_complete_test(
     forwarded_arguments: list[str],
     *,
     configuration: Path | None = None,
-    timeout_s: float = 7500.0,
+    timeout_s: float | None = None,
     progress: Any | None = None,
 ) -> dict[str, Any]:
     """Run the complete command on a remote receiver without shell interpolation."""
@@ -137,10 +167,8 @@ def delegate_complete_test(
         "--",
         receiver_host,
     )
-    identity_record = LocalCommandTransport().execute(
-        CommandPlan(ssh, (*common_ssh, remote_exec, "--identity"), timeout_s=30.0)
-    )
-    if identity_record.return_code != 0 or identity_record.timed_out:
+    identity_record = _run_to_completion(ssh, (*common_ssh, remote_exec, "--identity"))
+    if _completed_return_code(identity_record) != 0:
         raise CompleteTestError("receiver execution helper identity is unavailable")
     try:
         remote_exec_identity = json.loads(identity_record.stdout)
@@ -155,21 +183,17 @@ def delegate_complete_test(
     qualification_identity_encoded = base64.urlsafe_b64encode(
         json.dumps(qualification_identity_argv, separators=(",", ":")).encode("utf-8")
     ).decode("ascii")
-    qualification_identity_record = LocalCommandTransport().execute(
-        CommandPlan(
-            ssh,
-            (
-                *common_ssh,
-                remote_exec,
-                "--argv-base64",
-                qualification_identity_encoded,
-                "--timeout",
-                "30",
-            ),
-            timeout_s=45.0,
-        )
+    qualification_identity_record = _run_to_completion(
+        ssh,
+        (
+            *common_ssh,
+            remote_exec,
+            "--argv-base64",
+            qualification_identity_encoded,
+            "--wait-for-completion",
+        ),
     )
-    if qualification_identity_record.return_code != 0:
+    if _completed_return_code(qualification_identity_record) != 0:
         raise CompleteTestError("receiver qualification identity is unavailable")
     try:
         qualification_identity = json.loads(qualification_identity_record.stdout)
@@ -205,23 +229,31 @@ def delegate_complete_test(
     ).decode("ascii")
     if progress is not None:
         progress.emit("delegation", "started", "receiver delegation started")
-    delegation_plan = CommandPlan(
-        ssh,
-        (
-            *common_ssh,
-            remote_exec,
-            "--argv-base64",
-            encoded,
-            "--timeout",
-            str(timeout_s),
+    delegation_arguments = (
+        *common_ssh,
+        remote_exec,
+        "--argv-base64",
+        encoded,
+        *(
+            ("--wait-for-completion",)
+            if timeout_s is None
+            else ("--timeout", str(timeout_s), "--cleanup-timeout", str(timeout_s))
         ),
-        timeout_s=timeout_s + 30.0,
     )
-    record = (
-        run_streaming(delegation_plan, progress)
-        if progress is not None
-        else LocalCommandTransport().execute(delegation_plan)
-    )
+    record: Any
+    if timeout_s is None:
+        record = (
+            run_streaming_to_completion(ssh, delegation_arguments, progress)
+            if progress is not None
+            else _run_to_completion(ssh, delegation_arguments)
+        )
+    else:
+        delegation_plan = CommandPlan(ssh, delegation_arguments, timeout_s=timeout_s * 2)
+        record = (
+            run_streaming(delegation_plan, progress)
+            if progress is not None
+            else LocalCommandTransport().execute(delegation_plan)
+        )
     timed_out = getattr(record, "timed_out", False)
     disconnected = getattr(record, "disconnected", False)
     return_code = getattr(record, "return_code", getattr(record, "returncode", None))
@@ -248,21 +280,17 @@ def delegate_complete_test(
     validation_encoded = base64.urlsafe_b64encode(
         json.dumps(validation_argv, separators=(",", ":")).encode("utf-8")
     ).decode("ascii")
-    validation = LocalCommandTransport().execute(
-        CommandPlan(
-            ssh,
-            (
-                *common_ssh,
-                remote_exec,
-                "--argv-base64",
-                validation_encoded,
-                "--timeout",
-                "120",
-            ),
-            timeout_s=150.0,
-        )
+    validation = _run_to_completion(
+        ssh,
+        (
+            *common_ssh,
+            remote_exec,
+            "--argv-base64",
+            validation_encoded,
+            "--wait-for-completion",
+        ),
     )
-    if validation.return_code != 0 or validation.timed_out or validation.disconnected:
+    if _completed_return_code(validation) != 0:
         raise CompleteTestError("remote receiver campaign bundle validation failed")
     try:
         validated_result = json.loads(validation.stdout)
@@ -272,10 +300,8 @@ def delegate_complete_test(
         raise CompleteTestError("remote receiver result differs from its retained campaign bundle")
     if artifact(ssh) != ssh_identity or artifact(known_hosts) != known_hosts_identity:
         raise CompleteTestError("receiver delegation identity changed during execution")
-    final_identity_record = LocalCommandTransport().execute(
-        CommandPlan(ssh, (*common_ssh, remote_exec, "--identity"), timeout_s=30.0)
-    )
-    if final_identity_record.return_code != 0:
+    final_identity_record = _run_to_completion(ssh, (*common_ssh, remote_exec, "--identity"))
+    if _completed_return_code(final_identity_record) != 0:
         raise CompleteTestError("receiver execution helper identity could not be rechecked")
     try:
         final_remote_identity = json.loads(final_identity_record.stdout)
@@ -283,21 +309,17 @@ def delegate_complete_test(
         raise CompleteTestError("receiver execution helper recheck is invalid") from error
     if final_remote_identity != remote_exec_identity:
         raise CompleteTestError("receiver execution helper changed during execution")
-    final_qualification_identity = LocalCommandTransport().execute(
-        CommandPlan(
-            ssh,
-            (
-                *common_ssh,
-                remote_exec,
-                "--argv-base64",
-                qualification_identity_encoded,
-                "--timeout",
-                "30",
-            ),
-            timeout_s=45.0,
-        )
+    final_qualification_identity = _run_to_completion(
+        ssh,
+        (
+            *common_ssh,
+            remote_exec,
+            "--argv-base64",
+            qualification_identity_encoded,
+            "--wait-for-completion",
+        ),
     )
-    if final_qualification_identity.return_code != 0:
+    if _completed_return_code(final_qualification_identity) != 0:
         raise CompleteTestError("receiver qualification identity could not be rechecked")
     try:
         final_qualification_document = json.loads(final_qualification_identity.stdout)
@@ -326,17 +348,16 @@ def _parse_sdr_selector(selector: str) -> dict[str, str]:
     return fields
 
 
-def resolve_local_sdr(selector: str, *, timeout_s: float = 20.0) -> dict[str, str]:
+def resolve_local_sdr(selector: str) -> dict[str, str]:
     """Resolve one exact SoapySDR selector on the receiver execution host."""
     utility = discover_executable("SoapySDRUtil")
     if utility is None:
         raise CompleteTestError("SoapySDRUtil is unavailable on the receiver host")
-    record = LocalCommandTransport().execute(
-        CommandPlan(utility, (f"--find={selector}",), timeout_s=timeout_s)
-    )
-    if record.return_code != 0 or record.timed_out:
+    record = _run_to_completion(utility, (f"--find={selector}",))
+    return_code = _completed_return_code(record)
+    if return_code != 0:
         raise CompleteTestError(
-            "SDR discovery failed: " + (record.stderr.strip() or str(record.return_code))
+            "SDR discovery failed: " + (record.stderr.strip() or str(return_code))
         )
     devices: list[dict[str, str]] = []
     current: dict[str, str] | None = None
@@ -606,6 +627,7 @@ def _resolve_real(
             plan["tone_server"]["arguments"] = _fixed_gpio_ppm_arguments(
                 arguments, plan["calibration"]["ppm"]
             )
+        plan["deadlines"]["overall_s"] = required_tone_overall_deadline(plan)
     else:
         plan.pop("session_kind", None)
         plan.pop("tone_schedule", None)
@@ -614,8 +636,10 @@ def _resolve_real(
         plan["remote_helper"].pop("bounded_tone_endpoint", None)
         plan["remote_helper"].pop("wsprrypi_revision", None)
         plan["carrier"]["rf_on_sample_count"] = plan["carrier"]["rf_off_sample_count"]
-        plan["deadlines"]["transmitter_s"] = max(plan["deadlines"]["transmitter_s"], 380)
-        plan["deadlines"]["receiver_s"] = max(plan["deadlines"]["receiver_s"], 390)
+        capture_duration_s = float(plan["coherent_capture"]["duration_s"])
+        helper_s = float(plan["deadlines"]["helper_s"])
+        plan["deadlines"]["transmitter_s"] = capture_duration_s + 2 * helper_s
+        plan["deadlines"]["receiver_s"] = capture_duration_s + helper_verification_deadline(plan)
         # All five child plans are composed before execution. Reserve a full slot
         # beyond the composition instant so the preceding tone run and this
         # mode's carrier precheck cannot consume the coherent-capture margin.
@@ -824,16 +848,14 @@ def _materialize_cw_reference(
             "plan": artifact(plan_path),
             "expected_events": artifact(expected_path),
         }
-        capture_seconds = (
-            mode_plan["capture_contract"]["sample_count"]
-            / mode_plan["capture_contract"]["sample_rate_hz"]
+        plan["deadlines"]["transaction_s"] = required_keyed_transaction_deadline(
+            mode_plan["capture_contract"]["sample_count"],
+            mode_plan["capture_contract"]["sample_rate_hz"],
+            plan["deadlines"]["cleanup_s"],
         )
-        plan["deadlines"]["transaction_s"] = max(
-            plan["deadlines"]["transaction_s"], math.ceil(capture_seconds) + 5
-        )
-        plan["deadlines"]["overall_s"] = max(
-            plan["deadlines"]["overall_s"],
-            3 * plan["deadlines"]["transaction_s"] + plan["deadlines"]["cleanup_s"],
+        plan["deadlines"]["overall_s"] = (
+            plan["transaction_count"] * plan["deadlines"]["transaction_s"]
+            + plan["deadlines"]["cleanup_s"]
         )
 
 
@@ -1111,7 +1133,10 @@ def compose_complete_test_plan(
         "mode_plans": bindings,
         "topology": config["topology"],
         "transport": "ssh",
-        "campaign_deadline_s": config["campaign_deadline_s"],
+        # The campaign owns exactly the sum of its five already-resolved child
+        # envelopes.  No independent two-hour wall-clock guess can pre-empt a
+        # legitimately bounded child or extend the authorized work.
+        "campaign_deadline_s": sum(entry["plan"]["deadlines"]["overall_s"] for entry in bindings),
         "execution_paths": {
             "ssh_executable": artifact(ssh_path),
             "work_directory": str(work_path),
@@ -1188,10 +1213,8 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
     minimum_campaign = sum(
         entry["plan"]["deadlines"]["overall_s"] for entry in document["mode_plans"]
     )
-    if document["campaign_deadline_s"] < minimum_campaign:
-        raise CompleteTestError("campaign deadline cannot contain all subordinate deadlines")
-    if document["campaign_deadline_s"] > 7200:
-        raise CompleteTestError("campaign deadline exceeds the maintained two-hour safety bound")
+    if document["campaign_deadline_s"] != minimum_campaign:
+        raise CompleteTestError("campaign deadline must equal the composed subordinate deadlines")
     input_store = Path(document["input_store"]["directory"])
     output_parent = Path(document["execution_paths"]["output_parent"])
     expected_input_store = output_parent / "complete-test-inputs" / document["campaign_id"]

@@ -153,7 +153,13 @@ class RepositoryIntegrityResult:
         }
 
 
-def _git(git: Path, root: Path, *arguments: str, allow_missing: bool = False) -> str | None:
+def _git(
+    git: Path,
+    root: Path,
+    *arguments: str,
+    allow_missing: bool = False,
+    timeout_s: float | None = None,
+) -> str | None:
     result = subprocess.run(
         (str(git), "-C", str(root), *arguments),
         shell=False,
@@ -161,7 +167,7 @@ def _git(git: Path, root: Path, *arguments: str, allow_missing: bool = False) ->
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=10,
+        timeout=timeout_s,
     )
     if result.returncode != 0:
         if allow_missing:
@@ -171,7 +177,7 @@ def _git(git: Path, root: Path, *arguments: str, allow_missing: bool = False) ->
 
 
 def discover_protected_roots(
-    candidates: Sequence[Path], *, git_executable: Path
+    candidates: Sequence[Path], *, git_executable: Path, timeout_s: float | None = None
 ) -> tuple[ProtectedSourceRoot, ...]:
     """Discover ordinary, linked, nested, and superproject repository roots."""
     git = _canonical(git_executable)
@@ -182,15 +188,22 @@ def discover_protected_roots(
     while pending:
         candidate = _canonical(pending.pop())
         probe = candidate if candidate.is_dir() else candidate.parent
-        top_text = _git(git, probe, "rev-parse", "--show-toplevel", allow_missing=True)
+        top_text = _git(
+            git, probe, "rev-parse", "--show-toplevel", allow_missing=True, timeout_s=timeout_s
+        )
         if not top_text:
             continue
         top = _canonical(Path(top_text))
-        git_dir_text = _git(git, top, "rev-parse", "--absolute-git-dir")
+        git_dir_text = _git(git, top, "rev-parse", "--absolute-git-dir", timeout_s=timeout_s)
         assert git_dir_text is not None
         git_directory = _canonical(Path(git_dir_text))
         super_text = _git(
-            git, top, "rev-parse", "--show-superproject-working-tree", allow_missing=True
+            git,
+            top,
+            "rev-parse",
+            "--show-superproject-working-tree",
+            allow_missing=True,
+            timeout_s=timeout_s,
         )
         super_root = _canonical(Path(super_text)) if super_text else None
         discovered[top] = ProtectedSourceRoot(top, git_directory, super_root)
@@ -309,11 +322,20 @@ def stage_mutable_input(
 
 
 def capture_repository_snapshot(
-    root: ProtectedSourceRoot, *, git_executable: Path
+    root: ProtectedSourceRoot, *, git_executable: Path, timeout_s: float | None = None
 ) -> RepositorySnapshot:
     git = _canonical(git_executable)
-    head = _git(git, root.path, "rev-parse", "HEAD")
-    branch = _git(git, root.path, "symbolic-ref", "--quiet", "--short", "HEAD", allow_missing=True)
+    head = _git(git, root.path, "rev-parse", "HEAD", timeout_s=timeout_s)
+    branch = _git(
+        git,
+        root.path,
+        "symbolic-ref",
+        "--quiet",
+        "--short",
+        "HEAD",
+        allow_missing=True,
+        timeout_s=timeout_s,
+    )
     upstream = _git(
         git,
         root.path,
@@ -322,6 +344,7 @@ def capture_repository_snapshot(
         "--symbolic-full-name",
         "@{upstream}",
         allow_missing=True,
+        timeout_s=timeout_s,
     )
     status_text = _git(
         git,
@@ -330,8 +353,17 @@ def capture_repository_snapshot(
         "--porcelain=v2",
         "--untracked-files=all",
         "--ignore-submodules=none",
+        timeout_s=timeout_s,
     )
-    cached = _git(git, root.path, "diff", "--cached", "--binary", "--no-ext-diff")
+    cached = _git(
+        git,
+        root.path,
+        "diff",
+        "--cached",
+        "--binary",
+        "--no-ext-diff",
+        timeout_s=timeout_s,
+    )
     assert head is not None and status_text is not None and cached is not None
     return RepositorySnapshot(
         root.path,
@@ -364,10 +396,16 @@ def _worktree_fingerprint(root: Path) -> str:
 
 
 def compare_repository_snapshot(
-    before: RepositorySnapshot, root: ProtectedSourceRoot, *, git_executable: Path
+    before: RepositorySnapshot,
+    root: ProtectedSourceRoot,
+    *,
+    git_executable: Path,
+    timeout_s: float | None = None,
 ) -> RepositoryIntegrityResult:
     try:
-        after = capture_repository_snapshot(root, git_executable=git_executable)
+        after = capture_repository_snapshot(
+            root, git_executable=git_executable, timeout_s=timeout_s
+        )
     except RepositoryProtectionError:
         return RepositoryIntegrityResult(root.path, "unavailable", before, None, ("snapshot",))
     fields = tuple(

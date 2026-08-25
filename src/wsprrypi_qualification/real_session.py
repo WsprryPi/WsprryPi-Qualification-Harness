@@ -64,6 +64,17 @@ MINIMUM_OFFLINE_IO_BYTES_PER_SECOND = 25_000_000
 FRAME_ANALYSIS_CAPTURE_PASSES = 2
 SUMMARY_CAPTURE_PASSES_PER_FRAME = 2
 PUBLICATION_COHERENT_CAPTURE_PASSES = 4
+KEYED_ANALYSIS_CAPTURE_PASSES = 4
+TONE_CARRIER_ANALYSIS_CAPTURE_PASSES = 2
+TONE_MODE_ANALYSIS_RF_ON_PASSES = 4
+TONE_PUBLICATION_CAPTURE_PASSES = 4
+KEYED_CONTROL_PHASES = (
+    "preflight",
+    "cleanup_registration",
+    "scheduled_process_start",
+    "cleanup",
+    "quiescence",
+)
 
 
 def _coherent_capture_bytes(plan: dict[str, Any]) -> int:
@@ -96,6 +107,65 @@ def wspr_publication_deadline(plan: dict[str, Any]) -> float:
     return _offline_io_deadline(_coherent_capture_bytes(plan), PUBLICATION_COHERENT_CAPTURE_PASSES)
 
 
+def _tone_capture_bytes(plan: dict[str, Any], kind: str) -> int:
+    return int(plan["carrier"][f"{kind}_sample_count"]) * CF32_BYTES_PER_SAMPLE
+
+
+def tone_analysis_deadline(plan: dict[str, Any]) -> int:
+    """Bound carrier analysis and the TONE-specific acquired-IQ analysis."""
+    carrier_work = (
+        _tone_capture_bytes(plan, "rf_off") + _tone_capture_bytes(plan, "rf_on")
+    ) * TONE_CARRIER_ANALYSIS_CAPTURE_PASSES
+    mode_work = _tone_capture_bytes(plan, "rf_on") * TONE_MODE_ANALYSIS_RF_ON_PASSES
+    return math.ceil(
+        (carrier_work + mode_work) / MINIMUM_OFFLINE_IO_BYTES_PER_SECOND
+        + float(plan["deadlines"]["helper_s"])
+    )
+
+
+def tone_publication_deadline(plan: dict[str, Any]) -> int:
+    """Bound source, copy, retained, and validation passes over TONE captures."""
+    capture_bytes = _tone_capture_bytes(plan, "rf_off") + _tone_capture_bytes(plan, "rf_on")
+    return _offline_io_deadline(capture_bytes, TONE_PUBLICATION_CAPTURE_PASSES)
+
+
+def required_tone_overall_deadline(plan: dict[str, Any]) -> int:
+    """Return the sum of every sequential TONE phase's authenticated envelope."""
+    helper_s = float(plan["deadlines"]["helper_s"])
+    receiver_s = float(plan["deadlines"]["receiver_s"])
+    cleanup_s = float(plan["deadlines"]["cleanup_s"])
+    repository_inspection_s = helper_verification_deadline(plan)
+    required_s = 0.0
+    required_s += helper_s  # capability discovery
+    required_s += repository_inspection_s  # helper and source verification
+    required_s += helper_s  # service and ownership inspection
+    required_s += helper_s  # initial backend quiescence
+    required_s += cleanup_s  # cleanup registration and receiver service preparation
+    required_s += receiver_s  # RF-off capture
+    required_s += helper_s  # transmitter service preparation
+    required_s += helper_s + repository_inspection_s  # guarded TONE server start
+    required_s += receiver_s  # exact TONE cadence and RF-on capture
+    required_s += cleanup_s  # owned TONE server stop
+    required_s += tone_analysis_deadline(plan)
+    required_s += 2 * cleanup_s  # final cleanup and quiescence
+    required_s += tone_publication_deadline(plan)
+    return math.ceil(required_s)
+
+
+def required_keyed_transaction_deadline(
+    sample_count: int, sample_rate_hz: int, cleanup_s: float
+) -> int:
+    """Bound one keyed capture, authenticated analysis, and named control phases."""
+    if sample_count <= 0 or sample_rate_hz <= 0 or cleanup_s <= 0:
+        raise RealSessionError("keyed timing inputs must be positive")
+    capture_s = math.ceil(sample_count / sample_rate_hz)
+    analysis_s = _offline_io_deadline(
+        sample_count * CF32_BYTES_PER_SAMPLE, KEYED_ANALYSIS_CAPTURE_PASSES
+    )
+    control_s = len(KEYED_CONTROL_PHASES) * cleanup_s
+    return math.ceil(capture_s + analysis_s + control_s)
+
+
 def required_wspr_overall_deadline(plan: dict[str, Any], session_start: datetime) -> int:
     """Return the complete wall-clock bound for a resolved WSPR session."""
     if session_start.tzinfo is None:
@@ -126,10 +196,13 @@ def helper_verification_deadline(plan: dict[str, Any]) -> float:
 
 
 def helper_verification_contract(plan: dict[str, Any]) -> dict[str, object]:
+    aggregate = helper_verification_deadline(plan)
     return {
         "operations": list(HELPER_VERIFICATION_OPERATIONS),
-        "per_operation_deadline_s": plan["deadlines"]["helper_s"],
-        "aggregate_deadline_s": helper_verification_deadline(plan),
+        # Any one operation may legitimately consume the remaining phase
+        # envelope; the aggregate monotonic deadline still bounds all four.
+        "per_operation_deadline_s": aggregate,
+        "aggregate_deadline_s": aggregate,
     }
 
 
@@ -729,8 +802,12 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         expected_samples = round(capture_seconds * document["receiver"]["sample_rate_hz"])
         if document["carrier"]["rf_on_sample_count"] != expected_samples:
             raise RealSessionError("tone-pattern capture count differs from its exact schedule")
-        if document["deadlines"]["overall_s"] <= capture_seconds:
-            raise RealSessionError("overall deadline cannot contain the tone schedule")
+        required_tone_s = required_tone_overall_deadline(document)
+        if document["deadlines"]["overall_s"] < required_tone_s:
+            raise RealSessionError(
+                "TONE overall deadline cannot contain its resolved preflight, captures, "
+                "cadence, analysis, cleanup, quiescence, and publication"
+            )
     else:
         raise RealSessionError("unsupported real-session kind")
     if document["random_offset_enabled"] is not False:
@@ -850,9 +927,9 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
             ]
         if endpoint["host"] != "::1" or tone_server["arguments"] != expected_arguments:
             raise RealSessionError("bounded Tone server arguments differ from its endpoint")
-        if tone_server["startup_seconds"] >= document["tone_schedule"]["off_seconds"]:
+        if tone_server["startup_seconds"] != document["tone_schedule"]["off_seconds"]:
             raise RealSessionError(
-                "bounded Tone server startup must fit inside leading RF-off time"
+                "bounded Tone readiness envelope must equal its leading RF-off cadence"
             )
     if any(
         executable["host"] != document["receiver"]["host"]
@@ -1259,9 +1336,12 @@ def _validate_capture(
 
 
 def _validate_carrier(document: dict[str, object], plan: dict[str, Any], digest: str) -> str:
-    _validate_stage(
-        document, "carrier_analysis", digest, "completed", plan["deadlines"]["overall_s"]
+    deadline = (
+        tone_analysis_deadline(plan)
+        if plan.get("session_kind") == "cw_live_tone"
+        else plan["deadlines"]["overall_s"]
     )
+    _validate_stage(document, "carrier_analysis", digest, "completed", deadline)
     details = cast(dict[str, object], document["details"])
     offset = cast(float, details["offset_hz"])
     requested = cast(float, details["requested_frequency_hz"])

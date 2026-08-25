@@ -393,20 +393,28 @@ class _SshOwnedProcess:
         client: JsonHelperClient,
         handle_id: str,
         arming_acknowledgement: dict[str, object],
+        cleanup_timeout_s: float,
     ) -> None:
         self.client, self.handle_id = client, handle_id
         self.arming_acknowledgement = arming_acknowledgement
+        self.cleanup_timeout_s = cleanup_timeout_s
 
     def wait(self, timeout_s: float, cancellation: threading.Event | None) -> LaunchResult:
         if cancellation is not None and cancellation.is_set():
             return self.stop()
         response = self.client.request(
-            "process-wait", {"handle_id": self.handle_id, "timeout_s": timeout_s}
+            "process-wait",
+            {"handle_id": self.handle_id, "timeout_s": timeout_s},
+            response_timeout_s=timeout_s + self.cleanup_timeout_s,
         )
         return _launch_result_from_helper(response, self.handle_id)
 
     def stop(self) -> LaunchResult:
-        response = self.client.request("process-stop", {"handle_id": self.handle_id})
+        response = self.client.request(
+            "process-stop",
+            {"handle_id": self.handle_id},
+            response_timeout_s=self.cleanup_timeout_s,
+        )
         return _launch_result_from_helper(response, self.handle_id)
 
 
@@ -422,10 +430,20 @@ class SshOwnedProcessLauncher:
         repository_guard: dict[str, object] | None = None,
         privilege_wrapper_path: str | None = None,
         privilege_wrapper_sha256: str | None = None,
+        cleanup_timeout_s: float | None = None,
     ) -> None:
         if hard_timeout_s <= 0:
             raise CapabilityError("remote process hard deadline must be positive")
         self.client, self.hard_timeout_s = client, hard_timeout_s
+        self.cleanup_timeout_s = (
+            client.timeout_s if cleanup_timeout_s is None else cleanup_timeout_s
+        )
+        if (
+            isinstance(self.cleanup_timeout_s, bool)
+            or not math.isfinite(self.cleanup_timeout_s)
+            or self.cleanup_timeout_s <= 0
+        ):
+            raise CapabilityError("remote process cleanup deadline must be positive")
         self.executable_sha256 = executable_sha256
         self.pinned_arguments = dict(pinned_arguments or {})
         if self.pinned_arguments and repository_guard is None:
@@ -446,6 +464,7 @@ class SshOwnedProcessLauncher:
         arguments: tuple[str, ...],
         *,
         scheduled_start_utc: str | None = None,
+        schedule_after_arm_s: float | None = None,
         minimum_arm_margin_s: float = 0.0,
     ) -> OwnedProcess:
         payload: dict[str, object] = {
@@ -455,21 +474,39 @@ class SshOwnedProcessLauncher:
             "privilege_wrapper_sha256": self.privilege_wrapper_sha256,
             "pinned_arguments": self.pinned_arguments,
             "hard_timeout_s": self.hard_timeout_s,
+            "cleanup_timeout_s": self.cleanup_timeout_s,
             "environment": {},
         }
         if self.repository_guard is not None:
             payload["repository_guard"] = self.repository_guard
+        if scheduled_start_utc is not None and schedule_after_arm_s is not None:
+            raise CapabilityError("remote process schedule must use exactly one time basis")
         if scheduled_start_utc is not None:
             payload["scheduled_start_utc"] = scheduled_start_utc
             payload["minimum_arm_margin_s"] = minimum_arm_margin_s
+        elif schedule_after_arm_s is not None:
+            payload["schedule_after_arm_s"] = schedule_after_arm_s
+            payload["minimum_arm_margin_s"] = minimum_arm_margin_s
+        inspection_timeout_s = 0.0
+        if self.repository_guard is not None:
+            raw_timeout = self.repository_guard.get("inspection_timeout_s")
+            if (
+                not isinstance(raw_timeout, (int, float))
+                or isinstance(raw_timeout, bool)
+                or not math.isfinite(float(raw_timeout))
+                or float(raw_timeout) <= 0
+            ):
+                raise CapabilityError("repository inspection deadline is invalid")
+            inspection_timeout_s = float(raw_timeout)
         response = self.client.request(
             "process-start",
             payload,
+            response_timeout_s=self.client.timeout_s + inspection_timeout_s,
         )
         handle = response.get("handle_id")
         if not isinstance(handle, str) or not handle:
             raise CapabilityError("remote process helper omitted ownership handle")
-        return _SshOwnedProcess(self.client, handle, response)
+        return _SshOwnedProcess(self.client, handle, response, self.cleanup_timeout_s)
 
 
 def _launch_result_from_helper(document: dict[str, object], handle: str) -> LaunchResult:
@@ -561,13 +598,17 @@ class OpenSshCapability:
             raise CapabilityError("SSH remote helper path contains unsafe shell characters")
         if min(plan.connect_timeout_s, plan.command_timeout_s, plan.overall_timeout_s) <= 0:
             raise CapabilityError("SSH deadlines must be positive")
+        cleanup_timeout_s = plan.overall_timeout_s - plan.command_timeout_s
+        if cleanup_timeout_s <= 0:
+            raise CapabilityError("SSH overall deadline must contain command and cleanup")
         if not plan.executable.is_absolute() or not plan.executable.is_file():
             raise CapabilityError("SSH executable must be an existing absolute file")
         _authorize(plan.document(), authorization)
         started = _utc()
         encoded = self.encode_remote_arguments(plan.remote_arguments)
         remote_command = (
-            f"{plan.remote_helper} --timeout {plan.command_timeout_s:g} --argv-base64 {encoded}"
+            f"{plan.remote_helper} --timeout {plan.command_timeout_s:g} "
+            f"--cleanup-timeout {cleanup_timeout_s:g} --argv-base64 {encoded}"
         )
         arguments = (
             str(plan.executable),
@@ -577,9 +618,7 @@ class OpenSshCapability:
             plan.host,
             remote_command,
         )
-        result = self._launcher.launch(
-            arguments, min(plan.command_timeout_s, plan.overall_timeout_s), cancellation
-        )
+        result = self._launcher.launch(arguments, plan.overall_timeout_s, cancellation)
         outcome = _execution_outcome(result)
         document = {
             "schema_version": 1,
@@ -679,7 +718,7 @@ class SoapyCaptureCapability:
             str(plan.metadata_path),
             plan.output_path.stem,
         )
-        result = self._launcher.launch(arguments, plan.maximum_elapsed_s + 5, cancellation)
+        result = self._launcher.launch(arguments, plan.maximum_elapsed_s, cancellation)
         if result.return_code != 0 or result.timed_out or result.cancelled:
             diagnostic = _retain_capture_failure(plan, arguments, result, "helper_execution_failed")
             raise CaptureCapabilityError(
@@ -897,10 +936,27 @@ class JsonHelperClient:
         self.plan_sha256, self.helper_identity = plan_sha256, helper_identity
         self.executable_sha256 = executable_sha256 or artifact(executable)["sha256"]
 
-    def request(self, operation: str, payload: dict[str, object]) -> dict[str, object]:
-        return cast(dict[str, object], self.request_evidence(operation, payload)["result"])
+    def request(
+        self,
+        operation: str,
+        payload: dict[str, object],
+        *,
+        response_timeout_s: float | None = None,
+    ) -> dict[str, object]:
+        return cast(
+            dict[str, object],
+            self.request_evidence(operation, payload, response_timeout_s=response_timeout_s)[
+                "result"
+            ],
+        )
 
-    def request_evidence(self, operation: str, payload: dict[str, object]) -> dict[str, object]:
+    def request_evidence(
+        self,
+        operation: str,
+        payload: dict[str, object],
+        *,
+        response_timeout_s: float | None = None,
+    ) -> dict[str, object]:
         if artifact(self.executable)["sha256"] != self.executable_sha256:
             raise CapabilityError("capability helper executable identity changed")
         request_id = str(uuid.uuid4())
@@ -912,7 +968,14 @@ class JsonHelperClient:
             "payload": payload,
         }
         encoded = encode_request(request)
-        raw_response = self.transport.exchange(encoded, self.timeout_s)
+        response_timeout = self.timeout_s if response_timeout_s is None else response_timeout_s
+        if (
+            isinstance(response_timeout, bool)
+            or not math.isfinite(response_timeout)
+            or response_timeout <= 0
+        ):
+            raise CapabilityError("helper response deadline must be positive")
+        raw_response = self.transport.exchange(encoded, response_timeout)
         try:
             document = json.loads(raw_response)
         except json.JSONDecodeError as exc:
@@ -1452,8 +1515,11 @@ def validate_capability_semantics(document: dict[str, object]) -> None:
             if not isinstance(arguments, list) or not isinstance(executable, dict):
                 raise CapabilityError("SSH execution evidence is malformed")
             timeout = cast(dict[str, object], document["deadlines"])["command_s"]
+            overall = cast(dict[str, object], document["deadlines"])["overall_s"]
+            cleanup = float(cast(float, overall)) - float(cast(float, timeout))
             expected_remote = (
                 f"{document['remote_helper']} --timeout {float(cast(float, timeout)):g} "
+                f"--cleanup-timeout {cleanup:g} "
                 f"--argv-base64 {encoded}"
             )
             if (

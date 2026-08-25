@@ -18,7 +18,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -234,6 +234,7 @@ class RepositoryGuardState:
     git: Path
     roots: tuple[Any, ...]
     snapshots: tuple[RepositorySnapshot, ...]
+    inspection_timeout_s: float
 
 
 @dataclass
@@ -242,6 +243,7 @@ class OwnedChild:
     stdout: Any
     stderr: Any
     deadline: float
+    cleanup_timeout_s: float
     launch_arguments: list[str]
     environment: dict[str, str]
     working_directory: Path | None = None
@@ -296,6 +298,11 @@ class OwnedProcessRegistry:
         executable = Path(arguments[0])
         expected_hash = _string(payload, "executable_sha256")
         timeout = _positive_number(payload, "hard_timeout_s")
+        cleanup_timeout = (
+            _positive_number(payload, "cleanup_timeout_s")
+            if "cleanup_timeout_s" in payload
+            else timeout
+        )
         if not executable.is_absolute() or not executable.is_file():
             raise HelperProtocolError("executable must be an existing absolute file")
         if _sha256(executable) != expected_hash:
@@ -324,6 +331,7 @@ class OwnedProcessRegistry:
         if pinned_arguments and repository_guard is None:
             raise HelperProtocolError("pinned process inputs require a repository mutation guard")
         scheduled_text = payload.get("scheduled_start_utc")
+        schedule_after_arm = payload.get("schedule_after_arm_s")
         minimum_margin = payload.get("minimum_arm_margin_s", 0.0)
         if not isinstance(minimum_margin, (int, float)) or isinstance(minimum_margin, bool):
             raise HelperProtocolError("minimum arm margin must be a finite nonnegative number")
@@ -334,7 +342,24 @@ class OwnedProcessRegistry:
         scheduled_utc: datetime | None = None
         scheduled_monotonic: float | None = None
         arm_margin_s: float | None = None
-        if scheduled_text is not None:
+        if scheduled_text is not None and schedule_after_arm is not None:
+            raise HelperProtocolError("scheduled process start has conflicting time bases")
+        if schedule_after_arm is not None:
+            if not isinstance(schedule_after_arm, (int, float)) or isinstance(
+                schedule_after_arm, bool
+            ):
+                raise HelperProtocolError("relative scheduled start must be finite and positive")
+            arm_margin_s = float(schedule_after_arm)
+            if not math.isfinite(arm_margin_s) or arm_margin_s <= 0:
+                raise HelperProtocolError("relative scheduled start must be finite and positive")
+            if arm_margin_s < minimum_margin:
+                raise HelperProtocolError("scheduled process start has insufficient arm margin")
+            if arm_margin_s > timeout:
+                raise HelperProtocolError("scheduled process start exceeds the hard deadline")
+            scheduled_utc = observed_utc + timedelta(seconds=arm_margin_s)
+            scheduled_text = scheduled_utc.isoformat().replace("+00:00", "Z")
+            scheduled_monotonic = time.monotonic() + arm_margin_s
+        elif scheduled_text is not None:
             if not isinstance(scheduled_text, str) or not scheduled_text.endswith("Z"):
                 raise HelperProtocolError("scheduled process start must be an absolute UTC time")
             try:
@@ -356,16 +381,17 @@ class OwnedProcessRegistry:
             launch_arguments = [str(self.privilege_wrapper), "-n", "--", *arguments]
         handle = f"owned-{uuid.uuid4()}"
         child = OwnedChild(
-            None,
-            out,
-            err,
-            time.monotonic() + timeout,
-            launch_arguments,
-            environment,
-            working_directory,
-            repository_guard,
-            scheduled_text if scheduled_utc is not None else None,
-            scheduled_monotonic,
+            process=None,
+            stdout=out,
+            stderr=err,
+            deadline=time.monotonic() + timeout,
+            cleanup_timeout_s=cleanup_timeout,
+            launch_arguments=launch_arguments,
+            environment=environment,
+            working_directory=working_directory,
+            repository_guard=repository_guard,
+            scheduled_start_utc=scheduled_text if scheduled_utc is not None else None,
+            scheduled_monotonic=scheduled_monotonic,
         )
         with self._lock:
             self._children[handle] = child
@@ -484,7 +510,7 @@ class OwnedProcessRegistry:
             child = self._owned(handle)
             self._terminate(child)
             self._finish(handle, child, cancelled=True)
-        self._watchdog.join(timeout=0.2)
+        self._watchdog.join()
 
     def _owned(self, handle: str) -> OwnedChild:
         try:
@@ -501,13 +527,15 @@ class OwnedProcessRegistry:
                 child.state_changed.notify_all()
                 return
         if child.process.poll() is None:
+            deadline = time.monotonic() + child.cleanup_timeout_s
+            stage_budget = child.cleanup_timeout_s / 2
             child.process.terminate()
             try:
-                child.process.wait(timeout=0.25)
+                child.process.wait(timeout=min(stage_budget, max(0.0, deadline - time.monotonic())))
             except subprocess.TimeoutExpired:
                 child.process.kill()
                 try:
-                    child.process.wait(timeout=0.25)
+                    child.process.wait(timeout=max(0.0, deadline - time.monotonic()))
                 except subprocess.TimeoutExpired as exc:
                     raise HelperProtocolError("owned child could not be stopped") from exc
 
@@ -526,7 +554,12 @@ class OwnedProcessRegistry:
         if child.repository_guard is not None:
             guard = child.repository_guard
             for before, root in zip(guard.snapshots, guard.roots, strict=True):
-                integrity = compare_repository_snapshot(before, root, git_executable=guard.git)
+                integrity = compare_repository_snapshot(
+                    before,
+                    root,
+                    git_executable=guard.git,
+                    timeout_s=guard.inspection_timeout_s,
+                )
                 integrity_document = integrity.document()
                 validate_document(integrity_document, "repository-integrity.schema.json")
                 repository_integrity.append(integrity_document)
@@ -571,6 +604,7 @@ class OwnedProcessRegistry:
             root_values = raw_guard.get("protected_source_roots")
             mutable_values = raw_guard.get("mutable_inputs")
             writable_values = raw_guard.get("writable_paths")
+            inspection_timeout_s = raw_guard.get("inspection_timeout_s")
             if (
                 not isinstance(root_values, list)
                 or not root_values
@@ -578,10 +612,16 @@ class OwnedProcessRegistry:
                 or not isinstance(mutable_values, list)
                 or not isinstance(writable_values, list)
                 or not all(isinstance(value, str) for value in writable_values)
+                or not isinstance(inspection_timeout_s, (int, float))
+                or isinstance(inspection_timeout_s, bool)
+                or not math.isfinite(float(inspection_timeout_s))
+                or float(inspection_timeout_s) <= 0
             ):
                 raise RepositoryProtectionError("repository guard fields are incomplete")
             roots = discover_protected_roots(
-                [Path(value) for value in root_values], git_executable=git
+                [Path(value) for value in root_values],
+                git_executable=git,
+                timeout_s=float(inspection_timeout_s),
             )
             if not {str(Path(value).resolve(strict=True)) for value in root_values}.issubset(
                 {str(root.path) for root in roots}
@@ -648,10 +688,13 @@ class OwnedProcessRegistry:
                 roots=roots,
             )
             snapshots = tuple(
-                capture_repository_snapshot(root, git_executable=git) for root in roots
+                capture_repository_snapshot(
+                    root, git_executable=git, timeout_s=float(inspection_timeout_s)
+                )
+                for root in roots
             )
             return working_directory.resolve(strict=True), RepositoryGuardState(
-                git, roots, snapshots
+                git, roots, snapshots, float(inspection_timeout_s)
             )
         except (OSError, RepositoryProtectionError) as error:
             raise HelperProtocolError(
@@ -727,7 +770,10 @@ class CapabilityHelperServer:
                     repository_guard.snapshots, repository_guard.roots, strict=True
                 ):
                     integrity = compare_repository_snapshot(
-                        before, root, git_executable=repository_guard.git
+                        before,
+                        root,
+                        git_executable=repository_guard.git,
+                        timeout_s=repository_guard.inspection_timeout_s,
                     ).document()
                     validate_document(integrity, "repository-integrity.schema.json")
                     integrity_documents.append(integrity)
@@ -793,6 +839,7 @@ def _validate_envelope(request: dict[str, object]) -> None:
             "privilege_wrapper_sha256",
             "pinned_arguments",
             "hard_timeout_s",
+            "cleanup_timeout_s",
             "environment",
             "repository_guard",
         },
@@ -808,13 +855,16 @@ def _validate_envelope(request: dict[str, object]) -> None:
     assert isinstance(operation, str)
     permitted = fields[operation]
     if operation == "process-start":
-        scheduled_fields = {"scheduled_start_utc", "minimum_arm_margin_s"}
+        absolute_scheduled_fields = {"scheduled_start_utc", "minimum_arm_margin_s"}
+        relative_scheduled_fields = {"schedule_after_arm_s", "minimum_arm_margin_s"}
         base_fields = permitted - {"repository_guard"}
         valid_fields = frozenset(payload) in {
             frozenset(base_fields),
             frozenset(permitted),
-            frozenset(base_fields | scheduled_fields),
-            frozenset(permitted | scheduled_fields),
+            frozenset(base_fields | absolute_scheduled_fields),
+            frozenset(permitted | absolute_scheduled_fields),
+            frozenset(base_fields | relative_scheduled_fields),
+            frozenset(permitted | relative_scheduled_fields),
         }
     elif operation == "service-set":
         base_fields = permitted - {"repository_guard"}

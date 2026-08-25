@@ -14,8 +14,7 @@
     "production_templates",
     "ssh_executable",
     "work_directory",
-    "output_parent",
-    "campaign_deadline_s"
+    "output_parent"
   ],
   "properties": {
     "schema_version": {
@@ -78,10 +77,6 @@
     "output_parent": {
       "type": "string",
       "minLength": 1
-    },
-    "campaign_deadline_s": {
-      "type": "number",
-      "exclusiveMinimum": 0
     }
   },
   "$defs": {

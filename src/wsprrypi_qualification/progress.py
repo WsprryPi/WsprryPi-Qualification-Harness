@@ -189,3 +189,86 @@ def run_streaming(
         "".join(stdout_lines),
         "".join(stderr_lines),
     )
+
+
+def run_streaming_to_completion(
+    executable: Path,
+    arguments: tuple[str, ...],
+    reporter: ProgressReporter,
+    *,
+    working_directory: Path | None = None,
+    environment: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Forward progress while a self-bounded child runs to its own completion.
+
+    This is for the complete-test coordinator: every RF-producing subordinate
+    process remains bounded by its resolved plan, while the observer does not
+    impose an unrelated machine- or network-speed deadline around the complete
+    composition.
+    """
+    if (
+        not executable.is_absolute()
+        or not executable.is_file()
+        or (working_directory is not None and not working_directory.is_dir())
+        or any("\x00" in item for item in arguments)
+    ):
+        raise ProgressError("invalid completion-driven command")
+    process = subprocess.Popen(
+        [str(executable), *arguments],
+        cwd=str(working_directory) if working_directory else None,
+        env=sanitized_environment(environment),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        shell=False,
+    )
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+
+    def read_stdout() -> None:
+        assert process.stdout is not None
+        stdout_lines.extend(process.stdout.readlines())
+
+    def read_stderr() -> None:
+        assert process.stderr is not None
+        for line in process.stderr:
+            if line.startswith(PROGRESS_PREFIX):
+                try:
+                    event = json.loads(line[len(PROGRESS_PREFIX) :])
+                    if event.get("evidence_type") != "complete_test_progress":
+                        raise ValueError
+                    reporter.emit(
+                        str(event["stage"]),
+                        str(event["status"]),
+                        str(event["detail"]),
+                        campaign_id=event.get("campaign_id"),
+                        mode=event.get("mode"),
+                        item=event.get("item"),
+                        item_count=event.get("item_count"),
+                    )
+                except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                    stderr_lines.append(line)
+            else:
+                stderr_lines.append(line)
+
+    readers = [threading.Thread(target=read_stdout), threading.Thread(target=read_stderr)]
+    for reader in readers:
+        reader.start()
+    try:
+        return_code = process.wait()
+    except BaseException:
+        process.terminate()
+        process.wait()
+        for reader in readers:
+            reader.join()
+        raise
+    for reader in readers:
+        reader.join()
+    return subprocess.CompletedProcess(
+        [str(executable), *arguments],
+        return_code,
+        "".join(stdout_lines),
+        "".join(stderr_lines),
+    )

@@ -32,12 +32,12 @@ def test_stage_copies_explicit_files_and_always_cleans(tmp_path: Path, monkeypat
     source.write_bytes(b"wheel")
     calls: list[list[str]] = []
 
-    def run(arguments, **kwargs):
-        del kwargs
+    def run(arguments, *args, **kwargs):
+        del args, kwargs
         calls.append(arguments)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("subprocess.run", run)
+    monkeypatch.setattr("wsprrypi_qualification.remote_staging._run_transport", run)
     with _stage(tmp_path, source) as stage:
         assert stage.path("runtime.whl") == "/tmp/wspq-0123456789abcdef01234567/runtime.whl"
         operation = stage.run_python("print(sys.argv[1])", "argument")
@@ -55,12 +55,12 @@ def test_partial_copy_failure_still_attempts_cleanup(tmp_path: Path, monkeypatch
     return_codes = iter((0, 1, 0))
     calls: list[list[str]] = []
 
-    def run(arguments, **kwargs):
-        del kwargs
+    def run(arguments, *args, **kwargs):
+        del args, kwargs
         calls.append(arguments)
         return SimpleNamespace(returncode=next(return_codes), stdout="", stderr="")
 
-    monkeypatch.setattr("subprocess.run", run)
+    monkeypatch.setattr("wsprrypi_qualification.remote_staging._run_transport", run)
     with (
         pytest.raises(RemoteStagingError, match="copy failed"),
         _stage(tmp_path, source),
@@ -90,11 +90,11 @@ def test_cleanup_failure_is_not_suppressed(tmp_path: Path, monkeypatch) -> None:
     source.write_bytes(b"wheel")
     return_codes = iter((0, 0, 0, 1))
 
-    def run(arguments, **kwargs):
-        del arguments, kwargs
+    def run(arguments, *args, **kwargs):
+        del arguments, args, kwargs
         return SimpleNamespace(returncode=next(return_codes), stdout="", stderr="")
 
-    monkeypatch.setattr("subprocess.run", run)
+    monkeypatch.setattr("wsprrypi_qualification.remote_staging._run_transport", run)
     with (
         pytest.raises(RemoteStagingError, match="cleanup"),
         _stage(tmp_path, source),
@@ -109,14 +109,14 @@ def test_ambiguous_creation_failure_attempts_idempotent_cleanup(
     source.write_bytes(b"wheel")
     calls: list[list[str]] = []
 
-    def run(arguments, **kwargs):
-        del kwargs
+    def run(arguments, *args, **kwargs):
+        del args, kwargs
         calls.append(arguments)
         if len(calls) == 1:
             raise __import__("subprocess").TimeoutExpired(arguments, 1)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("subprocess.run", run)
+    monkeypatch.setattr("wsprrypi_qualification.remote_staging._run_transport", run)
     with pytest.raises(RemoteStagingError, match="transport"), _stage(tmp_path, source):
         pass
     assert "os.path.lexists(p)" in calls[-1][-1]
@@ -127,13 +127,13 @@ def test_source_identity_change_before_copy_fails_and_cleans(tmp_path: Path, mon
     source.write_bytes(b"wheel")
     calls: list[list[str]] = []
 
-    def run(arguments, **kwargs):
-        del kwargs
+    def run(arguments, *args, **kwargs):
+        del args, kwargs
         calls.append(arguments)
         source.write_bytes(b"changed")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("subprocess.run", run)
+    monkeypatch.setattr("wsprrypi_qualification.remote_staging._run_transport", run)
     with pytest.raises(RemoteStagingError, match="source identity"), _stage(tmp_path, source):
         pass
     source.write_bytes(b"wheel")
@@ -147,7 +147,7 @@ def test_add_file_is_verified_and_becomes_addressable(tmp_path: Path, monkeypatc
     later.write_text("{}")
 
     monkeypatch.setattr(
-        "subprocess.run",
+        "wsprrypi_qualification.remote_staging._run_transport",
         lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
     )
     with _stage(tmp_path, source) as stage:
@@ -161,7 +161,7 @@ def test_remote_python_discovery_is_strict(tmp_path: Path, monkeypatch) -> None:
     known_hosts = tmp_path / "known_hosts"
     known_hosts.write_text("host key")
     monkeypatch.setattr(
-        "subprocess.run",
+        "wsprrypi_qualification.remote_staging._run_transport",
         lambda *args, **kwargs: SimpleNamespace(
             returncode=0,
             stdout="/usr/bin/python3\n" + "a" * 64 + "\n",

@@ -165,6 +165,9 @@ class BoundedTone:
 
 
 def request(operation, payload, **changes):
+    payload = dict(payload)
+    if operation == "process-start":
+        payload.setdefault("cleanup_timeout_s", payload.get("hard_timeout_s", 1))
     value = {
         "protocol_version": 1,
         "request_id": "request-1",
@@ -191,8 +194,10 @@ def server():
 class InProcessLauncher:
     def __init__(self, helper):
         self.helper = helper
+        self.timeouts = []
 
     def exchange(self, encoded, timeout_s):
+        self.timeouts.append(timeout_s)
         response = self.helper.dispatch(decode_request(encoded))
         return json.dumps(response)
 
@@ -299,6 +304,38 @@ def test_scheduled_process_arms_then_launches_at_local_deadline():
     assert result["stdout"].strip() == "scheduled"
     assert result["actual_start_utc"] is not None
     assert abs(result["schedule_error_ms"]) < 100
+
+
+def test_relative_scheduled_process_selects_start_after_helper_preparation():
+    executable = Path(sys.executable).resolve()
+    digest = hashlib.sha256(executable.read_bytes()).hexdigest()
+    helper = server()
+    before = datetime.now(UTC)
+    started = helper.dispatch(
+        request(
+            "process-start",
+            {
+                "arguments": [str(executable), "-c", "print('relative')"],
+                "executable_sha256": digest,
+                "privilege_wrapper_path": None,
+                "privilege_wrapper_sha256": None,
+                "pinned_arguments": {},
+                "hard_timeout_s": 2,
+                "environment": {},
+                "schedule_after_arm_s": 0.15,
+                "minimum_arm_margin_s": 0.1,
+            },
+        )
+    )["result"]
+    observed = datetime.fromisoformat(started["helper_observed_utc"].replace("Z", "+00:00"))
+    scheduled = datetime.fromisoformat(started["scheduled_start_utc"].replace("Z", "+00:00"))
+    assert observed >= before
+    assert (scheduled - observed).total_seconds() == pytest.approx(0.15)
+    assert started["arm_margin_s"] == pytest.approx(0.15)
+    result = helper.dispatch(
+        request("process-wait", {"handle_id": started["handle_id"], "timeout_s": 2})
+    )["result"]
+    assert result["stdout"].strip() == "relative"
 
 
 @pytest.mark.parametrize(
@@ -529,6 +566,7 @@ def _repository_guard_fixture(tmp_path: Path) -> tuple[Path, Path, Path, dict[st
             }
         ],
         "writable_paths": [str(runtime.resolve())],
+        "inspection_timeout_s": 2,
     }
     return root, source, runtime, guard
 
@@ -701,7 +739,8 @@ def test_production_clients_round_trip_against_server(tmp_path: Path):
     helper = server()
     pinned = tmp_path / "helper executable"
     pinned.write_bytes(b"fake pinned helper")
-    client = JsonHelperClient(pinned.resolve(), InProcessLauncher(helper), 2, PLAN, "helper-1")
+    transport = InProcessLauncher(helper)
+    client = JsonHelperClient(pinned.resolve(), transport, 2, PLAN, "helper-1")
     assert HelperServiceProvider(client, "systemd").inspect("wsprrypi").running is True
     assert HelperGpioProvider(client).inspect(4).direction == "input"
     assert HelperSi5351Provider(client).inspect(1, "0x60").enabled_outputs == ()
@@ -717,6 +756,45 @@ def test_production_clients_round_trip_against_server(tmp_path: Path):
     result = process.wait(2, None)
     assert result.stdout.strip() == "owned remote output"
     assert result.cleanup_verified is True
+    assert transport.timeouts[-2:] == [2, 4]
+
+
+def test_process_start_response_contains_repository_inspection_envelope(tmp_path: Path):
+    helper = server()
+    pinned = tmp_path / "helper executable"
+    pinned.write_bytes(b"fake pinned helper")
+    transport = InProcessLauncher(helper)
+    client = JsonHelperClient(pinned.resolve(), transport, 5, PLAN, "helper-1")
+    executable = Path(sys.executable).resolve()
+    with pytest.raises(HelperProtocolError, match="repository"):
+        SshOwnedProcessLauncher(
+            client,
+            20,
+            hashlib.sha256(executable.read_bytes()).hexdigest(),
+            repository_guard={
+                "protected_source_roots": [str(tmp_path)],
+                "git_path": str(executable),
+                "git_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+                "working_directory": str(tmp_path),
+                "mutable_inputs": [],
+                "writable_paths": [],
+                "inspection_timeout_s": 20,
+            },
+            cleanup_timeout_s=10,
+        ).begin((str(executable), "-c", "pass"))
+    assert transport.timeouts[-1] == 25
+
+
+@pytest.mark.parametrize("invalid", [False, True, 0, -1, float("inf"), float("nan")])
+def test_helper_response_envelopes_reject_invalid_numeric_values(tmp_path: Path, invalid: float):
+    pinned = tmp_path / "helper executable"
+    pinned.write_bytes(b"fake pinned helper")
+    transport = InProcessLauncher(server())
+    client = JsonHelperClient(pinned.resolve(), transport, 5, PLAN, "helper-1")
+    with pytest.raises(CapabilityError, match="response deadline"):
+        client.request("service-inspect", {"name": "wsprrypi"}, response_timeout_s=invalid)
+    with pytest.raises(CapabilityError, match="cleanup deadline"):
+        SshOwnedProcessLauncher(client, 5, "0" * 64, cleanup_timeout_s=invalid)
 
 
 def test_persistent_entrypoint_preserves_ownership_and_enforces_deadline(tmp_path: Path):

@@ -13,7 +13,10 @@ from wsprrypi_qualification.cw_reference import (
     validate_keyed_capture_margin,
 )
 from wsprrypi_qualification.offline import artifact, validate_document, write_json_new
-from wsprrypi_qualification.real_session import helper_configuration_plan_sha256
+from wsprrypi_qualification.real_session import (
+    helper_configuration_plan_sha256,
+    required_tone_overall_deadline,
+)
 from wsprrypi_qualification.receiver_calibration import disabled_binding
 
 
@@ -232,7 +235,6 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "transmitter_s": 20,
             "receiver_s": 20,
             "cleanup_s": 10,
-            "overall_s": 60,
         },
         "stopping_procedure": {
             "transmitter": "owned stop",
@@ -277,9 +279,12 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
                 "31416",
                 "--socket-loopback-only",
             ],
-            "startup_seconds": 0.25,
         },
     }
+    # Retained plan evidence records the protocol-derived readiness envelope;
+    # execution waits on the cadence itself rather than this informational field.
+    real["tone_server"]["startup_seconds"] = real["tone_schedule"]["off_seconds"]
+    real["deadlines"]["overall_s"] = required_tone_overall_deadline(real)
     helper_plan = helper_configuration_plan_sha256(real)
     for name in ("remote_helper", "receiver_helper", "capture_helper", "wsprd", "wsprrypi"):
         real[name]["plan_sha256"] = helper_plan
@@ -518,7 +523,6 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         "ssh_executable": artifacts["ssh"]["path"],
         "work_directory": str(facts["work_directory"]),
         "output_parent": str(facts["output_parent"]),
-        "campaign_deadline_s": 7200,
     }
     validate_document(configuration, "complete-test-configuration.schema.json")
     configuration_path = destination / "complete-test.json"

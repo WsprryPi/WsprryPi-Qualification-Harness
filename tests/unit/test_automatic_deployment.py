@@ -20,6 +20,11 @@ class _Stage:
         self.calls.append((program, arguments, timeout_s))
         return subprocess.CompletedProcess([], 0, "", "")
 
+    def run_python_to_completion(
+        self, program: str, *arguments: str
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run_python(program, *arguments)
+
 
 class _TransmitterStage(_Stage):
     def run_python(
@@ -30,6 +35,11 @@ class _TransmitterStage(_Stage):
             deployment = arguments[0]
             return subprocess.CompletedProcess([], 0, f"{deployment}/wsprrypi\n", "")
         return result
+
+    def run_python_to_completion(
+        self, program: str, *arguments: str
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run_python(program, *arguments)
 
 
 class _InstalledTransmitterStage(_Stage):
@@ -58,6 +68,7 @@ def test_transmitter_binary_is_exclusively_installed_per_campaign() -> None:
     assert "build_source=root/'build-source'" in stage.calls[0][0]
     assert "str(build_source/'src')" in stage.calls[0][0]
     assert "str(src/'src')" not in stage.calls[0][0]
+    assert "timeout=900" not in stage.calls[0][0]
 
 
 def test_installed_configuration_is_staged_byte_for_byte_without_normalization() -> None:
@@ -85,7 +96,7 @@ def test_custom_installed_binary_and_configuration_are_bound_explicitly() -> Non
         "/opt/wsprrypi/bin/wsprrypi",
         "/opt/wsprrypi/etc/runtime.ini",
     )
-    assert timeout == 120
+    assert timeout is None
 
 
 def test_source_checkout_selection_is_explicit_and_exact(tmp_path: Path) -> None:
@@ -144,6 +155,8 @@ def test_receiver_preparation_binds_cache_and_transmitter_trust() -> None:
     assert "os.O_EXCL" in stage.calls[1][0]
     assert "os.fsync" in stage.calls[1][0]
     assert "cached.write_bytes" not in stage.calls[1][0]
+    assert "timeout=180" not in stage.calls[1][0]
+    assert "timeout=600" not in stage.calls[1][0]
     assert stage.calls[2][1] == (
         f"{deployment_root}/runtime.zip",
         runtime_key,
