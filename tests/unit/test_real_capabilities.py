@@ -81,7 +81,7 @@ def test_ssh_records_reversible_remote_boundary(tmp_path: Path) -> None:
     ),
 )
 def test_ssh_typed_outcomes(tmp_path: Path, result: LaunchResult, outcome: str) -> None:
-    plan = SshCapabilityPlan(executable(tmp_path), "host", "/opt/wspq-helper", ("true",), 1, 1, 1)
+    plan = SshCapabilityPlan(executable(tmp_path), "host", "/opt/wspq-helper", ("true",), 1, 1, 2)
     document = OpenSshCapability(SealedFakeLauncher(result)).execute(
         plan, authorization(plan.document())
     )
@@ -89,21 +89,21 @@ def test_ssh_typed_outcomes(tmp_path: Path, result: LaunchResult, outcome: str) 
 
 
 def test_ssh_requires_ephemeral_authorization(tmp_path: Path) -> None:
-    plan = SshCapabilityPlan(executable(tmp_path), "host", "/opt/wspq-helper", ("true",), 1, 1, 1)
+    plan = SshCapabilityPlan(executable(tmp_path), "host", "/opt/wspq-helper", ("true",), 1, 1, 2)
     with pytest.raises(CapabilityError, match="authorization"):
         OpenSshCapability(SealedFakeLauncher()).execute(plan, None)
 
 
 def test_ssh_rejects_shell_metacharacters_and_option_like_host(tmp_path: Path) -> None:
     bad_helper = SshCapabilityPlan(
-        executable(tmp_path), "host", "/safe/helper;touch_BAD", ("true",), 1, 1, 1
+        executable(tmp_path), "host", "/safe/helper;touch_BAD", ("true",), 1, 1, 2
     )
     with pytest.raises(CapabilityError, match="unsafe"):
         OpenSshCapability(SealedFakeLauncher()).execute(
             bad_helper, authorization(bad_helper.document())
         )
     bad_host = SshCapabilityPlan(
-        executable(tmp_path), "-oProxyCommand=bad", "/safe/helper", ("true",), 1, 1, 1
+        executable(tmp_path), "-oProxyCommand=bad", "/safe/helper", ("true",), 1, 1, 2
     )
     with pytest.raises(CapabilityError, match="destination"):
         OpenSshCapability(SealedFakeLauncher()).execute(
@@ -220,7 +220,7 @@ def test_si5351_requires_matching_identity_and_disabled_outputs() -> None:
 
 
 def test_cancellation_never_calls_an_external_provider(tmp_path: Path) -> None:
-    plan = SshCapabilityPlan(executable(tmp_path), "host", "/opt/wspq-helper", ("true",), 1, 1, 1)
+    plan = SshCapabilityPlan(executable(tmp_path), "host", "/opt/wspq-helper", ("true",), 1, 1, 2)
     cancellation = threading.Event()
     cancellation.set()
     document = OpenSshCapability(SealedFakeLauncher()).execute(
@@ -386,7 +386,7 @@ def test_soapy_adapter_removes_partial_iq_and_preserves_failure_diagnostics(
 
 
 def test_semantic_validation_rejects_tampered_ssh_encoding(tmp_path: Path) -> None:
-    plan = SshCapabilityPlan(executable(tmp_path), "host", "/opt/wspq-helper", ("true",), 1, 1, 1)
+    plan = SshCapabilityPlan(executable(tmp_path), "host", "/opt/wspq-helper", ("true",), 1, 1, 2)
     document = OpenSshCapability(SealedFakeLauncher()).execute(plan, authorization(plan.document()))
     document["encoded_remote_command"] = '["false"]'
     with pytest.raises(CapabilityError, match="encoding"):

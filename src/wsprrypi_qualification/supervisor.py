@@ -62,7 +62,7 @@ class OperationDeadlines:
     service_restore_s: float = 1.0
     leak_verify_s: float = 1.0
     quiescence_s: float = 1.0
-    overall_s: float = 10.0
+    overall_s: float = 12.0
 
     def validate(self) -> None:
         if any(value <= 0 for value in asdict(self).values()):

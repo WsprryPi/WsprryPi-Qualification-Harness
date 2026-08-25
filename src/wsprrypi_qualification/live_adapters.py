@@ -19,7 +19,7 @@ import time
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -66,8 +66,11 @@ from wsprrypi_qualification.real_session import (
     helper_configuration_plan_sha256,
     helper_verification_contract,
     helper_verification_deadline,
+    required_tone_overall_deadline,
     required_wspr_overall_deadline,
     resolved_real_plan_sha256,
+    tone_analysis_deadline,
+    tone_publication_deadline,
     wspr_capture_setup_deadline,
     wspr_frame_analysis_deadline,
     wspr_publication_deadline,
@@ -119,7 +122,6 @@ def _reject_git_worktree_runtime(path: Path) -> None:
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=5,
     )
     if result.returncode == 0:
         root = Path(result.stdout.strip()).resolve(strict=True)
@@ -340,12 +342,18 @@ class ProductionRealSessionAdapters:
                     "workload-derived analysis, summary, publication, cleanup, and final "
                     "quiescence"
                 )
+        elif plan.get("session_kind") == "cw_live_tone":
+            required = required_tone_overall_deadline(plan)
+            if plan["deadlines"]["overall_s"] < required:
+                raise RealSessionError(
+                    "TONE overall deadline cannot contain its deterministic phase composition"
+                )
         self._session_deadline = time.monotonic() + plan["deadlines"]["overall_s"]
         self._cleanup_reserve_s = plan["deadlines"]["cleanup_s"]
         if plan.get("session_kind", "wspr_qualification") == "wspr_qualification":
             self._publication_budget_s = wspr_publication_deadline(plan)
         else:
-            self._publication_budget_s = plan["deadlines"]["overall_s"]
+            self._publication_budget_s = tone_publication_deadline(plan)
         repository_guard = {
             "protected_source_roots": [plan["source"]["repository_path"]],
             "git_path": plan["source"]["git_path"],
@@ -353,6 +361,7 @@ class ProductionRealSessionAdapters:
             "working_directory": str(Path(plan["wsprrypi"]["path"]).parent),
             "mutable_inputs": [],
             "writable_paths": [],
+            "inspection_timeout_s": helper_verification_deadline(plan),
         }
         self.tx_launcher.repository_guard = repository_guard
         self.source_launcher.repository_guard = repository_guard
@@ -487,6 +496,14 @@ class ProductionRealSessionAdapters:
 
     def verify_helper(self, plan: dict[str, Any]) -> dict[str, object]:
         started = time.monotonic()
+        verification_deadline = started + helper_verification_deadline(plan)
+
+        def remaining_verification_time() -> float:
+            remaining = verification_deadline - time.monotonic()
+            if remaining <= 0:
+                raise RealSessionError("helper verification aggregate deadline expired")
+            return self._remaining(remaining)
+
         # A signed, plan-bound response proves both persistent helper sessions.
         for operation_name, provider, services in (
             (
@@ -510,7 +527,7 @@ class ProductionRealSessionAdapters:
 
             self._bounded_helper_operation(
                 operation_name,
-                plan["deadlines"]["helper_s"],
+                remaining_verification_time(),
                 inspect_service,
             )
         source = plan["source"]
@@ -544,10 +561,10 @@ class ProductionRealSessionAdapters:
 
             def inspect_revision(arguments: tuple[str, ...] = arguments) -> Any:
                 process = self.source_launcher.begin(arguments)
-                return process.wait(self._remaining(plan["deadlines"]["helper_s"]), None)
+                return process.wait(remaining_verification_time(), None)
 
             result = self._bounded_helper_operation(
-                operation_name, plan["deadlines"]["helper_s"], inspect_revision
+                operation_name, remaining_verification_time(), inspect_revision
             )
             if result.return_code != 0 or not result.cleanup_verified:
                 raise RealSessionError(f"helper verification {operation_name} failed")
@@ -831,7 +848,9 @@ class ProductionRealSessionAdapters:
                     "working_directory": str(Path(plan["wsprrypi"]["path"]).parent),
                     "mutable_inputs": [],
                     "writable_paths": [],
+                    "inspection_timeout_s": helper_verification_deadline(plan),
                 },
+                cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
             )
         process = launcher.begin(application.arguments)
         self._owned.append(process)
@@ -905,6 +924,8 @@ class ProductionRealSessionAdapters:
     ) -> dict[str, object]:
         del authorization
         self._prepare_transmitter_services(plan)
+        if plan.get("session_kind") == "cw_live_tone":
+            return self._run_tone_pattern(plan)
         captured: list[dict[str, object]] = []
         errors: list[BaseException] = []
         cancellation = threading.Event()
@@ -922,8 +943,6 @@ class ProductionRealSessionAdapters:
         self._capture_tasks.append((worker, cancellation))
         worker.start()
         self._wait_capture_ready(plan, "rf_on", worker, errors)
-        if plan.get("session_kind") == "cw_live_tone":
-            return self._run_tone_pattern(plan, worker, cancellation, captured, errors)
         try:
             process = self._begin_transmitter(plan, True)
         except Exception as exc:
@@ -955,10 +974,6 @@ class ProductionRealSessionAdapters:
     def _run_tone_pattern(
         self,
         plan: dict[str, Any],
-        worker: threading.Thread,
-        cancellation: threading.Event,
-        captured: list[dict[str, object]],
-        errors: list[BaseException],
     ) -> dict[str, object]:
         if not self._cleanup_installed:
             raise RealSessionError("bounded Tone server refused before cleanup registration")
@@ -984,16 +999,39 @@ class ProductionRealSessionAdapters:
                     }
                 ],
                 "writable_paths": [server_plan["configuration"]["path"]],
+                "inspection_timeout_s": helper_verification_deadline(plan),
             },
+            cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
         )
         server = launcher.begin(tuple(server_plan["arguments"]))
-        epoch = time.monotonic()
         self._owned.append(server)
+        captured: list[dict[str, object]] = []
+        errors: list[BaseException] = []
+        cancellation = threading.Event()
+        worker = threading.Thread(
+            target=lambda: self._capture_into(
+                captured,
+                errors,
+                plan,
+                "rf_on",
+                plan["carrier"]["rf_on_sample_count"],
+                cancellation,
+            ),
+            name="wspq-tone-rf-on-capture",
+        )
+        self._capture_tasks.append((worker, cancellation))
         try:
+            worker.start()
+            self._wait_capture_ready(plan, "rf_on", worker, errors)
+            epoch = time.monotonic()
             return self._run_tone_pattern_cycles(
                 plan, worker, cancellation, captured, errors, epoch=epoch
             )
         finally:
+            if worker.is_alive():
+                cancellation.set()
+            if not worker.is_alive() and (worker, cancellation) in self._capture_tasks:
+                self._capture_tasks.remove((worker, cancellation))
             result = server.stop()
             self._retain_transmitter_result(plan, tone=True, result=result)
             if _owned_process_released(result):
@@ -1013,7 +1051,6 @@ class ProductionRealSessionAdapters:
     ) -> dict[str, object]:
         schedule = plan["tone_schedule"]
         epoch = time.monotonic() if epoch is None else epoch
-        self._sleep_until(epoch + plan["tone_server"]["startup_seconds"])
         interval = schedule["off_seconds"] + schedule["on_seconds"]
         reserved_rf_on = 0.0
         try:
@@ -1026,9 +1063,12 @@ class ProductionRealSessionAdapters:
                 if next_reserved_rf_on > schedule["maximum_rf_on_seconds"]:
                     raise RealSessionError("tone pattern exceeds its cumulative RF-on bound")
                 reserved_rf_on = next_reserved_rf_on
+                # The complete on/off cadence supplies the transaction envelope:
+                # the requested RF-on interval followed by its protocol-defined
+                # quiet interval for terminal evidence and cleanup.
                 outer_timeout_s = min(
                     plan["deadlines"]["transmitter_s"],
-                    schedule["on_seconds"] + min(1.0, schedule["off_seconds"] / 2),
+                    schedule["on_seconds"] + schedule["off_seconds"],
                 )
                 try:
                     evidence = self.tx_client.request_evidence(
@@ -1163,6 +1203,11 @@ class ProductionRealSessionAdapters:
             schema_name="receiver-calibration-binding.schema.json",
         )
         self._artifacts.append(calibration_path)
+        analysis_deadline = (
+            tone_analysis_deadline(plan)
+            if plan.get("session_kind") == "cw_live_tone"
+            else plan["deadlines"]["overall_s"]
+        )
         self._run_offline(
             (
                 "analyze-carrier",
@@ -1180,7 +1225,7 @@ class ProductionRealSessionAdapters:
                 "--receiver-calibration-binding",
                 str(calibration_path),
             ),
-            self._remaining(plan["deadlines"]["overall_s"], reserve_cleanup=True),
+            self._remaining(analysis_deadline, reserve_cleanup=True),
         )
         document = load_json_document(evidence, "carrier-analysis.schema.json")
         self._artifacts.append(evidence)
@@ -1257,8 +1302,6 @@ class ProductionRealSessionAdapters:
             )
             mode_gate = generated_gate["mode_gate"]
             self._artifacts.extend((observations, mode_gate_path))
-            if gate_outcome == "passed":
-                gate_outcome = generated_gate["carrier_gate"]
         return self._stage(
             plan,
             "carrier_analysis",
@@ -1282,7 +1325,7 @@ class ProductionRealSessionAdapters:
                     "receiver_frequency_interpretation"
                 ),
             },
-            plan["deadlines"]["overall_s"],
+            analysis_deadline,
             started,
         )
 
@@ -1817,7 +1860,7 @@ def build_production_adapters(
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=5,
+        timeout=helper_verification_deadline(plan),
         check=False,
     )
     selected_lines = [line for line in selected.stdout.splitlines() if not line.startswith("#")]
@@ -1832,7 +1875,7 @@ def build_production_adapters(
             capture_output=True,
             text=True,
             encoding="utf-8",
-            timeout=5,
+            timeout=helper_verification_deadline(plan),
             check=False,
         )
     parsed_fingerprints = [
@@ -1960,11 +2003,13 @@ def build_production_adapters(
                 tx_client,
                 plan["deadlines"]["transmitter_s"],
                 plan["wsprrypi"]["sha256"],
+                cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
             ),
             source_launcher=SshOwnedProcessLauncher(
                 tx_client,
                 plan["deadlines"]["helper_s"],
                 plan["source"]["git_sha256"],
+                cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
             ),
             capture_capability=SoapyCaptureCapability(LocalTransportLauncher()),
             paths=paths,
@@ -2010,6 +2055,7 @@ class KeyedCapabilityProviders:
             "working_directory": transmitter["runtime_working_directory"],
             "mutable_inputs": [],
             "writable_paths": [],
+            "inspection_timeout_s": plan["deadlines"]["transaction_s"],
         }
         self.tx_services = HelperServiceProvider(tx_client, "systemd", repository_guard)
         self.rx_services = HelperServiceProvider(rx_client, "systemd")
@@ -2024,6 +2070,7 @@ class KeyedCapabilityProviders:
             privilege_wrapper_sha256=plan["capability_bindings"][
                 "transmitter_process_privilege_wrapper"
             ]["sha256"],
+            cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
         )
         self.capture_capability = SoapyCaptureCapability(LocalTransportLauncher())
         self.work_directory = work_directory
@@ -2114,23 +2161,27 @@ class KeyedCapabilityProviders:
         return number in self.initial_services
 
     def start_process(self, arguments: tuple[str, ...], number: int) -> str | None:
-        if not self._start_capture(number):
-            return None
         mode_plan = load_json_document(
             Path(self.plan["reference"]["plan"]["path"]), "cw-mode-plan.schema.json"
         )
         pre_quiet = float(mode_plan["protocol"]["pre_quiet_seconds"])
-        minimum_margin = min(0.25, pre_quiet / 2.0)
-        scheduled = datetime.now(UTC) + timedelta(seconds=pre_quiet)
-        scheduled_text = scheduled.isoformat().replace("+00:00", "Z")
+        # The helper selects the absolute start only after it has authenticated
+        # the process and repository state.  Transport and validation latency
+        # therefore cannot consume the protocol-defined arming interval.
+        minimum_margin = pre_quiet / 2.0
         request_sent = datetime.now(UTC)
         process = self.launcher.begin_scheduled(
             arguments,
-            scheduled_start_utc=scheduled_text,
+            schedule_after_arm_s=pre_quiet,
             minimum_arm_margin_s=minimum_margin,
         )
         response_received = datetime.now(UTC)
         acknowledgement = cast(Any, process).arming_acknowledgement
+        scheduled_text = acknowledgement.get("scheduled_start_utc")
+        try:
+            scheduled = datetime.fromisoformat(str(scheduled_text).replace("Z", "+00:00"))
+        except ValueError:
+            scheduled = datetime.min.replace(tzinfo=UTC)
         try:
             helper_observed = datetime.fromisoformat(
                 str(acknowledgement.get("helper_observed_utc", "")).replace("Z", "+00:00")
@@ -2138,11 +2189,14 @@ class KeyedCapabilityProviders:
         except ValueError:
             helper_observed = datetime.min.replace(tzinfo=UTC)
         clock_uncertainty_s = max(
-            abs((helper_observed - request_sent).total_seconds()),
-            abs((helper_observed - response_received).total_seconds()),
+            0.0,
+            (request_sent - helper_observed).total_seconds(),
+            (helper_observed - response_received).total_seconds(),
         )
         if (
-            acknowledgement.get("scheduled_start_utc") != scheduled_text
+            not isinstance(scheduled_text, str)
+            or not scheduled_text.endswith("Z")
+            or scheduled.tzinfo != UTC
             or not isinstance(acknowledgement.get("helper_observed_utc"), str)
             or not isinstance(acknowledgement.get("arm_margin_s"), (int, float))
             or isinstance(acknowledgement.get("arm_margin_s"), bool)
@@ -2152,6 +2206,13 @@ class KeyedCapabilityProviders:
             process.stop()
             return None
         if process.handle_id in {owned.handle_id for owned in self.owned.values()}:
+            process.stop()
+            return None
+        if not self._start_capture(number):
+            process.stop()
+            return None
+        capture_ready = datetime.now(UTC)
+        if (scheduled - capture_ready).total_seconds() < minimum_margin:
             process.stop()
             return None
         self.owned[number] = process
@@ -2187,9 +2248,7 @@ class KeyedCapabilityProviders:
         self.process_evidence[number] = process_path
         task = self.capture_tasks[number]
         worker, _, _, errors = task
-        monitor_deadline = time.monotonic() + max(
-            0.0, (scheduled - response_received).total_seconds()
-        )
+        monitor_deadline = time.monotonic() + max(0.0, (scheduled - capture_ready).total_seconds())
         while time.monotonic() < monitor_deadline:
             if errors or not worker.is_alive():
                 stopped = process.stop()
@@ -2271,7 +2330,10 @@ class KeyedCapabilityProviders:
         self.capture_tasks[number] = (worker, cancellation, captured, errors)
         worker.start()
         ready = Path(str(capture_plan.output_path) + ".incomplete")
-        ready_deadline = time.monotonic() + min(5.0, plan["deadlines"]["transaction_s"])
+        # Capture readiness has no independent guessed duration.  It owns the
+        # remaining plan-bound transaction envelope and still blocks RF unless
+        # the helper establishes its retained output first.
+        ready_deadline = time.monotonic() + plan["deadlines"]["transaction_s"]
         while time.monotonic() < ready_deadline:
             if ready.exists():
                 break
@@ -2477,7 +2539,10 @@ class KeyedCapabilityProviders:
             worker, cancellation, _, errors = task
             cancellation.set()
             worker.join(plan["deadlines"]["cleanup_s"])
-            okay = not worker.is_alive() and not errors and okay
+            expected_cancellation = bool(errors) and all(
+                self._verified_capture_cancellation(error) for error in errors
+            )
+            okay = not worker.is_alive() and (not errors or expected_cancellation) and okay
         process = self.owned.pop(number, None)
         if process is not None:
             stopped = process.stop()
@@ -2491,6 +2556,23 @@ class KeyedCapabilityProviders:
             except Exception:
                 okay = False
         return okay
+
+    @staticmethod
+    def _verified_capture_cancellation(error: BaseException) -> bool:
+        if not isinstance(error, CaptureCapabilityError) or error.diagnostic_path is None:
+            return False
+        try:
+            document = json.loads(error.diagnostic_path.read_text(encoding="utf-8"))
+            execution = document["execution"]
+        except (OSError, KeyError, TypeError, json.JSONDecodeError):
+            return False
+        return bool(
+            document.get("evidence_type") == "soapy_capture_failure_diagnostic"
+            and execution.get("cancelled") is True
+            and execution.get("timed_out") is False
+            and execution.get("disconnected") is False
+            and execution.get("cleanup_verified") is True
+        )
 
     def verify_quiescence(self, plan: dict[str, Any], number: int) -> bool:
         del number

@@ -623,7 +623,7 @@ class QualificationSession:
                 self.plan.application.backend,
                 verified=injection is not Injection.QUIESCENCE_FAILED,
             )
-            deadlines = OperationDeadlines(monitor_s=monitor_s, overall_s=monitor_s + 12)
+            deadlines = OperationDeadlines(monitor_s=monitor_s, overall_s=monitor_s + 11)
             result = Supervisor(
                 receiver,
                 transmitter,

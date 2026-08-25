@@ -183,7 +183,7 @@ def run_wsprd(
                 cause=FailureCause.FILESYSTEM_FAILURE,
             )
     tool = discover_wsprd(executable)
-    version = _query_version(tool)
+    version = _query_version(tool, timeout_s)
     if version["launch_error"] is not None:
         raise OfflineAnalysisError(
             "decoder version query could not be launched",
@@ -422,7 +422,7 @@ def _build_decoder_document(
     }
 
 
-def _query_version(tool: Path) -> dict[str, Any]:
+def _query_version(tool: Path, timeout_s: float) -> dict[str, Any]:
     arguments = [str(tool), "--version"]
     try:
         result = subprocess.run(
@@ -431,7 +431,7 @@ def _query_version(tool: Path) -> dict[str, Any]:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=5,
+            timeout=timeout_s,
             check=False,
             shell=False,
         )

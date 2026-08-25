@@ -264,7 +264,7 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
     assert result["details"]["mode_gate"] == "not_applicable"
 
 
-def test_live_tone_analysis_propagates_detailed_carrier_failure(
+def test_live_tone_diagnostic_failure_does_not_overwrite_acquisition_gate(
     tmp_path: Path, monkeypatch
 ) -> None:
     work = tmp_path / "analysis work"
@@ -336,8 +336,10 @@ def test_live_tone_analysis_propagates_detailed_carrier_failure(
 
     result = adapter.analyze_carrier(plan, {}, {})
     assert result["details"]["offset_hz"] == 186.0
-    assert result["details"]["gate_outcome"] == "failed"
+    assert result["details"]["gate_outcome"] == "passed"
     assert result["details"]["mode_gate"] == "not_applicable"
+    assert work / "tone-observations.json" in adapter._artifacts
+    assert work / "tone-mode-gate.json" in adapter._artifacts
 
 
 def test_rebound_retained_contracts_complete_real_iq_analysis(tmp_path: Path) -> None:
@@ -504,6 +506,41 @@ def test_helper_revision_mismatch_reports_expected_and_observed(tmp_path: Path) 
         ),
     ):
         adapter.verify_helper(plan)
+
+
+def test_helper_suboperations_share_the_aggregate_verification_envelope(tmp_path: Path) -> None:
+    adapter = bare_adapter(tmp_path)
+    plan = plan_document()
+    plan["deadlines"]["helper_s"] = 0.05
+
+    class SlowServiceProvider:
+        def inspect(self, service: str) -> object:
+            time.sleep(0.06)
+            return object()
+
+    class Process:
+        def __init__(self, revision: str) -> None:
+            self.revision = revision
+
+        def wait(self, deadline_s: float, cancellation: object) -> LaunchResult:
+            assert deadline_s > 0
+            return LaunchResult(0, self.revision + "\n", "", cleanup_verified=True)
+
+    revisions = iter((plan["source"]["parent_revision"], plan["source"]["submodule_revision"]))
+
+    class Launcher:
+        def begin(self, arguments: tuple[str, ...]) -> Process:
+            return Process(next(revisions))
+
+    adapter.tx_services = SlowServiceProvider()
+    adapter.rx_services = SlowServiceProvider()
+    adapter.source_launcher = Launcher()
+
+    evidence = adapter.verify_helper(plan)
+
+    assert evidence["outcome"] == "passed"
+    assert evidence["elapsed_s"] > plan["deadlines"]["helper_s"]
+    assert evidence["elapsed_s"] < evidence["deadline_s"]
 
 
 def test_transmitter_execution_retains_complete_owned_process_result(tmp_path: Path) -> None:
@@ -941,6 +978,7 @@ def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, mo
     adapter.tx_client = object()
     plan = tone_plan_document()
     observed = {}
+    ordering = []
 
     class Process:
         def stop(self):
@@ -965,6 +1003,7 @@ def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, mo
             executable_sha256,
             pinned_arguments=None,
             repository_guard=None,
+            cleanup_timeout_s=None,
         ):
             observed.update(
                 client=client,
@@ -972,22 +1011,38 @@ def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, mo
                 executable_sha256=executable_sha256,
                 pinned_arguments=pinned_arguments,
                 repository_guard=repository_guard,
+                cleanup_timeout_s=cleanup_timeout_s,
             )
 
         def begin(self, arguments):
             observed["arguments"] = arguments
+            ordering.append("server_started")
             return Process()
 
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.SshOwnedProcessLauncher", Launcher)
     monkeypatch.setattr(
         adapter,
         "_run_tone_pattern_cycles",
-        lambda plan, worker, cancellation, captured, errors, **kwargs: captured[0],
+        lambda plan, worker, cancellation, captured, errors, **kwargs: (
+            ordering.append("cycles_started"),
+            captured[0],
+        )[1],
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_capture_into",
+        lambda captured, errors, plan, kind, count, cancellation: (
+            ordering.append("capture_started"),
+            captured.append({"capture": "complete"}),
+        ),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_wait_capture_ready",
+        lambda plan, kind, worker, errors: worker.join(),
     )
     monkeypatch.setattr(adapter, "_retain_transmitter_result", lambda *args, **kwargs: None)
-    result = adapter._run_tone_pattern(
-        plan, object(), threading.Event(), [{"capture": "complete"}], []
-    )
+    result = adapter._run_tone_pattern(plan)
     assert result == {"capture": "complete"}
     assert observed["arguments"] == tuple(plan["tone_server"]["arguments"])
     assert observed["repository_guard"] == {
@@ -1004,10 +1059,13 @@ def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, mo
             }
         ],
         "writable_paths": [plan["tone_server"]["configuration"]["path"]],
+        "inspection_timeout_s": 20,
     }
     assert observed["pinned_arguments"] == {
         plan["tone_server"]["configuration"]["path"]: plan["tone_server"]["configuration"]["sha256"]
     }
+    assert observed["cleanup_timeout_s"] == plan["deadlines"]["cleanup_s"]
+    assert ordering == ["server_started", "capture_started", "cycles_started"]
     assert adapter._owned == []
 
 
@@ -1187,6 +1245,7 @@ def test_each_live_tone_cycle_uses_its_resolved_remote_watchdog(
             executable_sha256,
             pinned_arguments=None,
             repository_guard=None,
+            cleanup_timeout_s=None,
         ):
             observed.update(
                 client=client,
@@ -1194,6 +1253,7 @@ def test_each_live_tone_cycle_uses_its_resolved_remote_watchdog(
                 executable_sha256=executable_sha256,
                 pinned_arguments=pinned_arguments,
                 repository_guard=repository_guard,
+                cleanup_timeout_s=cleanup_timeout_s,
             )
 
         def begin(self, arguments):
@@ -1216,6 +1276,7 @@ def test_each_live_tone_cycle_uses_its_resolved_remote_watchdog(
     assert process in adapter._owned
     assert observed["hard_timeout_s"] == 2
     assert observed["executable_sha256"] == plan["wsprrypi"]["sha256"]
+    assert observed["cleanup_timeout_s"] == plan["deadlines"]["cleanup_s"]
 
 
 def test_partial_receiver_service_change_retains_restoration_intent(tmp_path: Path) -> None:

@@ -34,6 +34,7 @@ from wsprrypi_qualification.manifests import write_manifest
 from wsprrypi_qualification.offline import artifact
 from wsprrypi_qualification.progress import ProgressReporter
 from wsprrypi_qualification.progress_viewer import tracking_command
+from wsprrypi_qualification.real_session import required_tone_overall_deadline
 
 SDR = "driver=sdrplay,serial=2404058C60"
 DISCOVERED_SDR = {
@@ -69,7 +70,6 @@ def _configuration(
     tmp_path: Path,
     *,
     topology: str = "split_host_ssh",
-    campaign_deadline_s: float = 7200,
 ) -> Path:
     known_hosts = tmp_path / "known_hosts"
     ssh_executable = tmp_path / "ssh-fixture"
@@ -127,7 +127,6 @@ def _configuration(
             "ssh_executable": str(ssh_executable),
             "work_directory": str(tmp_path / "work"),
             "output_parent": str(tmp_path / "runs"),
-            "campaign_deadline_s": campaign_deadline_s,
         },
     )
 
@@ -150,6 +149,8 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert wspr["backend_contract"]["gpio_pin"] == 4
     assert wspr["backend_contract"]["drive_or_power_level"] == 2
     tone = plan["mode_plans"][0]["plan"]
+    assert tone["deadlines"]["overall_s"] == required_tone_overall_deadline(tone)
+    assert tone["deadlines"]["overall_s"] != 60
     assert "--no-web" not in tone["tone_server"]["arguments"]
     tone_arguments = tone["tone_server"]["arguments"]
     assert tone_arguments.count("--no-system-clock-frequency-estimate") == 1
@@ -310,8 +311,8 @@ def test_exact_sdr_selector_resolves_unique_driver_and_serial(monkeypatch) -> No
         lambda name: Path("/usr/bin/true"),
     )
     monkeypatch.setattr(
-        "wsprrypi_qualification.complete_test.LocalCommandTransport.execute",
-        lambda self, plan: SimpleNamespace(
+        "wsprrypi_qualification.complete_test._run_to_completion",
+        lambda executable, arguments: SimpleNamespace(
             return_code=0,
             timed_out=False,
             stderr="",
@@ -397,6 +398,10 @@ def test_remote_receiver_returns_classified_nonpassing_result(tmp_path: Path, mo
         "wsprrypi_qualification.complete_test.LocalCommandTransport.execute",
         lambda self, plan: next(responses),
     )
+    monkeypatch.setattr(
+        "wsprrypi_qualification.complete_test._run_to_completion",
+        lambda executable, arguments: next(responses),
+    )
     outcome = delegate_complete_test(
         "wspr4.local", "wspr5.local", SDR, ["--enable-rf"], configuration=configuration
     )
@@ -406,7 +411,7 @@ def test_remote_receiver_returns_classified_nonpassing_result(tmp_path: Path, mo
 
 
 def test_every_override_is_bound_and_changes_digest(tmp_path: Path) -> None:
-    config = _configuration(tmp_path, campaign_deadline_s=7200)
+    config = _configuration(tmp_path)
     composed_at = datetime(2026, 8, 24, 21, 0, 20, tzinfo=UTC)
     baseline = compose_complete_test_plan(
         "wspr4.local",
