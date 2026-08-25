@@ -240,13 +240,14 @@ policy tunes the receiver 25 kHz below requested RF. Invalid tuning geometry is
 a preflight/configuration failure, not transmitter unqualification.
 
 Carrier qualification selects the strongest resolved feature only inside the
-500-Hz target window around requested RF and requires at least 10 dB RF-on/off
-contrast. Record its requested-frequency offset, contrast, and target-window
-best-20-Hz share. Stronger features elsewhere in the captured span remain
-diagnostic and cannot redefine the requested carrier. The historical 100-Hz
-offset and 50-percent best-20-Hz thresholds remain nominal diagnostics; neither
-the carrier gate nor global feature reporting establishes calibrated power or
-spectral compliance.
+500-Hz target window around requested RF, requires at least 10 dB RF-on/off
+contrast, and requires its absolute requested-frequency offset to be at or
+below the configured carrier tolerance (100 Hz by default). Record its
+requested-frequency offset, contrast, and target-window best-20-Hz share.
+Stronger features elsewhere in the captured span remain diagnostic and cannot
+redefine the requested carrier. The 50-percent best-20-Hz threshold remains a
+nominal diagnostic; neither the carrier gate nor global feature reporting
+establishes calibrated power or spectral compliance.
 
 This target-window behavior is carrier-analysis schema version 2. Version-1
 evidence records the historical span-wide policy and is not silently

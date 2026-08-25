@@ -16,6 +16,7 @@
     "configuration",
     "defaults",
     "resolved_values",
+    "transmitter_ppm_resolution",
     "derived_frequencies",
     "receiver_tuning",
     "mode_order",
@@ -88,6 +89,7 @@
     "resolved_values": {
       "$ref": "#/$defs/values"
     },
+    "transmitter_ppm_resolution": {"$ref": "#/$defs/ppmResolution"},
     "derived_frequencies": {
       "type": "object",
       "additionalProperties": false,
@@ -355,6 +357,7 @@
         "dfcw_separation_hz",
         "keyed_observations",
         "wspr_observations"
+        ,"carrier_offset_max_hz", "transmitter_ppm_offset"
       ],
       "properties": {
         "band": {
@@ -405,7 +408,25 @@
         },
         "wspr_observations": {
           "const": 3
-        }
+        },
+        "carrier_offset_max_hz": {"type": "number", "minimum": 0},
+        "transmitter_ppm_offset": {"type": "number", "minimum": -200, "maximum": 200}
+      }
+    },
+    "ppmResolution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["algorithm", "resolved_utc", "transmitter_host", "backend", "contributors", "host_correction_ppm", "harness_offset_ppm", "effective_correction_ppm", "derivation", "application", "receiver_calibration_separate"],
+      "properties": {
+        "algorithm": {"const": "host_absolute_precedence_plus_harness_delta_v1"},
+        "resolved_utc": {"type": "string", "format": "date-time"},
+        "transmitter_host": {"type": "string", "minLength": 1}, "backend": {"enum": ["gpio", "si5351"]},
+        "contributors": {"type": "array", "minItems": 2, "items": {"type": "object"}},
+        "host_correction_ppm": {"type": "number", "minimum": -200, "maximum": 200},
+        "harness_offset_ppm": {"type": "number", "minimum": -200, "maximum": 200},
+        "effective_correction_ppm": {"type": "number", "minimum": -200, "maximum": 200},
+        "derivation": {"type": "string", "minLength": 1},
+        "application": {"const": "exactly_once_as_backend_ppm_argument"},
+        "receiver_calibration_separate": {"const": true}
       }
     }
   }

@@ -1102,15 +1102,26 @@ class HelperServiceProvider:
         client: JsonHelperClient,
         manager: str,
         repository_guard: dict[str, object] | None = None,
+        response_timeout_s: float | None = None,
     ) -> None:
         self.client, self.manager = client, manager
         self.repository_guard = repository_guard
+        self.response_timeout_s = response_timeout_s
 
     def set_repository_guard(self, guard: dict[str, object]) -> None:
         self.repository_guard = guard
 
+    def set_response_timeout(self, timeout_s: float) -> None:
+        if isinstance(timeout_s, bool) or not math.isfinite(timeout_s) or timeout_s <= 0:
+            raise CapabilityError("service response deadline must be positive and finite")
+        self.response_timeout_s = timeout_s
+
     def inspect(self, name: str) -> ServiceState:
-        response = self.client.request("service-inspect", {"name": name, "manager": self.manager})
+        response = self.client.request(
+            "service-inspect",
+            {"name": name, "manager": self.manager},
+            response_timeout_s=self.response_timeout_s,
+        )
         if response.get("name") != name or not isinstance(response.get("running"), bool):
             raise CapabilityError("service helper response contradicts request")
         return ServiceState(name, self.manager, response["running"] is True)
@@ -1123,7 +1134,9 @@ class HelperServiceProvider:
         }
         if self.repository_guard is not None:
             payload["repository_guard"] = self.repository_guard
-        response = self.client.request("service-set", payload)
+        response = self.client.request(
+            "service-set", payload, response_timeout_s=self.response_timeout_s
+        )
         if response.get("cleanup_verified") is False:
             raise CapabilityError("service action changed protected repository state")
         if response.get("name") != name or response.get("running") is not running:

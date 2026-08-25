@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from wsprrypi_qualification.automatic_configuration import write_automatic_configuration
-from wsprrypi_qualification.complete_test import compose_complete_test_plan
+from wsprrypi_qualification.complete_test import CompleteTestOverrides, compose_complete_test_plan
 from wsprrypi_qualification.offline import artifact
 
 
@@ -99,3 +99,23 @@ def test_discovered_facts_create_all_five_production_plans(tmp_path: Path) -> No
     assert all(
         entry["plan"]["receiver"]["clipping_threshold"] == 0.999 for entry in plan["mode_plans"][2:]
     )
+    assert plan["resolved_values"]["carrier_offset_max_hz"] == 100.0
+    assert plan["transmitter_ppm_resolution"]["effective_correction_ppm"] == 0.0
+
+    adjusted = compose_complete_test_plan(
+        "wspr4",
+        "wspr5",
+        facts["sdr_selector"],
+        configuration=configuration,
+        overrides=CompleteTestOverrides(carrier_offset_max_hz=250.0, transmitter_ppm_offset=-1.25),
+        live=False,
+    )
+    assert adjusted["resolved_values"]["carrier_offset_max_hz"] == 250.0
+    assert adjusted["transmitter_ppm_resolution"]["effective_correction_ppm"] == -1.25
+    for entry in adjusted["mode_plans"]:
+        child = entry["plan"]
+        if entry["mode"] in {"TONE", "WSPR"}:
+            assert child["carrier"]["offset_gate_hz"] == 250.0
+            assert child["calibration"]["ppm"] == -1.25
+        else:
+            assert child["application_plan"]["backend_contract"]["ppm"] == -1.25
