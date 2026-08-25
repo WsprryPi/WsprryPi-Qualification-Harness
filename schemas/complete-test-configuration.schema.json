@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_type",
+    "campaign_id",
+    "transmitter_host",
+    "receiver_host",
+    "sdr_selector",
+    "receiver_delegation",
+    "topology",
+    "production_templates",
+    "ssh_executable",
+    "work_directory",
+    "output_parent",
+    "campaign_deadline_s"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "evidence_type": {
+      "const": "complete_test_configuration"
+    },
+    "campaign_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+    },
+    "transmitter_host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "receiver_host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sdr_selector": {
+      "type": "string",
+      "minLength": 1
+    },
+    "receiver_delegation": {
+      "$ref": "#/$defs/delegation"
+    },
+    "topology": {
+      "enum": [
+        "split_host_ssh",
+        "same_host_local"
+      ]
+    },
+    "production_templates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "real_session",
+        "keyed_session"
+      ],
+      "properties": {
+        "real_session": {
+          "type": "string",
+          "minLength": 1
+        },
+        "keyed_session": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "ssh_executable": {
+      "type": "string",
+      "minLength": 1
+    },
+    "work_directory": {
+      "type": "string",
+      "minLength": 1
+    },
+    "output_parent": {
+      "type": "string",
+      "minLength": 1
+    },
+    "campaign_deadline_s": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "size_bytes",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "launcher",
+        "module"
+      ],
+      "properties": {
+        "launcher": {
+          "$ref": "#/$defs/artifact"
+        },
+        "module": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "delegation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ssh",
+        "known_hosts",
+        "remote_exec",
+        "qualification"
+      ],
+      "properties": {
+        "ssh": {
+          "$ref": "#/$defs/artifact"
+        },
+        "known_hosts": {
+          "$ref": "#/$defs/artifact"
+        },
+        "remote_exec": {
+          "$ref": "#/$defs/identity"
+        },
+        "qualification": {
+          "$ref": "#/$defs/identity"
+        }
+      }
+    }
+  }
+}

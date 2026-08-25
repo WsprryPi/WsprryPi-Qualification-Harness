@@ -34,6 +34,7 @@ from wsprrypi_qualification.receiver_calibration import (
 from wsprrypi_qualification.receiver_calibration import (
     validate_binding as validate_receiver_calibration,
 )
+from wsprrypi_qualification.receiver_tuning import ReceiverTuningError, ReceiverTuningGeometry
 
 
 @dataclass(frozen=True)
@@ -97,6 +98,19 @@ def analyze_carrier(
         raise OfflineAnalysisError(
             "bounded relative acquisition requires the maintained 500 Hz and 10 dB gates"
         )
+    half_span = parameters.usable_half_span_hz or parameters.sample_rate_hz / 2
+    try:
+        ReceiverTuningGeometry(
+            requested_frequency_hz=parameters.requested_frequency_hz,
+            center_frequency_hz=parameters.center_frequency_hz,
+            sample_rate_hz=parameters.sample_rate_hz,
+            bandwidth_hz=2 * half_span,
+            dc_exclusion_hz=parameters.dc_exclusion_hz,
+            target_search_half_width_hz=parameters.relative_acquisition_offset_gate_hz,
+            fft_bin_hz=parameters.sample_rate_hz / parameters.fft_size,
+        ).validate()
+    except ReceiverTuningError as error:
+        raise OfflineAnalysisError(f"invalid receiver tuning geometry: {error}") from error
     off_threshold = 0.999
     on_threshold = 0.999
     if (rf_off_metadata_path is None) != (rf_on_metadata_path is None):
@@ -147,23 +161,33 @@ def analyze_carrier(
     frequencies = parameters.center_frequency_hz + np.fft.fftshift(
         np.fft.fftfreq(parameters.fft_size, 1 / parameters.sample_rate_hz)
     )
-    half_span = parameters.usable_half_span_hz or parameters.sample_rate_hz / 2
     usable = np.abs(frequencies - parameters.center_frequency_hz) <= half_span
     usable &= np.abs(frequencies - parameters.center_frequency_hz) > parameters.dc_exclusion_hz
     residual = on_power - off_power
     threshold = off_power * (10 ** (parameters.resolved_threshold_db / 10))
     resolved = usable & (residual > 0) & (on_power >= threshold)
-    if not np.any(resolved):
+    global_candidates = np.flatnonzero(resolved if np.any(resolved) else usable)
+    global_strongest_index = int(global_candidates[np.argmax(residual[global_candidates])])
+    target_window = (
+        np.abs(frequencies - parameters.requested_frequency_hz)
+        <= parameters.relative_acquisition_offset_gate_hz
+    )
+    target_resolved = resolved & target_window
+    target_usable = usable & target_window
+    if not np.any(target_usable):
+        raise OfflineAnalysisError("requested carrier window has no usable FFT bins")
+    if not np.any(target_resolved):
         gate = "inconclusive"
-        strongest_index = int(np.argmax(np.where(usable, residual, -np.inf)))
+        strongest_index = int(np.argmax(np.where(target_usable, residual, -np.inf)))
         share = 0.0
     else:
-        strongest_index = int(np.argmax(np.where(resolved, residual, -np.inf)))
+        strongest_index = int(np.argmax(np.where(target_resolved, residual, -np.inf)))
         bin_hz = parameters.sample_rate_hz / parameters.fft_size
         channel_bins = max(1, round(parameters.best_channel_hz / bin_hz))
         kernel = np.ones(channel_bins, dtype=np.float64)
-        channel_power = np.convolve(np.where(resolved, residual, 0.0), kernel, mode="same")
-        share = float(np.max(channel_power) / np.sum(np.where(resolved, residual, 0.0)))
+        target_power = np.where(target_resolved, residual, 0.0)
+        channel_power = np.convolve(target_power, kernel, mode="same")
+        share = float(np.max(channel_power) / np.sum(target_power))
         offset = abs(float(frequencies[strongest_index] - parameters.requested_frequency_hz))
         tiny = np.finfo(np.float64).tiny
         strongest_contrast = float(
@@ -173,10 +197,15 @@ def analyze_carrier(
                 - np.log10(max(off_power[strongest_index], tiny))
             )
         )
+        global_is_outside_target = not bool(target_window[global_strongest_index])
+        target_peak_is_edge_leakage = global_is_outside_target and offset >= (
+            parameters.relative_acquisition_offset_gate_hz - bin_hz
+        )
         gate = (
             "passed"
             if offset <= parameters.relative_acquisition_offset_gate_hz
             and strongest_contrast >= parameters.relative_acquisition_contrast_gate_db
+            and not target_peak_is_edge_leakage
             else "failed"
         )
     strongest_hz = float(frequencies[strongest_index])
@@ -188,10 +217,9 @@ def analyze_carrier(
             10 * (np.log10(max(on_power[index], tiny)) - np.log10(max(off_power[index], tiny)))
         )
 
-    candidates = np.flatnonzero(resolved if np.any(resolved) else usable)
-    ordered = candidates[np.argsort(residual[candidates])[::-1]][:10]
+    ordered = global_candidates[np.argsort(residual[global_candidates])[::-1]][:10]
     document: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "evidence_type": "carrier_analysis",
         "gate_outcome": gate,
         "inputs": {"rf_off": asdict(off_info), "rf_on": asdict(on_info)},
@@ -217,7 +245,7 @@ def analyze_carrier(
                 "the corresponding RF-off power, with positive RF-on-minus-RF-off residual"
             ),
             "edge_channel_policy": "same-length convolution; zero outside usable span",
-            "gate_policy": "bounded_relative_carrier_acquisition",
+            "gate_policy": "target_window_relative_carrier_acquisition_v2",
         },
         "metrics": {
             "requested_frequency_hz": parameters.requested_frequency_hz,
@@ -231,7 +259,10 @@ def analyze_carrier(
             ),
             "nominal_share_gate_passed": share >= parameters.share_gate,
             "relative_acquisition_passed": gate == "passed",
-            "resolved_bin_count": int(np.count_nonzero(resolved)),
+            "resolved_bin_count": int(np.count_nonzero(target_resolved)),
+            "global_resolved_bin_count": int(np.count_nonzero(resolved)),
+            "global_strongest_frequency_hz": float(frequencies[global_strongest_index]),
+            "global_strongest_contrast_db": contrast(global_strongest_index),
             "strongest_features": [
                 {
                     "frequency_hz": float(frequencies[i]),
@@ -246,6 +277,7 @@ def analyze_carrier(
             "spectral compliance",
             "bounded carrier acquisition tolerates receiver frequency error and thermal drift; "
             "nominal offset and best-20-Hz concentration remain diagnostic only",
+            "global features are diagnostic and do not redefine the requested carrier",
         ],
     }
     if receiver_calibration is not None:
@@ -271,6 +303,9 @@ def analyze_carrier(
             residual[usable],
             parameters.requested_frequency_hz,
             strongest_hz,
+            parameters.center_frequency_hz,
+            parameters.dc_exclusion_hz,
+            parameters.relative_acquisition_offset_gate_hz,
             canonical_analysis_sha256(document),
         )
         document["plot"] = plot

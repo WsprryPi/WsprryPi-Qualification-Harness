@@ -61,6 +61,7 @@ jobs:
           tests/unit/test_application_cli.py
           tests/unit/test_bounded_tone_control.py
           tests/unit/test_cli.py
+          tests/unit/test_complete_test.py
           tests/unit/test_paths.py
           tests/unit/test_supervisor.py
           tests/unit/test_tool_discovery.py

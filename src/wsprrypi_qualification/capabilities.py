@@ -71,6 +71,10 @@ def capability_report() -> dict[str, Any]:
             "typed route planning, exact-digest confirmation, deterministic hardware-free "
             "rehearsal, and dispatch to the maintained real-session or live-keyed coordinator"
         ),
+        "complete_test_campaign": (
+            "two-host, exact-SDR five-mode TONE, WSPR, QRSS, FSKCW, and DFCW "
+            "composition, hardware-free rehearsal, and invocation-authorized dispatch"
+        ),
     }
     adapters = [
         CapabilityResult(

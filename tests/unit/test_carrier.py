@@ -46,7 +46,7 @@ def test_carrier_gate_pass_fail_full_span_and_determinism(tmp_path: Path) -> Non
     rate, size, center = 4096, 1024, 10_000.0
     off = write_cf32(tmp_path / "rf off.cf32", np.zeros(size * 3))
     on = write_cf32(tmp_path / "rf on.cf32", tone(size * 3, rate, 500))
-    parameters = CarrierParameters(rate, center, center + 500, fft_size=size, dc_exclusion_hz=100)
+    parameters = CarrierParameters(rate, center, center + 1000, fft_size=size, dc_exclusion_hz=100)
     first = analyze_carrier(off, on, parameters, tmp_path / "one.json")
     second = analyze_carrier(off, on, parameters, tmp_path / "two.json")
     assert first["gate_outcome"] == "passed"
@@ -62,6 +62,70 @@ def test_carrier_gate_pass_fail_full_span_and_determinism(tmp_path: Path) -> Non
     assert failed["metrics"]["strongest_features"]
 
 
+def test_target_carrier_wins_gate_while_stronger_remote_feature_is_diagnostic(
+    tmp_path: Path,
+) -> None:
+    rate, size, center = 262_144, 262_144, 14_072_100.0
+    requested = 14_097_100.0
+    off = write_cf32(tmp_path / "off.cf32", np.zeros(size))
+    on = write_cf32(
+        tmp_path / "on.cf32",
+        tone(size, rate, 25_000, 0.2) + tone(size, rate, 69_000, 0.6),
+    )
+    result = analyze_carrier(
+        off,
+        on,
+        CarrierParameters(rate, center, requested, fft_size=size),
+        tmp_path / "analysis.json",
+    )
+    assert result["gate_outcome"] == "passed"
+    assert result["metrics"]["strongest_transmitter_added_frequency_hz"] == requested
+    assert result["metrics"]["global_strongest_frequency_hz"] == center + 69_000
+    assert result["metrics"]["global_strongest_frequency_hz"] != requested
+
+
+def test_centered_requested_window_is_rejected_before_analysis(tmp_path: Path) -> None:
+    off = write_cf32(tmp_path / "off.cf32", np.zeros(1024))
+    on = write_cf32(tmp_path / "on.cf32", np.zeros(1024))
+    with pytest.raises(OfflineAnalysisError, match="overlaps the receiver DC exclusion"):
+        analyze_carrier(
+            off,
+            on,
+            CarrierParameters(4096, 10_000, 10_000, fft_size=1024),
+            tmp_path / "analysis.json",
+        )
+
+
+@pytest.mark.parametrize(("on_amplitude", "outcome"), ((0.31, "failed"), (0.32, "passed")))
+def test_target_contrast_straddles_maintained_ten_db_gate(
+    tmp_path: Path, on_amplitude: float, outcome: str
+) -> None:
+    rate, size, center, requested = 4096, 1024, 10_000.0, 11_000.0
+    off = write_cf32(tmp_path / f"off-{outcome}.cf32", tone(size, rate, 1000, 0.1))
+    on = write_cf32(tmp_path / f"on-{outcome}.cf32", tone(size, rate, 1000, on_amplitude))
+    result = analyze_carrier(
+        off,
+        on,
+        CarrierParameters(rate, center, requested, fft_size=size, dc_exclusion_hz=100),
+        tmp_path / f"analysis-{outcome}.json",
+    )
+    assert result["gate_outcome"] == outcome
+
+
+def test_exact_target_window_boundary_passes_when_it_is_the_global_peak(tmp_path: Path) -> None:
+    rate, size, center, requested = 4096, 1024, 10_000.0, 11_000.0
+    off = write_cf32(tmp_path / "off-boundary.cf32", np.zeros(size))
+    on = write_cf32(tmp_path / "on-boundary.cf32", tone(size, rate, 500))
+    result = analyze_carrier(
+        off,
+        on,
+        CarrierParameters(rate, center, requested, fft_size=size, dc_exclusion_hz=100),
+        tmp_path / "boundary.json",
+    )
+    assert result["gate_outcome"] == "passed"
+    assert result["metrics"]["strongest_offset_hz"] == -500
+
+
 @pytest.mark.parametrize(
     ("suffix", "media_type"), ((".png", "image/png"), (".svg", "image/svg+xml"))
 )
@@ -75,7 +139,7 @@ def test_carrier_plot_is_rendered_bound_and_portable(
     result = analyze_carrier(
         off,
         on,
-        CarrierParameters(rate, center, center + 500, fft_size=size, dc_exclusion_hz=100),
+        CarrierParameters(rate, center, center + 1000, fft_size=size, dc_exclusion_hz=100),
         tmp_path / f"analysis-{suffix[1:]}.json",
         plot_path=plot,
     )
@@ -101,7 +165,7 @@ def test_carrier_plot_rejects_invalid_format_and_tampering(tmp_path: Path) -> No
     rate, size, center = 4096, 1024, 10_000.0
     off = write_cf32(tmp_path / "off.cf32", np.zeros(size))
     on = write_cf32(tmp_path / "on.cf32", tone(size, rate, 500))
-    parameters = CarrierParameters(rate, center, center + 500, fft_size=size, dc_exclusion_hz=100)
+    parameters = CarrierParameters(rate, center, center + 1000, fft_size=size, dc_exclusion_hz=100)
     with pytest.raises(OfflineAnalysisError, match=r"\.png or \.svg"):
         analyze_carrier(off, on, parameters, tmp_path / "bad.json", plot_path=tmp_path / "bad.pdf")
 
@@ -123,7 +187,7 @@ def test_carrier_plot_source_binding_rejects_contradictory_analysis(tmp_path: Pa
     document = analyze_carrier(
         off,
         on,
-        CarrierParameters(rate, center, center + 500, fft_size=size, dc_exclusion_hz=100),
+        CarrierParameters(rate, center, center + 1000, fft_size=size, dc_exclusion_hz=100),
         tmp_path / "analysis.json",
         plot_path=tmp_path / "carrier.svg",
     )
@@ -141,14 +205,14 @@ def test_relative_acquisition_accepts_plausible_uncalibrated_receiver_offset(
     result = analyze_carrier(
         off,
         on,
-        CarrierParameters(rate, center, center + 500, fft_size=size, dc_exclusion_hz=100),
+        CarrierParameters(rate, center, center + 1000, fft_size=size, dc_exclusion_hz=100),
         tmp_path / "result.json",
     )
     assert result["gate_outcome"] == "passed"
-    assert result["metrics"]["strongest_offset_hz"] == 168
+    assert result["metrics"]["strongest_offset_hz"] == -332
     assert result["metrics"]["nominal_offset_gate_passed"] is False
     assert result["metrics"]["relative_acquisition_passed"] is True
-    assert result["contract"]["gate_policy"] == "bounded_relative_carrier_acquisition"
+    assert result["contract"]["gate_policy"] == "target_window_relative_carrier_acquisition_v2"
 
 
 def test_relative_acquisition_thresholds_cannot_be_silently_relaxed(tmp_path: Path) -> None:
@@ -161,7 +225,7 @@ def test_relative_acquisition_thresholds_cannot_be_silently_relaxed(tmp_path: Pa
             CarrierParameters(
                 4096,
                 10_000,
-                10_500,
+                11_000,
                 fft_size=1024,
                 dc_exclusion_hz=100,
                 relative_acquisition_offset_gate_hz=5_000,
@@ -176,14 +240,14 @@ def test_silence_is_inconclusive_and_outputs_are_immutable(tmp_path: Path) -> No
     on = write_cf32(tmp_path / "on.cf32", values)
     output = tmp_path / "analysis.json"
     result = analyze_carrier(
-        off, on, CarrierParameters(4096, 10_000, 10_500, fft_size=1024, dc_exclusion_hz=100), output
+        off, on, CarrierParameters(4096, 10_000, 11_000, fft_size=1024, dc_exclusion_hz=100), output
     )
     assert result["gate_outcome"] == "inconclusive"
     with pytest.raises(OfflineAnalysisError, match="overwrite"):
         analyze_carrier(
             off,
             on,
-            CarrierParameters(4096, 10_000, 10_500, fft_size=1024, dc_exclusion_hz=100),
+            CarrierParameters(4096, 10_000, 11_000, fft_size=1024, dc_exclusion_hz=100),
             output,
         )
 
@@ -196,10 +260,10 @@ def test_dc_artifact_is_excluded_but_unexpected_feature_is_found(tmp_path: Path)
     result = analyze_carrier(
         off,
         on,
-        CarrierParameters(rate, center, center + 500, fft_size=size, dc_exclusion_hz=100),
+        CarrierParameters(rate, center, center + 1000, fft_size=size, dc_exclusion_hz=100),
         tmp_path / "result.json",
     )
-    assert result["metrics"]["strongest_transmitter_added_frequency_hz"] == center - 700
+    assert result["metrics"]["global_strongest_frequency_hz"] == center - 700
     assert result["gate_outcome"] == "failed"
 
 
@@ -229,7 +293,7 @@ def test_capture_metadata_pair_must_match_artifacts_and_settings(tmp_path: Path)
 
     off_meta = metadata(tmp_path / "off.json", off)
     on_meta = metadata(tmp_path / "on.json", on)
-    parameters = CarrierParameters(rate, center, center + 500, fft_size=size, dc_exclusion_hz=100)
+    parameters = CarrierParameters(rate, center, center + 1000, fft_size=size, dc_exclusion_hz=100)
     result = analyze_carrier(
         off,
         on,
@@ -276,7 +340,7 @@ def test_carrier_averages_unequal_exact_counts_independently(tmp_path: Path) -> 
     result = analyze_carrier(
         off,
         on,
-        CarrierParameters(4096, 10_000, 10_500, fft_size=1024, dc_exclusion_hz=100),
+        CarrierParameters(4096, 10_000, 11_000, fft_size=1024, dc_exclusion_hz=100),
         tmp_path / "result.json",
         rf_off_metadata_path=metadata(tmp_path / "off.json", off, 1024),
         rf_on_metadata_path=metadata(tmp_path / "on.json", on, 2048),

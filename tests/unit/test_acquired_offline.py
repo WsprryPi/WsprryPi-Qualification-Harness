@@ -32,7 +32,7 @@ from wsprrypi_qualification.offline_context import (
 
 def profiles(tmp_path: Path, *, rate: int, center: float, frequency: float) -> tuple[Path, Path]:
     bench = load_example("bench-wspr5-rsp1b.json")
-    bench["receiver"].update(sample_rate_hz=rate, bandwidth_hz=min(rate, 2000))
+    bench["receiver"].update(sample_rate_hz=rate, bandwidth_hz=rate)
     test = load_example("test-si5351-160m.json")
     test.update(receiver_center_hz=center, frequency_hz=frequency, receiver_gain_db=10)
     bench_path, test_path = tmp_path / "bench.json", tmp_path / "test.json"
@@ -55,7 +55,7 @@ def metadata(tmp_path: Path, name: str, iq: Path, *, rate: int, center: float) -
         assert isinstance(settings, dict)
         settings.update(
             sample_rate_hz=rate,
-            bandwidth_hz=min(rate, 2000),
+            bandwidth_hz=rate,
             center_frequency_hz=center,
             gain_db=10,
         )
@@ -74,13 +74,13 @@ def metadata(tmp_path: Path, name: str, iq: Path, *, rate: int, center: float) -
 
 
 def test_acquired_carrier_uses_profiles_and_capture_contract(tmp_path: Path) -> None:
-    rate, center, frequency, count = 4096, 10_000.0, 10_500.0, 4096
+    rate, center, frequency, count = 4096, 10_000.0, 11_000.0, 4096
     bench, test = profiles(tmp_path, rate=rate, center=center, frequency=frequency)
     off = tmp_path / "off.cf32"
     on = tmp_path / "on.cf32"
     np.zeros(count, dtype="<c8").tofile(off)
     n = np.arange(count)
-    np.asarray(0.5 * np.exp(2j * np.pi * 500 * n / rate), dtype="<c8").tofile(on)
+    np.asarray(0.5 * np.exp(2j * np.pi * 1000 * n / rate), dtype="<c8").tofile(on)
     result = analyze_carrier_acquired(
         off,
         on,
@@ -174,12 +174,12 @@ def test_acquired_carrier_uses_profiles_and_capture_contract(tmp_path: Path) -> 
 
 
 def test_acquired_carrier_plot_is_recomputed_and_tampering_is_rejected(tmp_path: Path) -> None:
-    rate, center, frequency, count = 4096, 10_000.0, 10_500.0, 2048
+    rate, center, frequency, count = 4096, 10_000.0, 11_000.0, 2048
     bench, test = profiles(tmp_path, rate=rate, center=center, frequency=frequency)
     off, on = tmp_path / "off.cf32", tmp_path / "on.cf32"
     np.zeros(count, dtype="<c8").tofile(off)
     samples = np.arange(count)
-    np.asarray(0.5 * np.exp(2j * np.pi * 500 * samples / rate), dtype="<c8").tofile(on)
+    np.asarray(0.5 * np.exp(2j * np.pi * 1000 * samples / rate), dtype="<c8").tofile(on)
     analysis, plot = tmp_path / "carrier.json", tmp_path / "carrier.png"
     analyze_carrier_acquired(
         off,
@@ -211,12 +211,12 @@ def test_acquired_carrier_plot_is_recomputed_and_tampering_is_rejected(tmp_path:
 
 
 def test_analyze_carrier_cli_writes_requested_plot(tmp_path: Path) -> None:
-    rate, center, frequency, count = 4096, 10_000.0, 10_500.0, 1024
+    rate, center, frequency, count = 4096, 10_000.0, 11_000.0, 1024
     bench, test = profiles(tmp_path, rate=rate, center=center, frequency=frequency)
     off, on = tmp_path / "off.cf32", tmp_path / "on.cf32"
     np.zeros(count, dtype="<c8").tofile(off)
     samples = np.arange(count)
-    np.asarray(0.5 * np.exp(2j * np.pi * 500 * samples / rate), dtype="<c8").tofile(on)
+    np.asarray(0.5 * np.exp(2j * np.pi * 1000 * samples / rate), dtype="<c8").tofile(on)
     off_metadata = metadata(tmp_path, "off.json", off, rate=rate, center=center)
     on_metadata = metadata(tmp_path, "on.json", on, rate=rate, center=center)
     analysis, plot = tmp_path / "analysis.json", tmp_path / "carrier.svg"
@@ -340,8 +340,10 @@ def test_acquired_audio_uses_capture_utc_and_canonical_name(
             slot,
             output,
             tmp_path / f"audio-{index}.json",
+            selected_frequency_hz=frequency + 176.0,
         )
         assert result["contract"]["input_start_sample"] == (5 + index * 120) * rate
+        assert result["contract"]["selected_frequency_hz"] == frequency + 176.0
         assert result["profiles"]["test"]["id"] == "si5351-160m-production-example"
         if index == 0:
             conjugate_root = tmp_path / "conjugate"

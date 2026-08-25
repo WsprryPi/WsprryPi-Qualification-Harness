@@ -16,13 +16,51 @@ from wsprrypi_qualification.real_session import (
     helper_configuration_plan_sha256,
     helper_verification_contract,
     helper_verification_deadline,
+    required_wspr_overall_deadline,
     resolved_real_plan_sha256,
     validate_real_session_document,
     validate_real_session_plan,
+    wspr_capture_setup_deadline,
+    wspr_frame_analysis_deadline,
+    wspr_publication_deadline,
+    wspr_summary_deadline,
 )
 from wsprrypi_qualification.receiver_calibration import disabled_binding
 
 NOW = datetime(2026, 8, 12, 20, 0, tzinfo=UTC)
+
+
+def test_wspr_deadline_contains_slot_wait_capture_analysis_publication_and_cleanup() -> None:
+    plan = plan_document()
+    session_start = datetime(2026, 8, 12, 19, 58, 20, tzinfo=UTC)
+
+    assert required_wspr_overall_deadline(plan, session_start) == 972
+
+    plan["deadlines"]["cleanup_s"] += 7
+    assert required_wspr_overall_deadline(plan, session_start) == 986
+
+
+def test_wspr_deadline_rejects_session_after_capture_launch() -> None:
+    plan = plan_document()
+
+    with pytest.raises(RealSessionError, match="after its coherent-capture launch"):
+        required_wspr_overall_deadline(plan, datetime(2026, 8, 12, 19, 59, 55, tzinfo=UTC))
+
+
+def test_wspr_offline_deadlines_scale_from_exact_coherent_capture_work() -> None:
+    plan = plan_document()
+    assert plan["coherent_capture"]["sample_count"] * 8 == 740_000_000
+    assert wspr_capture_setup_deadline(plan) == 5
+    assert wspr_frame_analysis_deadline(plan) == 65
+    assert wspr_summary_deadline(plan) == 178
+    assert wspr_publication_deadline(plan) == 119
+
+    smaller = json.loads(json.dumps(plan))
+    smaller["coherent_capture"]["sample_count"] //= 2
+    larger = json.loads(json.dumps(plan))
+    larger["coherent_capture"]["sample_count"] *= 2
+    assert wspr_summary_deadline(smaller) == 89
+    assert wspr_summary_deadline(larger) == 356
 
 
 def test_failed_cleanup_retains_actual_deadline_overrun():
@@ -120,7 +158,7 @@ def plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
             "sample_format": "CF32",
             "sample_rate_hz": 250000,
             "bandwidth_hz": 200000,
-            "center_frequency_hz": 1838100,
+            "center_frequency_hz": 1813100,
             "gain_db": 10,
             "agc": False,
             "bias_tee": False,
@@ -201,8 +239,36 @@ def plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
     return document
 
 
-def tone_plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
+def tone_plan_document(
+    *, execution_mode: str = "hardware_free_validation", gpio: bool = False
+) -> dict:
     document = plan_document(execution_mode=execution_mode)
+    if gpio:
+        document["backend"] = "gpio"
+        document["output"] = "GPIO4"
+        document["backend_contract"] = {
+            "backend": "gpio",
+            "output": "GPIO4",
+            "gpio_pin": 4,
+            "drive_or_power_level": 2,
+            "quiescence_provider_sha256": "3" * 64,
+        }
+    tone_arguments = [
+        document["wsprrypi"]["path"],
+        "-i",
+        "/carrier-session/wsprrypi-tone.ini",
+        "--socket-port",
+        "31416",
+        "--socket-loopback-only",
+    ]
+    if gpio:
+        tone_arguments = [
+            document["wsprrypi"]["path"],
+            "--no-system-clock-frequency-estimate",
+            *tone_arguments[1:],
+            "--gpio-manual-ppm",
+            "2.3536",
+        ]
     document.update(
         {
             "session_kind": "cw_live_tone",
@@ -228,19 +294,19 @@ def tone_plan_document(*, execution_mode: str = "hardware_free_validation") -> d
                 "analyzer_source_revision": "3" * 40,
             },
             "tone_server": {
+                "protected_source_roots": ["/source/WsprryPi"],
+                "working_directory": "/carrier-session",
+                "configuration_source": {
+                    "path": "/source/WsprryPi/config/wsprrypi.ini",
+                    "size_bytes": 1,
+                    "sha256": "c" * 64,
+                },
                 "configuration": {
                     "path": "/carrier-session/wsprrypi-tone.ini",
                     "size_bytes": 1,
                     "sha256": "c" * 64,
                 },
-                "arguments": [
-                    document["wsprrypi"]["path"],
-                    "-i",
-                    "/carrier-session/wsprrypi-tone.ini",
-                    "--socket-port",
-                    "31416",
-                    "--socket-loopback-only",
-                ],
+                "arguments": tone_arguments,
                 "startup_seconds": 0.25,
             },
         }
@@ -275,6 +341,40 @@ def test_tone_plan_binds_loopback_endpoint_and_wsprrypi_revision() -> None:
     validate_real_session_plan(document)
     document["remote_helper"]["wsprrypi_revision"] = "f" * 40
     with pytest.raises(RealSessionError, match="revision differs"):
+        validate_real_session_plan(document)
+
+
+def test_tone_plan_rejects_missing_or_mismatched_manual_ppm_before_adapters() -> None:
+    for mutation in ("missing", "mismatched", "estimate"):
+        document = tone_plan_document(gpio=True)
+        arguments = document["tone_server"]["arguments"]
+        if mutation == "missing":
+            position = arguments.index("--gpio-manual-ppm")
+            del arguments[position : position + 2]
+        elif mutation == "mismatched":
+            arguments[arguments.index("--gpio-manual-ppm") + 1] = "9"
+        else:
+            arguments[arguments.index("--no-system-clock-frequency-estimate")] = "-n"
+        with pytest.raises(RealSessionError, match="server arguments"):
+            validate_real_session_plan(document)
+
+
+@pytest.mark.parametrize("mutation", ("legacy_source", "same_path", "source_cwd", "changed_copy"))
+def test_tone_plan_rejects_unstaged_or_unbound_mutable_configuration(
+    mutation: str,
+) -> None:
+    document = tone_plan_document()
+    server = document["tone_server"]
+    if mutation == "legacy_source":
+        server["configuration"]["path"] = "/source/WsprryPi/config/wsprrypi.ini"
+        server["arguments"][server["arguments"].index("-i") + 1] = server["configuration"]["path"]
+    elif mutation == "same_path":
+        server["configuration_source"]["path"] = server["configuration"]["path"]
+    elif mutation == "source_cwd":
+        server["working_directory"] = "/source/WsprryPi"
+    else:
+        server["configuration"]["sha256"] = "d" * 64
+    with pytest.raises(RealSessionError, match="staged outside protected source"):
         validate_real_session_plan(document)
 
 
@@ -414,7 +514,7 @@ class FakeAdapters:
                 "offset_hz": offset,
                 "best_20hz_fraction": 0.9 if self.carrier != "failed" else 0.4,
                 "strongest_contrast_db": 20.0,
-                "carrier_gate_policy": "bounded_relative_carrier_acquisition",
+                "carrier_gate_policy": "target_window_relative_carrier_acquisition_v2",
                 "relative_acquisition_offset_gate_hz": 500.0,
                 "relative_acquisition_contrast_gate_db": 10.0,
                 "mode_gate": "not_applicable",
@@ -672,7 +772,7 @@ def test_carrier_gate_is_recomputed_from_metrics(tmp_path: Path):
                     "offset_hz": 10000,
                     "best_20hz_fraction": 0.01,
                     "strongest_contrast_db": 1.0,
-                    "carrier_gate_policy": "bounded_relative_carrier_acquisition",
+                    "carrier_gate_policy": "target_window_relative_carrier_acquisition_v2",
                     "relative_acquisition_offset_gate_hz": 500.0,
                     "relative_acquisition_contrast_gate_db": 10.0,
                 },
@@ -766,7 +866,7 @@ def test_event_outcome_must_match_retained_stage(tmp_path: Path):
 def test_fixture_blocked_status_requires_blocked_evidence(tmp_path: Path):
     document = run(tmp_path, FakeAdapters())
     document["final_status"] = "fixture_blocked"
-    with pytest.raises(RealSessionError, match=r"lacks blocked|require inconclusive"):
+    with pytest.raises(RealSessionError, match=r"lacks blocked|passed gates"):
         validate_real_session_document(document)
 
 
@@ -781,7 +881,7 @@ def test_completed_gates_cannot_be_relabelled_aborted(tmp_path: Path):
     document = run(tmp_path, FakeAdapters())
     document["final_status"] = "aborted"
     document["failure_causes"] = ["invented"]
-    with pytest.raises(RealSessionError, match=r"aborted status|require inconclusive"):
+    with pytest.raises(RealSessionError, match=r"aborted status|passed gates"):
         validate_real_session_document(document)
 
 

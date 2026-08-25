@@ -236,6 +236,11 @@ class LaunchResult:
     handle_id: str = "fake-handle"
     stop_requested: bool = False
     running_before_stop: bool | None = None
+    scheduled_start_utc: str | None = None
+    actual_start_utc: str | None = None
+    schedule_error_ms: float | None = None
+    launch_error: str | None = None
+    repository_integrity: tuple[dict[str, object], ...] = ()
 
 
 class ExternalLauncher(Protocol):
@@ -383,8 +388,14 @@ class LocalOwnedProcessLauncher:
 
 
 class _SshOwnedProcess:
-    def __init__(self, client: JsonHelperClient, handle_id: str) -> None:
+    def __init__(
+        self,
+        client: JsonHelperClient,
+        handle_id: str,
+        arming_acknowledgement: dict[str, object],
+    ) -> None:
         self.client, self.handle_id = client, handle_id
+        self.arming_acknowledgement = arming_acknowledgement
 
     def wait(self, timeout_s: float, cancellation: threading.Event | None) -> LaunchResult:
         if cancellation is not None and cancellation.is_set():
@@ -408,6 +419,7 @@ class SshOwnedProcessLauncher:
         hard_timeout_s: float,
         executable_sha256: str,
         pinned_arguments: dict[str, str] | None = None,
+        repository_guard: dict[str, object] | None = None,
         privilege_wrapper_path: str | None = None,
         privilege_wrapper_sha256: str | None = None,
     ) -> None:
@@ -416,28 +428,48 @@ class SshOwnedProcessLauncher:
         self.client, self.hard_timeout_s = client, hard_timeout_s
         self.executable_sha256 = executable_sha256
         self.pinned_arguments = dict(pinned_arguments or {})
+        if self.pinned_arguments and repository_guard is None:
+            raise CapabilityError(
+                "mutable pinned process inputs require repository protection metadata"
+            )
+        self.repository_guard = repository_guard
         if (privilege_wrapper_path is None) is not (privilege_wrapper_sha256 is None):
             raise CapabilityError("remote process privilege wrapper binding is incomplete")
         self.privilege_wrapper_path = privilege_wrapper_path
         self.privilege_wrapper_sha256 = privilege_wrapper_sha256
 
     def begin(self, arguments: tuple[str, ...]) -> OwnedProcess:
+        return self.begin_scheduled(arguments)
+
+    def begin_scheduled(
+        self,
+        arguments: tuple[str, ...],
+        *,
+        scheduled_start_utc: str | None = None,
+        minimum_arm_margin_s: float = 0.0,
+    ) -> OwnedProcess:
+        payload: dict[str, object] = {
+            "arguments": list(arguments),
+            "executable_sha256": self.executable_sha256,
+            "privilege_wrapper_path": self.privilege_wrapper_path,
+            "privilege_wrapper_sha256": self.privilege_wrapper_sha256,
+            "pinned_arguments": self.pinned_arguments,
+            "hard_timeout_s": self.hard_timeout_s,
+            "environment": {},
+        }
+        if self.repository_guard is not None:
+            payload["repository_guard"] = self.repository_guard
+        if scheduled_start_utc is not None:
+            payload["scheduled_start_utc"] = scheduled_start_utc
+            payload["minimum_arm_margin_s"] = minimum_arm_margin_s
         response = self.client.request(
             "process-start",
-            {
-                "arguments": list(arguments),
-                "executable_sha256": self.executable_sha256,
-                "privilege_wrapper_path": self.privilege_wrapper_path,
-                "privilege_wrapper_sha256": self.privilege_wrapper_sha256,
-                "pinned_arguments": self.pinned_arguments,
-                "hard_timeout_s": self.hard_timeout_s,
-                "environment": {},
-            },
+            payload,
         )
         handle = response.get("handle_id")
         if not isinstance(handle, str) or not handle:
             raise CapabilityError("remote process helper omitted ownership handle")
-        return _SshOwnedProcess(self.client, handle)
+        return _SshOwnedProcess(self.client, handle, response)
 
 
 def _launch_result_from_helper(document: dict[str, object], handle: str) -> LaunchResult:
@@ -462,6 +494,30 @@ def _launch_result_from_helper(document: dict[str, object], handle: str) -> Laun
             cast(bool, document.get("running_before_stop"))
             if isinstance(document.get("running_before_stop"), bool)
             else None
+        ),
+        scheduled_start_utc=(
+            cast(str, document.get("scheduled_start_utc"))
+            if isinstance(document.get("scheduled_start_utc"), str)
+            else None
+        ),
+        actual_start_utc=(
+            cast(str, document.get("actual_start_utc"))
+            if isinstance(document.get("actual_start_utc"), str)
+            else None
+        ),
+        schedule_error_ms=(
+            float(cast(float, document["schedule_error_ms"]))
+            if isinstance(document.get("schedule_error_ms"), (int, float))
+            and not isinstance(document.get("schedule_error_ms"), bool)
+            else None
+        ),
+        launch_error=(
+            cast(str, document.get("launch_error"))
+            if isinstance(document.get("launch_error"), str)
+            else None
+        ),
+        repository_integrity=tuple(
+            cast(list[dict[str, object]], document.get("repository_integrity", []))
         ),
     )
 
@@ -978,8 +1034,17 @@ class PersistentHelperTransport:
 
 
 class HelperServiceProvider:
-    def __init__(self, client: JsonHelperClient, manager: str) -> None:
+    def __init__(
+        self,
+        client: JsonHelperClient,
+        manager: str,
+        repository_guard: dict[str, object] | None = None,
+    ) -> None:
         self.client, self.manager = client, manager
+        self.repository_guard = repository_guard
+
+    def set_repository_guard(self, guard: dict[str, object]) -> None:
+        self.repository_guard = guard
 
     def inspect(self, name: str) -> ServiceState:
         response = self.client.request("service-inspect", {"name": name, "manager": self.manager})
@@ -988,9 +1053,16 @@ class HelperServiceProvider:
         return ServiceState(name, self.manager, response["running"] is True)
 
     def set_running(self, name: str, running: bool) -> None:
-        response = self.client.request(
-            "service-set", {"name": name, "manager": self.manager, "running": running}
-        )
+        payload: dict[str, object] = {
+            "name": name,
+            "manager": self.manager,
+            "running": running,
+        }
+        if self.repository_guard is not None:
+            payload["repository_guard"] = self.repository_guard
+        response = self.client.request("service-set", payload)
+        if response.get("cleanup_verified") is False:
+            raise CapabilityError("service action changed protected repository state")
         if response.get("name") != name or response.get("running") is not running:
             raise CapabilityError("service helper did not reach requested state")
 

@@ -158,8 +158,8 @@ def session_plan(executable: Path = Path("/opt/Wsprry Pi/wsprrypi")) -> Qualific
     receiver = ReceiverConfig(
         Transport.SSH,
         "sdrplay",
-        1_000,
-        1_000,
+        4_000,
+        4_000,
         "CF32",
         False,
         host="wspr5.local",
@@ -186,7 +186,7 @@ def session_plan(executable: Path = Path("/opt/Wsprry Pi/wsprrypi")) -> Qualific
         "qualification-fixture",
         transmitter,
         "160m",
-        10_100,
+        11_000,
         10_000,
         10,
         WsprIdentity("Q0QQQ", "JJ00", 0),
@@ -206,7 +206,7 @@ def session_plan(executable: Path = Path("/opt/Wsprry Pi/wsprrypi")) -> Qualific
         10,
         370,
         rf_path,
-        ReceiverRunLimits(370_000, 2_000_000, 375, 380),
+        ReceiverRunLimits(1_480_000, 2_000_000, 375, 380),
         ReceiverRunAuthorization(AuthorizationScope.SINGLE_RUN, "mock receiver only", NOW),
         "mock-only ownership and cleanup",
     )
@@ -221,7 +221,7 @@ def session_plan(executable: Path = Path("/opt/Wsprry Pi/wsprrypi")) -> Qualific
             reference_frequency_hz=27_000_000,
             drive_or_power_level=1,
         ),
-    ).resolve_plan("qualification-fixture", WsprProtocol("Q0QQQ", "JJ00", 0, 10_100, 3, 1500))
+    ).resolve_plan("qualification-fixture", WsprProtocol("Q0QQQ", "JJ00", 0, 11_000, 3, 1500))
     return QualificationSessionPlan(
         receiver_run.run_id, bench, test, receiver_run, application, NOW, 120, 380
     )
@@ -231,7 +231,7 @@ def retained_evidence(
     tmp_path: Path,
     plan: QualificationSessionPlan,
     *,
-    carrier_tone_hz: int = 100,
+    carrier_tone_hz: int = 1_000,
     correct_decode: bool = True,
     carrier_plot: bool = False,
 ) -> OfflineEvidenceSet:
@@ -245,15 +245,15 @@ def retained_evidence(
     off, on = root / "off.cf32", root / "on.cf32"
     np.zeros(3_000, dtype="<c8").tofile(off)
     samples = np.arange(3_000)
-    np.asarray(0.25 * np.exp(2j * np.pi * carrier_tone_hz * samples / 1_000), dtype="<c8").tofile(
+    np.asarray(0.25 * np.exp(2j * np.pi * carrier_tone_hz * samples / 4_000), dtype="<c8").tofile(
         on
     )
     carrier_path = root / "carrier.json"
     analyze_carrier_acquired(
         off,
         on,
-        metadata(root, "off.json", off, rate=1_000, center=10_000),
-        metadata(root, "on.json", on, rate=1_000, center=10_000),
+        metadata(root, "off.json", off, rate=4_000, center=10_000),
+        metadata(root, "on.json", on, rate=4_000, center=10_000),
         bench_path,
         test_path,
         carrier_path,
@@ -263,9 +263,9 @@ def retained_evidence(
     )
 
     iq = root / "coherent.cf32"
-    coherent_samples = np.arange(370_000)
-    np.asarray(0.1 * np.exp(2j * np.pi * 100 * coherent_samples / 1_000), dtype="<c8").tofile(iq)
-    capture = metadata(root, "coherent.json", iq, rate=1_000, center=10_000)
+    coherent_samples = np.arange(1_480_000)
+    np.asarray(0.1 * np.exp(2j * np.pi * 1_000 * coherent_samples / 4_000), dtype="<c8").tofile(iq)
+    capture = metadata(root, "coherent.json", iq, rate=4_000, center=10_000)
     wav_root = root / "wav"
     wav_root.mkdir()
     audio_paths: list[Path] = []
@@ -411,7 +411,7 @@ def test_failure_matrix(tmp_path: Path, injection: Injection, status: str, frame
 
 def test_carrier_failure_comes_from_retained_analysis(tmp_path: Path) -> None:
     base = session_plan()
-    plan = replace(base, offline_evidence=retained_evidence(tmp_path, base, carrier_tone_hz=-500))
+    plan = replace(base, offline_evidence=retained_evidence(tmp_path, base, carrier_tone_hz=-1_000))
     output = QualificationSession(plan, now=NOW).run(confirmation(plan), tmp_path / "bundle")
     assert output["result"]["status"] == "unqualified_carrier"  # type: ignore[index]
     assert output["session"]["frames_started"] is False  # type: ignore[index]
@@ -447,7 +447,7 @@ def test_integral_and_fractional_ppm_reconcile(tmp_path: Path, ppm: float) -> No
             reference_frequency_hz=27_000_000,
             drive_or_power_level=1,
         ),
-    ).resolve_plan("qualification-fixture", WsprProtocol("Q0QQQ", "JJ00", 0, 10_100, 3, 1500))
+    ).resolve_plan("qualification-fixture", WsprProtocol("Q0QQQ", "JJ00", 0, 11_000, 3, 1500))
     plan = replace(base, test=test, application=application)
     validate_session_plan(plan)
 
@@ -498,7 +498,7 @@ def test_bundled_derivatives_survive_fixture_removal(tmp_path: Path) -> None:
 
 def test_failing_carrier_does_not_require_frame_evidence(tmp_path: Path) -> None:
     base = session_plan()
-    evidence = retained_evidence(tmp_path, base, carrier_tone_hz=-500)
+    evidence = retained_evidence(tmp_path, base, carrier_tone_hz=-1_000)
     evidence.decode_summary.unlink()
     plan = replace(base, offline_evidence=evidence)
     output = QualificationSession(plan, now=NOW).run(confirmation(plan), tmp_path / "bundle")

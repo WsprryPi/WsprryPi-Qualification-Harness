@@ -553,6 +553,12 @@ def _load_audio_evidence(path: Path, wav_path: Path) -> AcquiredAudioEvidence:
         "retained_sample_count": metadata.retained_sample_count,
     }
     receiver = context.bench.receiver
+    selected_frequency_hz = float(contract["selected_frequency_hz"])
+    if abs(selected_frequency_hz - context.test.frequency_hz) > 500.0:
+        raise OfflineAnalysisError(
+            "audio selection exceeds the bounded carrier-acquisition window",
+            cause=FailureCause.CONTRADICTORY_EVIDENCE,
+        )
     expected_start = (
         sample_index_at_utc(metadata.retained_capture_start_utc, slot, receiver.sample_rate_hz)
         if metadata.retained_capture_start_utc is not None
@@ -561,14 +567,14 @@ def _load_audio_evidence(path: Path, wav_path: Path) -> AcquiredAudioEvidence:
     expected_contract = {
         "sample_rate_hz": receiver.sample_rate_hz,
         "center_frequency_hz": context.test.receiver_center_hz,
-        "selected_frequency_hz": context.test.frequency_hz,
+        "selected_frequency_hz": selected_frequency_hz,
         "output_rate_hz": 12_000,
         "target_audio_hz": 1_500.0,
         "frame_duration_s": 120,
         "filter_taps": 64,
         "required_margin_s": 5,
         "margin_policy": "required_before_slot_complete_frame_required_after_start",
-        "mix_hz": (context.test.frequency_hz - context.test.receiver_center_hz) - 1_500.0,
+        "mix_hz": (selected_frequency_hz - context.test.receiver_center_hz) - 1_500.0,
         "mix_formula": "real(iq[n] * exp(-j*2*pi*mix_hz*n/fs))",
         "resampler": "windowed_sinc_hann",
         "wav_format": "mono_pcm_s16le",
@@ -580,7 +586,7 @@ def _load_audio_evidence(path: Path, wav_path: Path) -> AcquiredAudioEvidence:
     parameters = AudioParameters(
         sample_rate_hz=receiver.sample_rate_hz,
         center_frequency_hz=context.test.receiver_center_hz,
-        selected_frequency_hz=context.test.frequency_hz,
+        selected_frequency_hz=selected_frequency_hz,
     )
     expected_pcm, expected_scale = render_slot_pcm(
         iq_path,

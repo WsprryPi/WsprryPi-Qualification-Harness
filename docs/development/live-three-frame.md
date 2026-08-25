@@ -57,6 +57,26 @@ The lifecycle is intentionally ordered:
     inspect backend quiescence, close both helpers, and publish new-file-only
     evidence plus SHA256SUMS.
 
+WSPR timing is derived after the three UTC slots are final. The coherent helper
+is launched one complete helper-readiness bound before the required retained
+margin. That enforced bound covers device configuration, stream activation,
+the discarded first read, and retained-output establishment; a receiver read
+timeout alone does not cover that sequence. After capture, the adapter proves
+from the authenticated retained timestamp, sample rate, and exact sample count
+that every resolved slot has its required pre-slot margin and complete frame.
+The outer session deadline contains that receiver-readiness bound,
+the wait from session start to coherent-capture launch, the fixed 370-second
+protocol capture, and workload-derived offline bounds. Frame analysis accounts
+for two complete CF32 validation/render passes plus the plan-bound decoder;
+summary accounts for two semantic-validation passes per frame; publication
+accounts for source authentication, copying, retained authentication, and
+post-publication validation. These byte counts are divided by the maintained
+minimum sequential-I/O capability. Cleanup and final quiescence retain their
+separate configured bounds. There is no generic scheduling reserve or fixed
+summary/publication allowance. Production re-evaluates the same formula from
+the actual runtime start and fails before session setup if the retained outer
+bound is insufficient or the capture-launch instant has already passed.
+
 This software path does not itself qualify hardware. Before invoking it,
 maintainers must perform the non-interference preflight on both Pis and prepare
 a complete current plan whose UTC slots leave enough time for RF-off capture

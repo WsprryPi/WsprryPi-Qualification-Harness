@@ -235,32 +235,45 @@ def _validate_observations(
     shifted_model = observations.get("measurement_summary", {}).get("shifted_frequency_model")
     unshifted_model = observations.get("measurement_summary", {}).get("unshifted_frequency_model")
     timing_alignment = observations.get("measurement_summary", {}).get("timing_alignment")
-    if capture["synthetic"] or plan["mode"] != "tone":
+    if capture["synthetic"]:
         if timing_alignment is not None:
-            _fail("timing alignment is restricted to acquired tone evidence")
+            _fail("timing alignment is restricted to acquired evidence")
     elif timing_alignment is None:
         if derived == "passed":
             _fail("passing acquired tone observations require bounded timing alignment")
     else:
         boundary_offsets: list[float] = []
-        for event, item in zip(expected["events"], measured, strict=True):
-            if event["rf_state"] == "off":
-                continue
-            start = item["measured_start_s"]
-            end = item["measured_end_s"]
-            if start is None or end is None:
-                _fail("timing alignment requires every active event boundary")
+        active_pairs = [
+            (event, item)
+            for event, item in zip(expected["events"], measured, strict=True)
+            if event["rf_state"] != "off"
+        ]
+        if plan["mode"] == "fskcw":
+            first_event, first_item = active_pairs[0]
+            last_event, last_item = active_pairs[-1]
+            if first_item["measured_start_s"] is None or last_item["measured_end_s"] is None:
+                _fail("timing alignment requires active sequence boundaries")
             boundary_offsets.extend(
                 (
-                    float(start) - float(event["start_s"]),
-                    float(end) - float(event["end_s"]),
+                    float(first_item["measured_start_s"]) - float(first_event["start_s"]),
+                    float(last_item["measured_end_s"]) - float(last_event["end_s"]),
                 )
             )
+        else:
+            for event, item in active_pairs:
+                start = item["measured_start_s"]
+                end = item["measured_end_s"]
+                if start is None or end is None:
+                    _fail("timing alignment requires every active event boundary")
+                boundary_offsets.extend(
+                    (
+                        float(start) - float(event["start_s"]),
+                        float(end) - float(event["end_s"]),
+                    )
+                )
         common_shift = float(np.median(np.asarray(boundary_offsets)))
         maximum_residual = max(abs(value - common_shift) for value in boundary_offsets)
-        maximum_shift = float(thresholds["maximum_transition_s"]) + float(
-            thresholds["timing_tolerance_s"]
-        )
+        maximum_shift = float(thresholds["maximum_alignment_shift_s"])
         if (
             abs(float(timing_alignment["common_shift_s"]) - common_shift) > 1e-6
             or abs(float(timing_alignment["maximum_boundary_residual_s"]) - maximum_residual) > 1e-6
@@ -386,10 +399,13 @@ def _validate_observations(
             thresholds["spacing_tolerance_hz"]
         ):
             _fail("passing shifted-CW observations contradict planned tone spacing")
-        if abs(
-            float(shifted_model["primary_frequency_hz"])
-            - float(plan["protocol"]["primary_frequency_hz"])
-        ) > float(thresholds["frequency_tolerance_hz"]):
+        if (
+            abs(
+                float(shifted_model["primary_frequency_hz"])
+                - float(plan["protocol"]["primary_frequency_hz"])
+            )
+            > 500.0
+        ):
             _fail("passing shifted-CW observations contradict planned frequency")
         if max(
             float(shifted_model["maximum_drift_excursion_hz"]),

@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import shutil
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from itertools import pairwise
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Protocol, cast
 
 from wsprrypi_qualification.manifests import write_manifest
@@ -25,6 +26,7 @@ from wsprrypi_qualification.receiver_calibration import (
 from wsprrypi_qualification.receiver_calibration import (
     validate_binding as validate_receiver_calibration,
 )
+from wsprrypi_qualification.receiver_tuning import ReceiverTuningError, ReceiverTuningGeometry
 from wsprrypi_qualification.results import validate_result_document
 
 
@@ -42,6 +44,80 @@ HELPER_VERIFICATION_OPERATIONS = (
     "parent_revision_inspect",
     "submodule_revision_inspect",
 )
+
+
+def wspr_capture_setup_deadline(plan: dict[str, Any]) -> float:
+    """Bound receiver setup by the enforced capture-readiness deadline.
+
+    Setup includes device configuration, stream activation, the discarded first
+    read, and creation of the retained output.  A single read timeout bounds only
+    one of those operations; the adapter's helper deadline bounds the complete
+    readiness transition and is therefore the launch guard that can be enforced.
+    """
+    return float(plan["deadlines"]["helper_s"])
+
+
+CF32_BYTES_PER_SAMPLE = 8
+# Production offline processing requires at least this sustained sequential-I/O
+# rate.  It is a declared platform capability floor, not an elapsed-time guess.
+MINIMUM_OFFLINE_IO_BYTES_PER_SECOND = 25_000_000
+FRAME_ANALYSIS_CAPTURE_PASSES = 2
+SUMMARY_CAPTURE_PASSES_PER_FRAME = 2
+PUBLICATION_COHERENT_CAPTURE_PASSES = 4
+
+
+def _coherent_capture_bytes(plan: dict[str, Any]) -> int:
+    return int(plan["coherent_capture"]["sample_count"]) * CF32_BYTES_PER_SAMPLE
+
+
+def _offline_io_deadline(byte_count: int, passes: int) -> int:
+    if byte_count <= 0 or passes <= 0:
+        raise RealSessionError("offline timing work must be positive")
+    return math.ceil(byte_count * passes / MINIMUM_OFFLINE_IO_BYTES_PER_SECOND)
+
+
+def wspr_frame_analysis_deadline(plan: dict[str, Any]) -> float:
+    """Bound capture validation/render passes plus the plan-bound decoder."""
+    return _offline_io_deadline(
+        _coherent_capture_bytes(plan), FRAME_ANALYSIS_CAPTURE_PASSES
+    ) + float(plan["deadlines"]["helper_s"])
+
+
+def wspr_summary_deadline(plan: dict[str, Any]) -> float:
+    """Bound one coherent-capture semantic validation pass per frame."""
+    return _offline_io_deadline(
+        _coherent_capture_bytes(plan),
+        int(plan["frame_count"]) * SUMMARY_CAPTURE_PASSES_PER_FRAME,
+    )
+
+
+def wspr_publication_deadline(plan: dict[str, Any]) -> float:
+    """Bound source auth, copy, retained auth, and post-publication validation."""
+    return _offline_io_deadline(_coherent_capture_bytes(plan), PUBLICATION_COHERENT_CAPTURE_PASSES)
+
+
+def required_wspr_overall_deadline(plan: dict[str, Any], session_start: datetime) -> int:
+    """Return the complete wall-clock bound for a resolved WSPR session."""
+    if session_start.tzinfo is None:
+        raise RealSessionError("WSPR session start must be timezone-aware")
+    slots = [datetime.fromisoformat(value.replace("Z", "+00:00")) for value in plan["slots_utc"]]
+    if len(slots) != plan["frame_count"] or not slots:
+        raise RealSessionError("WSPR deadline requires one resolved slot per frame")
+    capture_launch = slots[0] - timedelta(
+        seconds=(
+            plan["coherent_capture"]["margin_before_first_slot_s"]
+            + wspr_capture_setup_deadline(plan)
+        )
+    )
+    wait_s = (capture_launch - session_start.astimezone(UTC)).total_seconds()
+    if wait_s < 0:
+        raise RealSessionError("WSPR session starts after its coherent-capture launch time")
+    required_s = float(wait_s) + float(plan["coherent_capture"]["duration_s"])
+    required_s += int(plan["frame_count"]) * wspr_frame_analysis_deadline(plan)
+    required_s += wspr_summary_deadline(plan)
+    required_s += wspr_publication_deadline(plan)
+    required_s += 2 * float(plan["deadlines"]["cleanup_s"])
+    return math.ceil(required_s)
 
 
 def helper_verification_deadline(plan: dict[str, Any]) -> float:
@@ -160,6 +236,8 @@ class RealQualificationSession:
         external_authorization: RealRuntimeAuthorization | None,
         rf_authorization: RealRuntimeAuthorization | None,
         output_parent: Path,
+        *,
+        progress: Callable[[str, str, str, int | None, int | None], None] | None = None,
     ) -> dict[str, Any]:
         if self._used:
             raise RealSessionError("real qualification coordinators are single-use")
@@ -183,6 +261,8 @@ class RealQualificationSession:
             except ReceiverCalibrationError as error:
                 raise RealSessionError(str(error)) from error
             self.adapters.begin_session(plan)
+            if hasattr(self.adapters, "set_progress"):
+                self.adapters.set_progress(progress)
         run_id = cast(str, plan["run_id"])
         parent = output_parent.resolve()
         final = parent / run_id
@@ -219,6 +299,8 @@ class RealQualificationSession:
                     "detail": detail,
                 }
             )
+            if progress is not None:
+                progress(phase.value, outcome, detail, None, None)
 
         event(RealPhase.REQUESTED, "recorded", "real session requested")
         try:
@@ -321,6 +403,8 @@ class RealQualificationSession:
             evidence["cleanup_registration"] = installed
             event(RealPhase.CLEANUP_INSTALLED, "passed", "cleanup installed before RF enable")
             preflight_passed = True
+            if progress is not None:
+                progress("rf_off_capture", "started", "RF-off capture started", None, None)
             rf_off = self.adapters.capture_rf_off(plan)
             _validate_capture(rf_off, plan, "rf_off", plan["carrier"]["rf_off_sample_count"])
             evidence["rf_off"] = rf_off
@@ -328,6 +412,8 @@ class RealQualificationSession:
             runtime_rf = RuntimeAuthorization(
                 self.plan.sha256, rf_authorization.operator, self.now, True, True
             )
+            if progress is not None:
+                progress("carrier_capture", "started", "carrier capture started", None, None)
             rf_on = self.adapters.transmit_carrier_and_capture_rf_on(plan, runtime_rf)
             _validate_capture(rf_on, plan, "rf_on", plan["carrier"]["rf_on_sample_count"])
             evidence["rf_on"] = rf_on
@@ -340,6 +426,10 @@ class RealQualificationSession:
                 final_status = "inconclusive"
                 failure_causes.append("carrier_only_session")
             elif carrier_gate == "passed":
+                if progress is not None:
+                    progress(
+                        "coherent_capture", "started", "three-frame capture started", None, None
+                    )
                 coherent = self.adapters.transmit_frames_and_capture(plan, runtime_rf)
                 _validate_capture(
                     coherent, plan, "coherent", plan["coherent_capture"]["sample_count"]
@@ -579,6 +669,16 @@ class RealQualificationSession:
 
 def validate_real_session_plan(document: dict[str, Any]) -> None:
     validate_document(document, "resolved-real-session-plan.schema.json")
+    receiver = document["receiver"]
+    try:
+        ReceiverTuningGeometry(
+            requested_frequency_hz=float(document["frequency_hz"]),
+            center_frequency_hz=float(receiver["center_frequency_hz"]),
+            sample_rate_hz=float(receiver["sample_rate_hz"]),
+            bandwidth_hz=float(receiver["bandwidth_hz"]),
+        ).validate()
+    except ReceiverTuningError as error:
+        raise RealSessionError(f"invalid receiver tuning geometry: {error}") from error
     try:
         validate_receiver_calibration(
             document["receiver_calibration"], receiver=document["receiver"]
@@ -711,6 +811,26 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         tone_server = document.get("tone_server")
         if not isinstance(tone_server, dict):
             raise RealSessionError("CW live Tone requires a pinned loopback server process")
+        protected_roots = [PurePosixPath(value) for value in tone_server["protected_source_roots"]]
+        source_configuration = PurePosixPath(tone_server["configuration_source"]["path"])
+        runtime_configuration = PurePosixPath(tone_server["configuration"]["path"])
+        working_directory = PurePosixPath(tone_server["working_directory"])
+        if (
+            not source_configuration.is_absolute()
+            or not runtime_configuration.is_absolute()
+            or not working_directory.is_absolute()
+            or source_configuration == runtime_configuration
+            or any(runtime_configuration.is_relative_to(root) for root in protected_roots)
+            or any(working_directory.is_relative_to(root) for root in protected_roots)
+            or runtime_configuration.parent != working_directory
+            or tone_server["configuration_source"]["size_bytes"]
+            != tone_server["configuration"]["size_bytes"]
+            or tone_server["configuration_source"]["sha256"]
+            != tone_server["configuration"]["sha256"]
+        ):
+            raise RealSessionError(
+                "bounded Tone mutable configuration is not staged outside protected source"
+            )
         endpoint = helper["bounded_tone_endpoint"]
         expected_arguments = [
             document["wsprrypi"]["path"],
@@ -720,6 +840,14 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
             str(endpoint["port"]),
             "--socket-loopback-only",
         ]
+        if document["backend"] == "gpio":
+            expected_arguments = [
+                document["wsprrypi"]["path"],
+                "--no-system-clock-frequency-estimate",
+                *expected_arguments[1:],
+                "--gpio-manual-ppm",
+                format(float(document["calibration"]["ppm"]), ".15g"),
+            ]
         if endpoint["host"] != "::1" or tone_server["arguments"] != expected_arguments:
             raise RealSessionError("bounded Tone server arguments differ from its endpoint")
         if tone_server["startup_seconds"] >= document["tone_schedule"]["off_seconds"]:
@@ -992,8 +1120,14 @@ def validate_real_session_document(document: dict[str, Any]) -> None:
             raise RealSessionError("failed decode gate requires unqualified-decode status")
         if "blocked" in {carrier_gate, decode_gate} and status != "fixture_blocked":
             raise RealSessionError("blocked gate requires fixture-blocked status")
-        if (carrier_gate, decode_gate) == ("passed", "passed") and status != "inconclusive":
-            raise RealSessionError("passed hardware-free gates require inconclusive status")
+        if (carrier_gate, decode_gate) == ("passed", "passed"):
+            expected_passed_status = (
+                "inconclusive" if "incomplete_evidence" in causes else "qualified"
+            )
+            if status != expected_passed_status:
+                raise RealSessionError(
+                    "passed gates require qualified or explicitly incomplete status"
+                )
     if status == "fixture_blocked" and not (
         "blocked" in {document["carrier_gate"], document["decode_gate"]} or has_fixture_cause
     ):
@@ -1139,7 +1273,7 @@ def _validate_carrier(document: dict[str, object], plan: dict[str, Any], digest:
     if requested != plan["frequency_hz"] or abs((strongest - requested) - offset) > 1e-6:
         raise RealSessionError("carrier evidence frequency contradicts the plan")
     claimed = cast(str, details["gate_outcome"])
-    if policy != "bounded_relative_carrier_acquisition":
+    if policy != "target_window_relative_carrier_acquisition_v2":
         raise RealSessionError("carrier evidence uses an unsupported gate policy")
     carrier_derived = (
         "passed"

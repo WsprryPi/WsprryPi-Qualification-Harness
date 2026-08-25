@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_type",
+    "requested_start_utc",
+    "minimum_arm_margin_s",
+    "helper_acknowledgement",
+    "actual_start_utc",
+    "schedule_error_ms",
+    "capture_start_utc",
+    "capture_relative_start_s"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "scheduled_process_start"},
+    "requested_start_utc": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "minimum_arm_margin_s": {"type": "number", "exclusiveMinimum": 0},
+    "helper_acknowledgement": {"$ref": "process-start-result.schema.json"},
+    "actual_start_utc": {"type": ["string", "null"], "format": "date-time"},
+    "schedule_error_ms": {"type": ["number", "null"]},
+    "capture_start_utc": {"type": ["string", "null"], "format": "date-time"},
+    "capture_relative_start_s": {"type": ["number", "null"], "exclusiveMinimum": 0}
+  }
+}
