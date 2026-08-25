@@ -135,15 +135,21 @@ independent trusted path, and bind a dedicated immutable known-hosts file into
 the plan. A hostname, username, host key, or known-hosts change requires a new
 resolved plan and digest; do not repair trust with `StrictHostKeyChecking=no`.
 
-Within the process-start boundary, the production adapter starts the exact-count
-capture worker first and waits for its retained `.incomplete` output to prove
-that capture is established. It then asks the authenticated transmitter helper
-to arm WsprryPi for a future UTC instant with a required remaining margin. The
-helper converts that remaining wall-clock interval once to a local monotonic
-deadline and waits cancellably on the transmitter; SSH arms the operation but
-does not trigger RF. The coordinator verifies the acknowledgement and clock
-uncertainty, monitors capture through the complete RF-off preamble, and cancels
-the armed process if the capture worker exits before the scheduled instant.
+Within the process-start boundary, the production adapter asks the authenticated
+transmitter helper to arm WsprryPi after the protocol-defined pre-quiet interval.
+The helper first
+completes executable, argument, privilege, and repository authentication, then
+selects and acknowledges the absolute UTC start. It converts that interval once
+to a local monotonic deadline and waits cancellably on the transmitter; SSH and
+repository-inspection latency therefore cannot consume the required arm margin,
+and SSH arms the operation but does not trigger RF. During that guaranteed RF-off
+interval, the coordinator starts the exact-count capture worker and waits for its
+retained `.incomplete` output. It proceeds only if capture is established with
+the required arm margin still remaining. Otherwise it cancels the armed process
+before RF. The coordinator verifies the acknowledged time and clock interval,
+monitors capture through the remainder of the preamble, and cancels the armed
+process if the capture worker exits before the scheduled instant. A verified
+cancellation of that pre-RF capture is successful cleanup, not a cleanup failure.
 
 The acquired observation derives a transaction-local expected timeline from
 the authenticated transmitter schedule and the receiver's retained capture

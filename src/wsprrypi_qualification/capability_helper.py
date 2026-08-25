@@ -18,7 +18,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -331,6 +331,7 @@ class OwnedProcessRegistry:
         if pinned_arguments and repository_guard is None:
             raise HelperProtocolError("pinned process inputs require a repository mutation guard")
         scheduled_text = payload.get("scheduled_start_utc")
+        schedule_after_arm = payload.get("schedule_after_arm_s")
         minimum_margin = payload.get("minimum_arm_margin_s", 0.0)
         if not isinstance(minimum_margin, (int, float)) or isinstance(minimum_margin, bool):
             raise HelperProtocolError("minimum arm margin must be a finite nonnegative number")
@@ -341,7 +342,24 @@ class OwnedProcessRegistry:
         scheduled_utc: datetime | None = None
         scheduled_monotonic: float | None = None
         arm_margin_s: float | None = None
-        if scheduled_text is not None:
+        if scheduled_text is not None and schedule_after_arm is not None:
+            raise HelperProtocolError("scheduled process start has conflicting time bases")
+        if schedule_after_arm is not None:
+            if not isinstance(schedule_after_arm, (int, float)) or isinstance(
+                schedule_after_arm, bool
+            ):
+                raise HelperProtocolError("relative scheduled start must be finite and positive")
+            arm_margin_s = float(schedule_after_arm)
+            if not math.isfinite(arm_margin_s) or arm_margin_s <= 0:
+                raise HelperProtocolError("relative scheduled start must be finite and positive")
+            if arm_margin_s < minimum_margin:
+                raise HelperProtocolError("scheduled process start has insufficient arm margin")
+            if arm_margin_s > timeout:
+                raise HelperProtocolError("scheduled process start exceeds the hard deadline")
+            scheduled_utc = observed_utc + timedelta(seconds=arm_margin_s)
+            scheduled_text = scheduled_utc.isoformat().replace("+00:00", "Z")
+            scheduled_monotonic = time.monotonic() + arm_margin_s
+        elif scheduled_text is not None:
             if not isinstance(scheduled_text, str) or not scheduled_text.endswith("Z"):
                 raise HelperProtocolError("scheduled process start must be an absolute UTC time")
             try:
@@ -837,13 +855,16 @@ def _validate_envelope(request: dict[str, object]) -> None:
     assert isinstance(operation, str)
     permitted = fields[operation]
     if operation == "process-start":
-        scheduled_fields = {"scheduled_start_utc", "minimum_arm_margin_s"}
+        absolute_scheduled_fields = {"scheduled_start_utc", "minimum_arm_margin_s"}
+        relative_scheduled_fields = {"schedule_after_arm_s", "minimum_arm_margin_s"}
         base_fields = permitted - {"repository_guard"}
         valid_fields = frozenset(payload) in {
             frozenset(base_fields),
             frozenset(permitted),
-            frozenset(base_fields | scheduled_fields),
-            frozenset(permitted | scheduled_fields),
+            frozenset(base_fields | absolute_scheduled_fields),
+            frozenset(permitted | absolute_scheduled_fields),
+            frozenset(base_fields | relative_scheduled_fields),
+            frozenset(permitted | relative_scheduled_fields),
         }
     elif operation == "service-set":
         base_fields = permitted - {"repository_guard"}

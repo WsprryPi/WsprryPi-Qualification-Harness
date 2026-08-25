@@ -464,6 +464,7 @@ class SshOwnedProcessLauncher:
         arguments: tuple[str, ...],
         *,
         scheduled_start_utc: str | None = None,
+        schedule_after_arm_s: float | None = None,
         minimum_arm_margin_s: float = 0.0,
     ) -> OwnedProcess:
         payload: dict[str, object] = {
@@ -478,8 +479,13 @@ class SshOwnedProcessLauncher:
         }
         if self.repository_guard is not None:
             payload["repository_guard"] = self.repository_guard
+        if scheduled_start_utc is not None and schedule_after_arm_s is not None:
+            raise CapabilityError("remote process schedule must use exactly one time basis")
         if scheduled_start_utc is not None:
             payload["scheduled_start_utc"] = scheduled_start_utc
+            payload["minimum_arm_margin_s"] = minimum_arm_margin_s
+        elif schedule_after_arm_s is not None:
+            payload["schedule_after_arm_s"] = schedule_after_arm_s
             payload["minimum_arm_margin_s"] = minimum_arm_margin_s
         inspection_timeout_s = 0.0
         if self.repository_guard is not None:

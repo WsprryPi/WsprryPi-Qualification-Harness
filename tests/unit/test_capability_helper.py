@@ -306,6 +306,38 @@ def test_scheduled_process_arms_then_launches_at_local_deadline():
     assert abs(result["schedule_error_ms"]) < 100
 
 
+def test_relative_scheduled_process_selects_start_after_helper_preparation():
+    executable = Path(sys.executable).resolve()
+    digest = hashlib.sha256(executable.read_bytes()).hexdigest()
+    helper = server()
+    before = datetime.now(UTC)
+    started = helper.dispatch(
+        request(
+            "process-start",
+            {
+                "arguments": [str(executable), "-c", "print('relative')"],
+                "executable_sha256": digest,
+                "privilege_wrapper_path": None,
+                "privilege_wrapper_sha256": None,
+                "pinned_arguments": {},
+                "hard_timeout_s": 2,
+                "environment": {},
+                "schedule_after_arm_s": 0.15,
+                "minimum_arm_margin_s": 0.1,
+            },
+        )
+    )["result"]
+    observed = datetime.fromisoformat(started["helper_observed_utc"].replace("Z", "+00:00"))
+    scheduled = datetime.fromisoformat(started["scheduled_start_utc"].replace("Z", "+00:00"))
+    assert observed >= before
+    assert (scheduled - observed).total_seconds() == pytest.approx(0.15)
+    assert started["arm_margin_s"] == pytest.approx(0.15)
+    result = helper.dispatch(
+        request("process-wait", {"handle_id": started["handle_id"], "timeout_s": 2})
+    )["result"]
+    assert result["stdout"].strip() == "relative"
+
+
 @pytest.mark.parametrize(
     "scheduled,margin,match",
     [

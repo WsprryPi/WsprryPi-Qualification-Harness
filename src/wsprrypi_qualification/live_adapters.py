@@ -19,7 +19,7 @@ import time
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -2161,25 +2161,27 @@ class KeyedCapabilityProviders:
         return number in self.initial_services
 
     def start_process(self, arguments: tuple[str, ...], number: int) -> str | None:
-        if not self._start_capture(number):
-            return None
         mode_plan = load_json_document(
             Path(self.plan["reference"]["plan"]["path"]), "cw-mode-plan.schema.json"
         )
         pre_quiet = float(mode_plan["protocol"]["pre_quiet_seconds"])
-        # Reserve half of the protocol-defined pre-quiet interval for arming;
-        # no fixed SSH-latency allowance participates in the RF start decision.
+        # The helper selects the absolute start only after it has authenticated
+        # the process and repository state.  Transport and validation latency
+        # therefore cannot consume the protocol-defined arming interval.
         minimum_margin = pre_quiet / 2.0
-        scheduled = datetime.now(UTC) + timedelta(seconds=pre_quiet)
-        scheduled_text = scheduled.isoformat().replace("+00:00", "Z")
         request_sent = datetime.now(UTC)
         process = self.launcher.begin_scheduled(
             arguments,
-            scheduled_start_utc=scheduled_text,
+            schedule_after_arm_s=pre_quiet,
             minimum_arm_margin_s=minimum_margin,
         )
         response_received = datetime.now(UTC)
         acknowledgement = cast(Any, process).arming_acknowledgement
+        scheduled_text = acknowledgement.get("scheduled_start_utc")
+        try:
+            scheduled = datetime.fromisoformat(str(scheduled_text).replace("Z", "+00:00"))
+        except ValueError:
+            scheduled = datetime.min.replace(tzinfo=UTC)
         try:
             helper_observed = datetime.fromisoformat(
                 str(acknowledgement.get("helper_observed_utc", "")).replace("Z", "+00:00")
@@ -2187,11 +2189,14 @@ class KeyedCapabilityProviders:
         except ValueError:
             helper_observed = datetime.min.replace(tzinfo=UTC)
         clock_uncertainty_s = max(
-            abs((helper_observed - request_sent).total_seconds()),
-            abs((helper_observed - response_received).total_seconds()),
+            0.0,
+            (request_sent - helper_observed).total_seconds(),
+            (helper_observed - response_received).total_seconds(),
         )
         if (
-            acknowledgement.get("scheduled_start_utc") != scheduled_text
+            not isinstance(scheduled_text, str)
+            or not scheduled_text.endswith("Z")
+            or scheduled.tzinfo != UTC
             or not isinstance(acknowledgement.get("helper_observed_utc"), str)
             or not isinstance(acknowledgement.get("arm_margin_s"), (int, float))
             or isinstance(acknowledgement.get("arm_margin_s"), bool)
@@ -2201,6 +2206,13 @@ class KeyedCapabilityProviders:
             process.stop()
             return None
         if process.handle_id in {owned.handle_id for owned in self.owned.values()}:
+            process.stop()
+            return None
+        if not self._start_capture(number):
+            process.stop()
+            return None
+        capture_ready = datetime.now(UTC)
+        if (scheduled - capture_ready).total_seconds() < minimum_margin:
             process.stop()
             return None
         self.owned[number] = process
@@ -2236,9 +2248,7 @@ class KeyedCapabilityProviders:
         self.process_evidence[number] = process_path
         task = self.capture_tasks[number]
         worker, _, _, errors = task
-        monitor_deadline = time.monotonic() + max(
-            0.0, (scheduled - response_received).total_seconds()
-        )
+        monitor_deadline = time.monotonic() + max(0.0, (scheduled - capture_ready).total_seconds())
         while time.monotonic() < monitor_deadline:
             if errors or not worker.is_alive():
                 stopped = process.stop()
@@ -2529,7 +2539,10 @@ class KeyedCapabilityProviders:
             worker, cancellation, _, errors = task
             cancellation.set()
             worker.join(plan["deadlines"]["cleanup_s"])
-            okay = not worker.is_alive() and not errors and okay
+            expected_cancellation = bool(errors) and all(
+                self._verified_capture_cancellation(error) for error in errors
+            )
+            okay = not worker.is_alive() and (not errors or expected_cancellation) and okay
         process = self.owned.pop(number, None)
         if process is not None:
             stopped = process.stop()
@@ -2543,6 +2556,23 @@ class KeyedCapabilityProviders:
             except Exception:
                 okay = False
         return okay
+
+    @staticmethod
+    def _verified_capture_cancellation(error: BaseException) -> bool:
+        if not isinstance(error, CaptureCapabilityError) or error.diagnostic_path is None:
+            return False
+        try:
+            document = json.loads(error.diagnostic_path.read_text(encoding="utf-8"))
+            execution = document["execution"]
+        except (OSError, KeyError, TypeError, json.JSONDecodeError):
+            return False
+        return bool(
+            document.get("evidence_type") == "soapy_capture_failure_diagnostic"
+            and execution.get("cancelled") is True
+            and execution.get("timed_out") is False
+            and execution.get("disconnected") is False
+            and execution.get("cleanup_verified") is True
+        )
 
     def verify_quiescence(self, plan: dict[str, Any], number: int) -> bool:
         del number
