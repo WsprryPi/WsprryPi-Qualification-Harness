@@ -37,6 +37,16 @@ def test_tone_cleanup_uses_the_protocol_remainder() -> None:
     assert "cleanup_reserve_s = (outer_timeout_s - duration_ms / 1000) / 2" in source
 
 
+def test_tone_overall_has_no_inherited_fixed_sixty_second_cutoff() -> None:
+    composer = _source("src/wsprrypi_qualification/complete_test.py")
+    contracts = _source("src/wsprrypi_qualification/real_session.py")
+    adapters = _source("src/wsprrypi_qualification/live_adapters.py")
+    assert 'plan["deadlines"]["overall_s"] = required_tone_overall_deadline(plan)' in composer
+    assert "def required_tone_overall_deadline(" in contracts
+    assert "tone_analysis_deadline(plan)" in adapters
+    assert "tone_publication_deadline(plan)" in adapters
+
+
 def test_keyed_deadline_has_no_generic_five_second_reserve() -> None:
     source = _source("src/wsprrypi_qualification/complete_test.py")
     assert "math.ceil(capture_seconds) + 5" not in source

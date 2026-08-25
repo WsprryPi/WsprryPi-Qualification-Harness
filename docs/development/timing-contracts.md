@@ -29,7 +29,7 @@ correctness are forbidden.
 | Forwarded remote command termination | the capability plan separates command work from cleanup; INT, TERM, and KILL split the exact cleanup remainder into three stages and the local SSH process owns their sum | parent-derived |
 | Scheduled helper process | accepted UTC schedule converted once to a monotonic launch instant; watchdog and waiter share the same hard deadline and outcome | protocol/plan-bound |
 | Soapy capture | exact sample count/rate plus receiver read interval | protocol/work-derived and external API |
-| Tone | exact off/on cadence and bounded transaction count; leading quiet time is the readiness envelope and each on/off pair is the control/cleanup envelope | protocol/work-derived |
+| Tone | exact preflight phase envelopes, capture bounds, off/on cadence, repository-guarded server start, capture-byte analysis/publication work, cleanup, and quiescence | protocol/plan/work-derived |
 | WSPR capture launch | first UTC slot minus retained margin minus the enforced helper-readiness bound covering configuration, activation, discarded first read, and retained-output establishment | protocol and external API |
 | WSPR frame analysis | coherent CF32 bytes times two validation/render passes at the supported I/O floor, plus decoder subprocess bound | work-derived |
 | WSPR summary | coherent CF32 bytes times two semantic-validation passes per frame at the supported I/O floor | work-derived |
@@ -86,6 +86,12 @@ recomputed after all five child plans are materialized and must equal their
 sum. A parent therefore cannot expire while a child is still legitimately
 inside its authenticated envelope, and it cannot silently authorize time that
 no child owns.
+
+The TONE session likewise has no inherited fixed overall cutoff. Its outer
+deadline is the exact sum of the named preflight and lifecycle envelopes plus
+analysis and publication derived from the RF-off and RF-on CF32 byte counts.
+The analysis subprocess and publication phase receive only their own derived
+budgets; they do not receive the complete remaining session time.
 
 Polling values such as JSONL refresh, process-status checks, and readiness-file
 checks are cadences only. They may affect how quickly completion is noticed,

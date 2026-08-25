@@ -17,8 +17,10 @@ from wsprrypi_qualification.real_session import (
     helper_verification_contract,
     helper_verification_deadline,
     required_keyed_transaction_deadline,
+    required_tone_overall_deadline,
     required_wspr_overall_deadline,
     resolved_real_plan_sha256,
+    tone_analysis_deadline,
     validate_real_session_document,
     validate_real_session_plan,
     wspr_capture_setup_deadline,
@@ -339,6 +341,7 @@ def tone_plan_document(
         "cleanup_s": 10,
         "overall_s": 60,
     }
+    document["deadlines"]["overall_s"] = required_tone_overall_deadline(document)
     digest = helper_configuration_plan_sha256(document)
     for field in ("remote_helper", "receiver_helper", "capture_helper", "wsprd", "wsprrypi"):
         document[field]["plan_sha256"] = digest
@@ -351,6 +354,33 @@ def test_tone_plan_binds_loopback_endpoint_and_wsprrypi_revision() -> None:
     document["remote_helper"]["wsprrypi_revision"] = "f" * 40
     with pytest.raises(RealSessionError, match="revision differs"):
         validate_real_session_plan(document)
+
+
+def test_tone_plan_rejects_obsolete_fixed_overall_deadline() -> None:
+    document = tone_plan_document()
+    document["deadlines"]["overall_s"] = 60
+    with pytest.raises(RealSessionError, match="TONE overall deadline"):
+        validate_real_session_plan(document)
+
+
+def test_tone_overall_scales_only_with_named_work() -> None:
+    document = tone_plan_document()
+    baseline = required_tone_overall_deadline(document)
+
+    document["deadlines"]["helper_s"] += 1
+    assert required_tone_overall_deadline(document) == baseline + 14
+
+    document = tone_plan_document()
+    document["deadlines"]["receiver_s"] += 1
+    assert required_tone_overall_deadline(document) == baseline + 2
+
+    document = tone_plan_document()
+    document["deadlines"]["cleanup_s"] += 1
+    assert required_tone_overall_deadline(document) == baseline + 4
+
+    document = tone_plan_document()
+    document["carrier"]["rf_off_sample_count"] += 25_000_000
+    assert required_tone_overall_deadline(document) == baseline + 48
 
 
 def test_tone_plan_rejects_missing_or_mismatched_manual_ppm_before_adapters() -> None:
@@ -528,7 +558,11 @@ class FakeAdapters:
                 "relative_acquisition_contrast_gate_db": 10.0,
                 "mode_gate": "not_applicable",
             },
-            deadline_s=plan["deadlines"]["overall_s"],
+            deadline_s=(
+                tone_analysis_deadline(plan)
+                if plan.get("session_kind") == "cw_live_tone"
+                else plan["deadlines"]["overall_s"]
+            ),
         )
 
     def transmit_frames_and_capture(self, plan, authorization):

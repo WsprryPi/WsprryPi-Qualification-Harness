@@ -56,6 +56,7 @@ from wsprrypi_qualification.real_session import (
     helper_configuration_plan_sha256,
     helper_verification_deadline,
     required_keyed_transaction_deadline,
+    required_tone_overall_deadline,
     required_wspr_overall_deadline,
     resolved_real_plan_sha256,
     validate_real_session_plan,
@@ -626,6 +627,7 @@ def _resolve_real(
             plan["tone_server"]["arguments"] = _fixed_gpio_ppm_arguments(
                 arguments, plan["calibration"]["ppm"]
             )
+        plan["deadlines"]["overall_s"] = required_tone_overall_deadline(plan)
     else:
         plan.pop("session_kind", None)
         plan.pop("tone_schedule", None)

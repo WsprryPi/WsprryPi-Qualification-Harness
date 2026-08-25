@@ -34,6 +34,7 @@ from wsprrypi_qualification.manifests import write_manifest
 from wsprrypi_qualification.offline import artifact
 from wsprrypi_qualification.progress import ProgressReporter
 from wsprrypi_qualification.progress_viewer import tracking_command
+from wsprrypi_qualification.real_session import required_tone_overall_deadline
 
 SDR = "driver=sdrplay,serial=2404058C60"
 DISCOVERED_SDR = {
@@ -148,6 +149,8 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert wspr["backend_contract"]["gpio_pin"] == 4
     assert wspr["backend_contract"]["drive_or_power_level"] == 2
     tone = plan["mode_plans"][0]["plan"]
+    assert tone["deadlines"]["overall_s"] == required_tone_overall_deadline(tone)
+    assert tone["deadlines"]["overall_s"] != 60
     assert "--no-web" not in tone["tone_server"]["arguments"]
     tone_arguments = tone["tone_server"]["arguments"]
     assert tone_arguments.count("--no-system-clock-frequency-estimate") == 1

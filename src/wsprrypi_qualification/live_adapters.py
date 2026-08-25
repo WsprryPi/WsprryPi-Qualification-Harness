@@ -66,8 +66,11 @@ from wsprrypi_qualification.real_session import (
     helper_configuration_plan_sha256,
     helper_verification_contract,
     helper_verification_deadline,
+    required_tone_overall_deadline,
     required_wspr_overall_deadline,
     resolved_real_plan_sha256,
+    tone_analysis_deadline,
+    tone_publication_deadline,
     wspr_capture_setup_deadline,
     wspr_frame_analysis_deadline,
     wspr_publication_deadline,
@@ -339,12 +342,18 @@ class ProductionRealSessionAdapters:
                     "workload-derived analysis, summary, publication, cleanup, and final "
                     "quiescence"
                 )
+        elif plan.get("session_kind") == "cw_live_tone":
+            required = required_tone_overall_deadline(plan)
+            if plan["deadlines"]["overall_s"] < required:
+                raise RealSessionError(
+                    "TONE overall deadline cannot contain its deterministic phase composition"
+                )
         self._session_deadline = time.monotonic() + plan["deadlines"]["overall_s"]
         self._cleanup_reserve_s = plan["deadlines"]["cleanup_s"]
         if plan.get("session_kind", "wspr_qualification") == "wspr_qualification":
             self._publication_budget_s = wspr_publication_deadline(plan)
         else:
-            self._publication_budget_s = plan["deadlines"]["overall_s"]
+            self._publication_budget_s = tone_publication_deadline(plan)
         repository_guard = {
             "protected_source_roots": [plan["source"]["repository_path"]],
             "git_path": plan["source"]["git_path"],
@@ -1177,6 +1186,11 @@ class ProductionRealSessionAdapters:
             schema_name="receiver-calibration-binding.schema.json",
         )
         self._artifacts.append(calibration_path)
+        analysis_deadline = (
+            tone_analysis_deadline(plan)
+            if plan.get("session_kind") == "cw_live_tone"
+            else plan["deadlines"]["overall_s"]
+        )
         self._run_offline(
             (
                 "analyze-carrier",
@@ -1194,7 +1208,7 @@ class ProductionRealSessionAdapters:
                 "--receiver-calibration-binding",
                 str(calibration_path),
             ),
-            self._remaining(plan["deadlines"]["overall_s"], reserve_cleanup=True),
+            self._remaining(analysis_deadline, reserve_cleanup=True),
         )
         document = load_json_document(evidence, "carrier-analysis.schema.json")
         self._artifacts.append(evidence)
@@ -1296,7 +1310,7 @@ class ProductionRealSessionAdapters:
                     "receiver_frequency_interpretation"
                 ),
             },
-            plan["deadlines"]["overall_s"],
+            analysis_deadline,
             started,
         )
 
