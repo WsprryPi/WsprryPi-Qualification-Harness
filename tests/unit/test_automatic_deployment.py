@@ -73,6 +73,53 @@ def test_installed_configuration_is_staged_byte_for_byte_without_normalization()
     assert paths["tone_configuration"].startswith(paths["deployment_root"])
 
 
+def test_custom_installed_binary_and_configuration_are_bound_explicitly() -> None:
+    stage = _InstalledTransmitterStage()
+    automatic_deployment._prepare_transmitter(
+        stage,
+        installed_binary="/opt/wsprrypi/bin/wsprrypi",
+        installed_configuration="/opt/wsprrypi/etc/runtime.ini",
+    )
+    _, arguments, timeout = stage.calls[0]
+    assert arguments[-2:] == (
+        "/opt/wsprrypi/bin/wsprrypi",
+        "/opt/wsprrypi/etc/runtime.ini",
+    )
+    assert timeout == 120
+
+
+def test_source_checkout_selection_is_explicit_and_exact(tmp_path: Path) -> None:
+    source = tmp_path / "selected WsprryPi"
+    (source / ".git").mkdir(parents=True)
+    (source / "src").mkdir()
+    assert automatic_deployment._source_repository(source) == source.resolve()
+
+
+def test_invalid_explicit_source_checkout_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(automatic_deployment.AutomaticDeploymentError, match="selected"):
+        automatic_deployment._source_repository(tmp_path / "missing")
+
+
+def test_runtime_selection_rejects_ambiguity_and_absence_before_deployment(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    (source / ".git").mkdir(parents=True)
+    (source / "src").mkdir()
+    with pytest.raises(automatic_deployment.AutomaticDeploymentError, match="mutually"):
+        automatic_deployment._validate_runtime_selection(
+            "/usr/local/bin/wsprrypi", "/usr/local/etc/wsprrypi.ini", source
+        )
+    with pytest.raises(automatic_deployment.AutomaticDeploymentError, match="required"):
+        automatic_deployment._validate_runtime_selection(None, "/usr/local/etc/wsprrypi.ini", None)
+
+
+def test_installed_runtime_paths_must_be_absolute() -> None:
+    stage = _InstalledTransmitterStage()
+    with pytest.raises(automatic_deployment.AutomaticDeploymentError, match="absolute"):
+        automatic_deployment._prepare_transmitter(stage, installed_binary="relative/wsprrypi")
+
+
 def test_receiver_preparation_binds_cache_and_transmitter_trust() -> None:
     stage = _Stage()
     cache_key = "a" * 64

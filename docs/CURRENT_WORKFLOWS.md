@@ -51,9 +51,15 @@ remains reserved for the final structured result. Delegated receiver execution
 forwards protocol records into the invoking controller's local log, so the same
 tailing interface works from either endpoint or a third system.
 
-The default path packages the current harness and local WsprryPi source, stages
-only the required runtime on both hosts, builds independently owned durable
-per-campaign executables, and removes both temporary stages. Generated mode
+The default path packages the current harness, copies the transmitter's
+`/usr/local/bin/wsprrypi` and `/usr/local/etc/wsprrypi.ini` into an independently
+owned durable per-campaign deployment, stages only the required runtime on both
+hosts, and removes both temporary stages. It does not compile WsprryPi. Missing
+installed inputs fail preflight and never cause an implicit source build. Use
+`--wsprrypi-binary REMOTE_PATH` and `--wsprrypi-config REMOTE_PATH` for a
+nonstandard installation. Use `--wsprrypi-source LOCAL_CHECKOUT` to opt in to
+packaging that exact checkout and compiling its `rpi-gpio` backend on the
+transmitter. Generated mode
 plans, expected events, resolved profiles, and dispatch wrapper inputs are placed separately under
 `OUTPUT_PARENT/complete-test-inputs/CAMPAIGN_ID`; they are neither deployment
 scratch nor result-bundle contents. The resolved campaign retains that store

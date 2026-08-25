@@ -52,12 +52,13 @@ coordinator and repository contract.
 
 `complete-test` is the normal fixed campaign surface; the explicit-plan
 `turnkey-campaign` commands above remain the advanced interface. The normal
-command accepts two hosts and an exact SDR selector, packages the current harness
-and local WsprryPi source, stages the required runtime, discovers the selected
-SDR immediately, and derives all five mode plans rather than accepting five
-operator-authored mode plans. Each host receives an independently owned durable
-per-campaign executable; temporary stages are removed, and the retained aggregate
-is revalidated afterward. `--enable-rf` also confirms the documented conducted
+command accepts two hosts and an exact SDR selector, packages the current harness,
+copies the installed WsprryPi executable and configuration, stages the required
+runtime, discovers the selected SDR immediately, and derives all five mode plans
+rather than accepting five operator-authored mode plans. Each host receives an
+independently owned durable per-campaign executable; temporary stages are removed,
+and the retained aggregate is revalidated afterward. `--enable-rf` also confirms
+the documented conducted
 default: antenna disconnected and a direct 50-ohm SDR input through 20 dB
 attenuation. Both endpoints
 may be remote to the controller; the controller delegates execution to the
@@ -70,6 +71,20 @@ wsprrypi-qualification complete-test wspr4 wspr5 \
 wsprrypi-qualification complete-test wspr4 wspr5 \
   --sdr driver=sdrplay,serial=2404058C60 --rehearse --configuration PATH
 wsprrypi-qualification validate-complete-test CAMPAIGN-BUNDLE
+```
+
+The normal path copies `/usr/local/bin/wsprrypi` and
+`/usr/local/etc/wsprrypi.ini`; it does not compile WsprryPi. Use
+`--wsprrypi-binary REMOTE_PATH` and `--wsprrypi-config REMOTE_PATH` for an
+explicit nonstandard installation. Missing installed inputs fail rather than
+falling back to a checkout. Building current WsprryPi work is deliberately
+opt-in:
+
+```text
+wsprrypi-qualification complete-test wspr4 wspr5 \
+  --sdr driver=sdrplay,serial=2404058C60 \
+  --wsprrypi-source /absolute/path/to/WsprryPi \
+  --enable-rf
 ```
 
 When the complete-test progress producer opens its JSONL file, it prints the

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -28,6 +27,10 @@ class AutomaticDeploymentError(RuntimeError):
     """A default complete-test deployment could not be prepared or cleaned."""
 
 
+DEFAULT_WSPRRRYPI_BINARY = "/usr/local/bin/wsprrypi"
+DEFAULT_WSPRRRYPI_CONFIGURATION = "/usr/local/etc/wsprrypi.ini"
+
+
 def _run(arguments: list[str], *, timeout_s: float = 120.0) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
@@ -49,17 +52,29 @@ def _require(result: subprocess.CompletedProcess[str], label: str) -> str:
     return result.stdout
 
 
-def _source_repository() -> Path:
-    configured = os.environ.get("WSPQ_WSPRRRYPI_SOURCE")
-    candidates = (
-        Path(configured) if configured else None,
-        Path.cwd().resolve().parent / "WsprryPi",
-        Path(__file__).resolve().parents[3] / "WsprryPi",
-    )
-    for candidate in candidates:
-        if candidate is not None and (candidate / ".git").exists() and (candidate / "src").is_dir():
-            return candidate.resolve()
-    raise AutomaticDeploymentError("a local WsprryPi source checkout is unavailable")
+def _source_repository(configured: Path) -> Path:
+    candidate = configured.expanduser().resolve()
+    if not (candidate / ".git").exists() or not (candidate / "src").is_dir():
+        raise AutomaticDeploymentError("the selected WsprryPi source checkout is invalid")
+    return candidate
+
+
+def _validate_runtime_selection(
+    wsprrypi_binary: str | None,
+    wsprrypi_configuration: str,
+    wsprrypi_source: Path | None,
+) -> Path | None:
+    if wsprrypi_source is not None and wsprrypi_binary is not None:
+        raise AutomaticDeploymentError(
+            "installed WsprryPi and source-build selections are mutually exclusive"
+        )
+    if wsprrypi_source is None and wsprrypi_binary is None:
+        raise AutomaticDeploymentError("one WsprryPi runtime selection is required")
+    if not PurePosixPath(wsprrypi_configuration).is_absolute():
+        raise AutomaticDeploymentError("installed WsprryPi configuration must be absolute")
+    if wsprrypi_binary is not None and not PurePosixPath(wsprrypi_binary).is_absolute():
+        raise AutomaticDeploymentError("installed WsprryPi binary must be absolute")
+    return _source_repository(wsprrypi_source) if wsprrypi_source is not None else None
 
 
 def _zip_tree(source: Path, destination: Path, names: tuple[str, ...]) -> Path:
@@ -185,16 +200,16 @@ def _selected_host_keys(known_hosts: Path, host: str, *, ssh_keygen: Path) -> tu
 
 
 def _prepare_transmitter(
-    stage: RemoteStage, *, installed_binary: str | None = None
+    stage: RemoteStage,
+    *,
+    installed_binary: str | None = None,
+    installed_configuration: str = DEFAULT_WSPRRRYPI_CONFIGURATION,
 ) -> dict[str, Any]:
     token = stage.root.rsplit("-", 1)[-1]
     deployment = f"/home/pi/wsprrypi-qualification-runs/complete-test-deployment-{token}"
     if installed_binary is not None:
         if not PurePosixPath(installed_binary).is_absolute():
             raise AutomaticDeploymentError("installed WsprryPi binary must be absolute")
-        installed_configuration = os.environ.get(
-            "WSPQ_WSPRRRYPI_INSTALLED_CONFIG", "/usr/local/etc/wsprrypi.ini"
-        )
         if not PurePosixPath(installed_configuration).is_absolute():
             raise AutomaticDeploymentError("installed WsprryPi configuration must be absolute")
         program = (
@@ -414,10 +429,16 @@ def delegate_automatic_complete_test(
     sdr_selector: str,
     forwarded_arguments: list[str],
     *,
+    wsprrypi_binary: str | None = DEFAULT_WSPRRRYPI_BINARY,
+    wsprrypi_configuration: str = DEFAULT_WSPRRRYPI_CONFIGURATION,
+    wsprrypi_source: Path | None = None,
     timeout_s: float = 7500.0,
     progress: Any | None = None,
 ) -> dict[str, Any]:
     """Stage current runtimes, execute on the receiver, validate, and clean both hosts."""
+    selected_source = _validate_runtime_selection(
+        wsprrypi_binary, wsprrypi_configuration, wsprrypi_source
+    )
     controller_known_hosts = Path.home() / ".ssh" / "known_hosts"
     if not controller_known_hosts.is_file():
         raise AutomaticDeploymentError("controller SSH trust store is unavailable")
@@ -430,6 +451,9 @@ def delegate_automatic_complete_test(
             sdr_selector,
             forwarded_arguments,
             known_hosts=known_hosts,
+            wsprrypi_binary=wsprrypi_binary,
+            wsprrypi_configuration=wsprrypi_configuration,
+            wsprrypi_source=selected_source,
             timeout_s=timeout_s,
             progress=progress,
         )
@@ -442,11 +466,13 @@ def _delegate_automatic_complete_test(
     forwarded_arguments: list[str],
     *,
     known_hosts: Path,
+    wsprrypi_binary: str | None = DEFAULT_WSPRRRYPI_BINARY,
+    wsprrypi_configuration: str = DEFAULT_WSPRRRYPI_CONFIGURATION,
+    wsprrypi_source: Path | None = None,
     timeout_s: float,
     progress: Any | None = None,
 ) -> dict[str, Any]:
-    installed_binary = os.environ.get("WSPQ_WSPRRRYPI_INSTALLED_BINARY")
-    source = None if installed_binary else _source_repository()
+    source = _validate_runtime_selection(wsprrypi_binary, wsprrypi_configuration, wsprrypi_source)
     root = Path(__file__).resolve().parents[1]
     discovered_ssh = shutil.which("ssh")
     discovered_ssh_keygen = shutil.which("ssh-keygen")
@@ -527,7 +553,11 @@ def _delegate_automatic_complete_test(
         with ExitStack() as stack:
             tx = stack.enter_context(tx_stage)
             rx = stack.enter_context(rx_stage)
-            tx_paths = _prepare_transmitter(tx, installed_binary=installed_binary)
+            tx_paths = _prepare_transmitter(
+                tx,
+                installed_binary=wsprrypi_binary,
+                installed_configuration=wsprrypi_configuration,
+            )
             rx_paths = _prepare_receiver(
                 rx,
                 transmitter_host,
