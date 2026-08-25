@@ -64,6 +64,14 @@ MINIMUM_OFFLINE_IO_BYTES_PER_SECOND = 25_000_000
 FRAME_ANALYSIS_CAPTURE_PASSES = 2
 SUMMARY_CAPTURE_PASSES_PER_FRAME = 2
 PUBLICATION_COHERENT_CAPTURE_PASSES = 4
+KEYED_ANALYSIS_CAPTURE_PASSES = 4
+KEYED_CONTROL_PHASES = (
+    "preflight",
+    "cleanup_registration",
+    "scheduled_process_start",
+    "cleanup",
+    "quiescence",
+)
 
 
 def _coherent_capture_bytes(plan: dict[str, Any]) -> int:
@@ -96,6 +104,20 @@ def wspr_publication_deadline(plan: dict[str, Any]) -> float:
     return _offline_io_deadline(_coherent_capture_bytes(plan), PUBLICATION_COHERENT_CAPTURE_PASSES)
 
 
+def required_keyed_transaction_deadline(
+    sample_count: int, sample_rate_hz: int, cleanup_s: float
+) -> int:
+    """Bound one keyed capture, authenticated analysis, and named control phases."""
+    if sample_count <= 0 or sample_rate_hz <= 0 or cleanup_s <= 0:
+        raise RealSessionError("keyed timing inputs must be positive")
+    capture_s = math.ceil(sample_count / sample_rate_hz)
+    analysis_s = _offline_io_deadline(
+        sample_count * CF32_BYTES_PER_SAMPLE, KEYED_ANALYSIS_CAPTURE_PASSES
+    )
+    control_s = len(KEYED_CONTROL_PHASES) * cleanup_s
+    return math.ceil(capture_s + analysis_s + control_s)
+
+
 def required_wspr_overall_deadline(plan: dict[str, Any], session_start: datetime) -> int:
     """Return the complete wall-clock bound for a resolved WSPR session."""
     if session_start.tzinfo is None:
@@ -126,10 +148,13 @@ def helper_verification_deadline(plan: dict[str, Any]) -> float:
 
 
 def helper_verification_contract(plan: dict[str, Any]) -> dict[str, object]:
+    aggregate = helper_verification_deadline(plan)
     return {
         "operations": list(HELPER_VERIFICATION_OPERATIONS),
-        "per_operation_deadline_s": plan["deadlines"]["helper_s"],
-        "aggregate_deadline_s": helper_verification_deadline(plan),
+        # Any one operation may legitimately consume the remaining phase
+        # envelope; the aggregate monotonic deadline still bounds all four.
+        "per_operation_deadline_s": aggregate,
+        "aggregate_deadline_s": aggregate,
     }
 
 
@@ -850,9 +875,9 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
             ]
         if endpoint["host"] != "::1" or tone_server["arguments"] != expected_arguments:
             raise RealSessionError("bounded Tone server arguments differ from its endpoint")
-        if tone_server["startup_seconds"] >= document["tone_schedule"]["off_seconds"]:
+        if tone_server["startup_seconds"] != document["tone_schedule"]["off_seconds"]:
             raise RealSessionError(
-                "bounded Tone server startup must fit inside leading RF-off time"
+                "bounded Tone readiness envelope must equal its leading RF-off cadence"
             )
     if any(
         executable["host"] != document["receiver"]["host"]

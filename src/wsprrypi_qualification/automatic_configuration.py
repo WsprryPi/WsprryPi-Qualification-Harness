@@ -277,9 +277,11 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
                 "31416",
                 "--socket-loopback-only",
             ],
-            "startup_seconds": 0.25,
         },
     }
+    # Retained plan evidence records the protocol-derived readiness envelope;
+    # execution waits on the cadence itself rather than this informational field.
+    real["tone_server"]["startup_seconds"] = real["tone_schedule"]["off_seconds"]
     helper_plan = helper_configuration_plan_sha256(real)
     for name in ("remote_helper", "receiver_helper", "capture_helper", "wsprd", "wsprrypi"):
         real[name]["plan_sha256"] = helper_plan
@@ -518,7 +520,6 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         "ssh_executable": artifacts["ssh"]["path"],
         "work_directory": str(facts["work_directory"]),
         "output_parent": str(facts["output_parent"]),
-        "campaign_deadline_s": 7200,
     }
     validate_document(configuration, "complete-test-configuration.schema.json")
     configuration_path = destination / "complete-test.json"

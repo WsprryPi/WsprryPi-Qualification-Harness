@@ -13,7 +13,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from wsprrypi_qualification.progress import ProgressReporter, run_streaming
+from wsprrypi_qualification.progress import (
+    ProgressReporter,
+    run_streaming,
+    run_streaming_to_completion,
+)
 from wsprrypi_qualification.transports import CommandPlan
 
 
@@ -44,6 +48,34 @@ def _identity(path: Path) -> tuple[int, str]:
     return path.stat().st_size, hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _run_transport(
+    arguments: list[str] | tuple[str, ...], timeout_s: float | None
+) -> subprocess.CompletedProcess[str]:
+    if timeout_s is not None:
+        return subprocess.run(
+            arguments,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            shell=False,
+        )
+    process = subprocess.Popen(
+        arguments,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        shell=False,
+    )
+    try:
+        stdout, stderr = process.communicate()
+    except BaseException:
+        process.terminate()
+        process.wait()
+        raise
+    return subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
+
+
 class RemoteStage:
     """Copy an explicit file set to one fresh remote directory and remove it.
 
@@ -64,11 +96,11 @@ class RemoteStage:
         scp: Path = Path("/usr/bin/scp"),
         token: str | None = None,
         owner_token: str | None = None,
-        timeout_s: float = 60.0,
+        timeout_s: float | None = None,
     ) -> None:
         if _HOST.fullmatch(host) is None:
             raise RemoteStagingError("remote stage host is invalid")
-        if timeout_s <= 0:
+        if timeout_s is not None and timeout_s <= 0:
             raise RemoteStagingError("remote stage timeout must be positive")
         if (
             re.fullmatch(r"/[A-Za-z0-9._/+:-]+", remote_python) is None
@@ -162,14 +194,7 @@ class RemoteStage:
 
     def _run(self, arguments: list[str]) -> subprocess.CompletedProcess[str]:
         try:
-            return subprocess.run(
-                arguments,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout_s,
-                shell=False,
-            )
+            return _run_transport(arguments, self.timeout_s)
         except (OSError, subprocess.TimeoutExpired) as error:
             raise RemoteStagingError("remote staging transport failed") from error
 
@@ -291,6 +316,26 @@ class RemoteStage:
         finally:
             self.timeout_s = original_timeout
 
+    def run_python_to_completion(
+        self, program: str, *arguments: str
+    ) -> subprocess.CompletedProcess[str]:
+        """Run non-RF preparation whose duration has no honest wall-clock formula.
+
+        This is deliberately separate from bounded live operations. It is used
+        only for explicitly selected compilation before any live plan can run.
+        Completion, failure, transport exit, or operator interruption ends it;
+        no machine-speed guess is allowed to misclassify a valid build.
+        """
+        if not program or "\x00" in program or any("\x00" in item for item in arguments):
+            raise RemoteStagingError("remote stage Python operation is invalid")
+        self._check_transport_identities()
+        try:
+            return _run_transport(
+                [*self._ssh_prefix(), self._python_command(program, self.root, *arguments)], None
+            )
+        except OSError as error:
+            raise RemoteStagingError("remote preparation transport failed") from error
+
     def run_python_stream(
         self,
         program: str,
@@ -300,7 +345,7 @@ class RemoteStage:
     ) -> subprocess.CompletedProcess[str]:
         """Run a fixed remote operation while forwarding progress protocol lines."""
         deadline = self.timeout_s if timeout_s is None else timeout_s
-        if deadline <= 0 or not program or "\x00" in program:
+        if deadline is None or deadline <= 0 or not program or "\x00" in program:
             raise RemoteStagingError("remote stage streaming operation is invalid")
         self._check_transport_identities()
         return run_streaming(
@@ -314,6 +359,20 @@ class RemoteStage:
                 ),
                 timeout_s=deadline,
             ),
+            reporter,
+        )
+
+    def run_python_stream_to_completion(
+        self, program: str, *arguments: str, reporter: ProgressReporter
+    ) -> subprocess.CompletedProcess[str]:
+        """Run a self-bounded remote coordinator without an observer cutoff."""
+        if not program or "\x00" in program or any("\x00" in item for item in arguments):
+            raise RemoteStagingError("remote stage streaming operation is invalid")
+        self._check_transport_identities()
+        command = self._python_command(program, self.root, *arguments)
+        return run_streaming_to_completion(
+            self.ssh,
+            (*self._ssh_prefix()[1:], command),
             reporter,
         )
 
@@ -362,7 +421,7 @@ def discover_remote_python(
     known_hosts: Path,
     ssh: Path = Path("/usr/bin/ssh"),
     remote_python: str = "/usr/bin/python3",
-    timeout_s: float = 30.0,
+    timeout_s: float | None = None,
 ) -> tuple[str, str]:
     """Resolve an exact remote Python executable suitable for staging."""
     if _HOST.fullmatch(host) is None or re.fullmatch(r"/[A-Za-z0-9._/+:-]+", remote_python) is None:
@@ -376,7 +435,7 @@ def discover_remote_python(
         "print(str(p));print(hashlib.sha256(p.read_bytes()).hexdigest())"
     )
     try:
-        result = subprocess.run(
+        result = _run_transport(
             (
                 str(ssh),
                 "-o",
@@ -389,11 +448,7 @@ def discover_remote_python(
                 host,
                 shlex.join((remote_python, "-c", program)),
             ),
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-            shell=False,
+            timeout_s,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise RemoteStagingError("remote Python discovery failed") from error

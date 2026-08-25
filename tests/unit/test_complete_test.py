@@ -69,7 +69,6 @@ def _configuration(
     tmp_path: Path,
     *,
     topology: str = "split_host_ssh",
-    campaign_deadline_s: float = 7200,
 ) -> Path:
     known_hosts = tmp_path / "known_hosts"
     ssh_executable = tmp_path / "ssh-fixture"
@@ -127,7 +126,6 @@ def _configuration(
             "ssh_executable": str(ssh_executable),
             "work_directory": str(tmp_path / "work"),
             "output_parent": str(tmp_path / "runs"),
-            "campaign_deadline_s": campaign_deadline_s,
         },
     )
 
@@ -310,8 +308,8 @@ def test_exact_sdr_selector_resolves_unique_driver_and_serial(monkeypatch) -> No
         lambda name: Path("/usr/bin/true"),
     )
     monkeypatch.setattr(
-        "wsprrypi_qualification.complete_test.LocalCommandTransport.execute",
-        lambda self, plan: SimpleNamespace(
+        "wsprrypi_qualification.complete_test._run_to_completion",
+        lambda executable, arguments: SimpleNamespace(
             return_code=0,
             timed_out=False,
             stderr="",
@@ -397,6 +395,10 @@ def test_remote_receiver_returns_classified_nonpassing_result(tmp_path: Path, mo
         "wsprrypi_qualification.complete_test.LocalCommandTransport.execute",
         lambda self, plan: next(responses),
     )
+    monkeypatch.setattr(
+        "wsprrypi_qualification.complete_test._run_to_completion",
+        lambda executable, arguments: next(responses),
+    )
     outcome = delegate_complete_test(
         "wspr4.local", "wspr5.local", SDR, ["--enable-rf"], configuration=configuration
     )
@@ -406,7 +408,7 @@ def test_remote_receiver_returns_classified_nonpassing_result(tmp_path: Path, mo
 
 
 def test_every_override_is_bound_and_changes_digest(tmp_path: Path) -> None:
-    config = _configuration(tmp_path, campaign_deadline_s=7200)
+    config = _configuration(tmp_path)
     composed_at = datetime(2026, 8, 24, 21, 0, 20, tzinfo=UTC)
     baseline = compose_complete_test_plan(
         "wspr4.local",

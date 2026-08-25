@@ -215,7 +215,9 @@ def run_bounded_tone_transaction(
     if outer_timeout_s <= duration_ms / 1000:
         raise ValueError("outer timeout must exceed the product duration")
     outer_deadline = time.monotonic() + outer_timeout_s
-    cleanup_reserve_s = min(1.0, (outer_timeout_s - duration_ms / 1000) / 2)
+    # Split the exact non-RF remainder evenly between terminal response work
+    # and the cleanup attempt instead of imposing a fixed cleanup allowance.
+    cleanup_reserve_s = (outer_timeout_s - duration_ms / 1000) / 2
     transaction_deadline = outer_deadline - cleanup_reserve_s
     cleanup_attempted = False
     request_sent = False

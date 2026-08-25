@@ -119,7 +119,6 @@ def _reject_git_worktree_runtime(path: Path) -> None:
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=5,
     )
     if result.returncode == 0:
         root = Path(result.stdout.strip()).resolve(strict=True)
@@ -353,6 +352,7 @@ class ProductionRealSessionAdapters:
             "working_directory": str(Path(plan["wsprrypi"]["path"]).parent),
             "mutable_inputs": [],
             "writable_paths": [],
+            "inspection_timeout_s": helper_verification_deadline(plan),
         }
         self.tx_launcher.repository_guard = repository_guard
         self.source_launcher.repository_guard = repository_guard
@@ -487,6 +487,14 @@ class ProductionRealSessionAdapters:
 
     def verify_helper(self, plan: dict[str, Any]) -> dict[str, object]:
         started = time.monotonic()
+        verification_deadline = started + helper_verification_deadline(plan)
+
+        def remaining_verification_time() -> float:
+            remaining = verification_deadline - time.monotonic()
+            if remaining <= 0:
+                raise RealSessionError("helper verification aggregate deadline expired")
+            return self._remaining(remaining)
+
         # A signed, plan-bound response proves both persistent helper sessions.
         for operation_name, provider, services in (
             (
@@ -510,7 +518,7 @@ class ProductionRealSessionAdapters:
 
             self._bounded_helper_operation(
                 operation_name,
-                plan["deadlines"]["helper_s"],
+                remaining_verification_time(),
                 inspect_service,
             )
         source = plan["source"]
@@ -544,10 +552,10 @@ class ProductionRealSessionAdapters:
 
             def inspect_revision(arguments: tuple[str, ...] = arguments) -> Any:
                 process = self.source_launcher.begin(arguments)
-                return process.wait(self._remaining(plan["deadlines"]["helper_s"]), None)
+                return process.wait(remaining_verification_time(), None)
 
             result = self._bounded_helper_operation(
-                operation_name, plan["deadlines"]["helper_s"], inspect_revision
+                operation_name, remaining_verification_time(), inspect_revision
             )
             if result.return_code != 0 or not result.cleanup_verified:
                 raise RealSessionError(f"helper verification {operation_name} failed")
@@ -831,6 +839,7 @@ class ProductionRealSessionAdapters:
                     "working_directory": str(Path(plan["wsprrypi"]["path"]).parent),
                     "mutable_inputs": [],
                     "writable_paths": [],
+                    "inspection_timeout_s": helper_verification_deadline(plan),
                 },
             )
         process = launcher.begin(application.arguments)
@@ -984,6 +993,7 @@ class ProductionRealSessionAdapters:
                     }
                 ],
                 "writable_paths": [server_plan["configuration"]["path"]],
+                "inspection_timeout_s": helper_verification_deadline(plan),
             },
         )
         server = launcher.begin(tuple(server_plan["arguments"]))
@@ -1013,7 +1023,6 @@ class ProductionRealSessionAdapters:
     ) -> dict[str, object]:
         schedule = plan["tone_schedule"]
         epoch = time.monotonic() if epoch is None else epoch
-        self._sleep_until(epoch + plan["tone_server"]["startup_seconds"])
         interval = schedule["off_seconds"] + schedule["on_seconds"]
         reserved_rf_on = 0.0
         try:
@@ -1026,9 +1035,12 @@ class ProductionRealSessionAdapters:
                 if next_reserved_rf_on > schedule["maximum_rf_on_seconds"]:
                     raise RealSessionError("tone pattern exceeds its cumulative RF-on bound")
                 reserved_rf_on = next_reserved_rf_on
+                # The complete on/off cadence supplies the transaction envelope:
+                # the requested RF-on interval followed by its protocol-defined
+                # quiet interval for terminal evidence and cleanup.
                 outer_timeout_s = min(
                     plan["deadlines"]["transmitter_s"],
-                    schedule["on_seconds"] + min(1.0, schedule["off_seconds"] / 2),
+                    schedule["on_seconds"] + schedule["off_seconds"],
                 )
                 try:
                     evidence = self.tx_client.request_evidence(
@@ -1817,7 +1829,7 @@ def build_production_adapters(
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=5,
+        timeout=helper_verification_deadline(plan),
         check=False,
     )
     selected_lines = [line for line in selected.stdout.splitlines() if not line.startswith("#")]
@@ -1832,7 +1844,7 @@ def build_production_adapters(
             capture_output=True,
             text=True,
             encoding="utf-8",
-            timeout=5,
+            timeout=helper_verification_deadline(plan),
             check=False,
         )
     parsed_fingerprints = [
@@ -2010,6 +2022,7 @@ class KeyedCapabilityProviders:
             "working_directory": transmitter["runtime_working_directory"],
             "mutable_inputs": [],
             "writable_paths": [],
+            "inspection_timeout_s": plan["deadlines"]["transaction_s"],
         }
         self.tx_services = HelperServiceProvider(tx_client, "systemd", repository_guard)
         self.rx_services = HelperServiceProvider(rx_client, "systemd")
@@ -2120,7 +2133,9 @@ class KeyedCapabilityProviders:
             Path(self.plan["reference"]["plan"]["path"]), "cw-mode-plan.schema.json"
         )
         pre_quiet = float(mode_plan["protocol"]["pre_quiet_seconds"])
-        minimum_margin = min(0.25, pre_quiet / 2.0)
+        # Reserve half of the protocol-defined pre-quiet interval for arming;
+        # no fixed SSH-latency allowance participates in the RF start decision.
+        minimum_margin = pre_quiet / 2.0
         scheduled = datetime.now(UTC) + timedelta(seconds=pre_quiet)
         scheduled_text = scheduled.isoformat().replace("+00:00", "Z")
         request_sent = datetime.now(UTC)
@@ -2271,7 +2286,10 @@ class KeyedCapabilityProviders:
         self.capture_tasks[number] = (worker, cancellation, captured, errors)
         worker.start()
         ready = Path(str(capture_plan.output_path) + ".incomplete")
-        ready_deadline = time.monotonic() + min(5.0, plan["deadlines"]["transaction_s"])
+        # Capture readiness has no independent guessed duration.  It owns the
+        # remaining plan-bound transaction envelope and still blocks RF unless
+        # the helper establishes its retained output first.
+        ready_deadline = time.monotonic() + plan["deadlines"]["transaction_s"]
         while time.monotonic() < ready_deadline:
             if ready.exists():
                 break

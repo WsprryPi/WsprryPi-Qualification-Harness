@@ -37,6 +37,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     operation.add_argument("--argv-base64")
     operation.add_argument("--identity", action="store_true")
     parser.add_argument("--timeout", type=float)
+    parser.add_argument("--wait-for-completion", action="store_true")
+    parser.add_argument("--cleanup-timeout", type=float)
     options = parser.parse_args(argv)
     if options.identity:
         launcher = Path(sys.argv[0]).resolve()
@@ -59,8 +61,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         return 0
-    if options.timeout is None or options.timeout <= 0:
-        parser.error("--timeout must be positive")
+    if (
+        (options.timeout is None and not options.wait_for_completion)
+        or (options.timeout is not None and options.timeout <= 0)
+        or (options.timeout is not None and options.wait_for_completion)
+        or (options.cleanup_timeout is not None and options.cleanup_timeout <= 0)
+        or (not options.wait_for_completion and options.cleanup_timeout is None)
+    ):
+        parser.error(
+            "select one positive --timeout or --wait-for-completion; bounded commands "
+            "also require a positive --cleanup-timeout"
+        )
     assert options.argv_base64 is not None
     arguments = decode_arguments(options.argv_base64)
     interrupted = threading.Event()
@@ -75,25 +86,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             number = int(getattr(signal, signal_name))
             previous[number] = signal.signal(number, request_cleanup)
     process = subprocess.Popen(arguments, shell=False)
-    deadline = time.monotonic() + options.timeout
+    deadline = None if options.timeout is None else time.monotonic() + options.timeout
+    cleanup_stage_s = None if options.cleanup_timeout is None else options.cleanup_timeout / 3
     timed_out = False
     try:
         while process.poll() is None:
-            timed_out = time.monotonic() >= deadline
+            timed_out = deadline is not None and time.monotonic() >= deadline
             if timed_out or interrupted.is_set():
                 if hasattr(signal, "SIGINT"):
                     process.send_signal(signal.SIGINT)
                 else:  # pragma: no cover - Windows always exposes SIGINT in supported Python
                     process.terminate()
-                try:
-                    process.wait(timeout=30.0)
-                except subprocess.TimeoutExpired:
-                    process.terminate()
+                if cleanup_stage_s is None:
+                    process.wait()
+                else:
                     try:
-                        process.wait(timeout=5.0)
+                        process.wait(timeout=cleanup_stage_s)
                     except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait(timeout=5.0)
+                        process.terminate()
+                        try:
+                            process.wait(timeout=cleanup_stage_s)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait(timeout=cleanup_stage_s)
                 break
             time.sleep(0.05)
     finally:

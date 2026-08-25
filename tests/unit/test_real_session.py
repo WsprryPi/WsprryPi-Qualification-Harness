@@ -16,6 +16,7 @@ from wsprrypi_qualification.real_session import (
     helper_configuration_plan_sha256,
     helper_verification_contract,
     helper_verification_deadline,
+    required_keyed_transaction_deadline,
     required_wspr_overall_deadline,
     resolved_real_plan_sha256,
     validate_real_session_document,
@@ -38,6 +39,14 @@ def test_wspr_deadline_contains_slot_wait_capture_analysis_publication_and_clean
 
     plan["deadlines"]["cleanup_s"] += 7
     assert required_wspr_overall_deadline(plan, session_start) == 986
+
+
+def test_keyed_transaction_deadline_scales_with_exact_capture_work() -> None:
+    # 25 seconds of CF32 is 50 MB. Four authenticated analysis passes at the
+    # maintained 25 MB/s floor take 8 seconds. Five exact control/cleanup
+    # phases each own the plan's 10-second control envelope.
+    assert required_keyed_transaction_deadline(6_250_000, 250_000, 10) == 83
+    assert required_keyed_transaction_deadline(12_500_000, 250_000, 10) == 116
 
 
 def test_wspr_deadline_rejects_session_after_capture_launch() -> None:
@@ -307,7 +316,7 @@ def tone_plan_document(
                     "sha256": "c" * 64,
                 },
                 "arguments": tone_arguments,
-                "startup_seconds": 0.25,
+                "startup_seconds": 2,
             },
         }
     )

@@ -506,6 +506,41 @@ def test_helper_revision_mismatch_reports_expected_and_observed(tmp_path: Path) 
         adapter.verify_helper(plan)
 
 
+def test_helper_suboperations_share_the_aggregate_verification_envelope(tmp_path: Path) -> None:
+    adapter = bare_adapter(tmp_path)
+    plan = plan_document()
+    plan["deadlines"]["helper_s"] = 0.05
+
+    class SlowServiceProvider:
+        def inspect(self, service: str) -> object:
+            time.sleep(0.06)
+            return object()
+
+    class Process:
+        def __init__(self, revision: str) -> None:
+            self.revision = revision
+
+        def wait(self, deadline_s: float, cancellation: object) -> LaunchResult:
+            assert deadline_s > 0
+            return LaunchResult(0, self.revision + "\n", "", cleanup_verified=True)
+
+    revisions = iter((plan["source"]["parent_revision"], plan["source"]["submodule_revision"]))
+
+    class Launcher:
+        def begin(self, arguments: tuple[str, ...]) -> Process:
+            return Process(next(revisions))
+
+    adapter.tx_services = SlowServiceProvider()
+    adapter.rx_services = SlowServiceProvider()
+    adapter.source_launcher = Launcher()
+
+    evidence = adapter.verify_helper(plan)
+
+    assert evidence["outcome"] == "passed"
+    assert evidence["elapsed_s"] > plan["deadlines"]["helper_s"]
+    assert evidence["elapsed_s"] < evidence["deadline_s"]
+
+
 def test_transmitter_execution_retains_complete_owned_process_result(tmp_path: Path) -> None:
     adapter = bare_adapter(tmp_path)
     plan = plan_document()
@@ -1004,6 +1039,7 @@ def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, mo
             }
         ],
         "writable_paths": [plan["tone_server"]["configuration"]["path"]],
+        "inspection_timeout_s": 20,
     }
     assert observed["pinned_arguments"] == {
         plan["tone_server"]["configuration"]["path"]: plan["tone_server"]["configuration"]["sha256"]

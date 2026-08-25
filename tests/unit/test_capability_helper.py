@@ -165,6 +165,9 @@ class BoundedTone:
 
 
 def request(operation, payload, **changes):
+    payload = dict(payload)
+    if operation == "process-start":
+        payload.setdefault("cleanup_timeout_s", payload.get("hard_timeout_s", 1))
     value = {
         "protocol_version": 1,
         "request_id": "request-1",
@@ -529,6 +532,7 @@ def _repository_guard_fixture(tmp_path: Path) -> tuple[Path, Path, Path, dict[st
             }
         ],
         "writable_paths": [str(runtime.resolve())],
+        "inspection_timeout_s": 2,
     }
     return root, source, runtime, guard
 

@@ -31,8 +31,25 @@ DEFAULT_WSPRRRYPI_BINARY = "/usr/local/bin/wsprrypi"
 DEFAULT_WSPRRRYPI_CONFIGURATION = "/usr/local/etc/wsprrypi.ini"
 
 
-def _run(arguments: list[str], *, timeout_s: float = 120.0) -> subprocess.CompletedProcess[str]:
+def _run(
+    arguments: list[str], *, timeout_s: float | None = None
+) -> subprocess.CompletedProcess[str]:
     try:
+        if timeout_s is None:
+            process = subprocess.Popen(
+                arguments,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                shell=False,
+            )
+            try:
+                stdout, stderr = process.communicate()
+            except BaseException:
+                process.terminate()
+                process.wait()
+                raise
+            return subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
         return subprocess.run(
             arguments,
             check=False,
@@ -243,7 +260,6 @@ def _prepare_transmitter(
             stage.owner_token,
             installed_binary,
             installed_configuration,
-            timeout_s=120,
         )
         source_path = "/home/pi/WsprryPi"
         tone_configuration_source = installed_configuration
@@ -264,7 +280,7 @@ def _prepare_transmitter(
             "build_source=root/'build-source';"
             "shutil.copytree(src,build_source,ignore=shutil.ignore_patterns('.git'));"
             "r=subprocess.run(['/usr/bin/make','-C',str(build_source/'src'),'-j2',"
-            "'BACKENDS=rpi-gpio'],capture_output=True,text=True,timeout=900)\n"
+            "'BACKENDS=rpi-gpio'],capture_output=True,text=True)\n"
             "assert r.returncode==0,r.stdout+r.stderr\n"
             "source_binary=build_source/'src/build/bin/wsprrypi';data=source_binary.read_bytes();"
             "binary=deployment/'wsprrypi';"
@@ -282,7 +298,7 @@ def _prepare_transmitter(
             "(root/'gpio-inspect').chmod(0o700);"
             "print(str(binary))"
         )
-        result = stage.run_python(program, deployment, stage.owner_token, timeout_s=1000)
+        result = stage.run_python_to_completion(program, deployment, stage.owner_token)
         source_path = f"{stage.root}/source"
         tone_configuration_source = f"{source_path}/config/wsprrypi.ini"
         tone_configuration = f"{deployment}/wsprrypi.ini"
@@ -340,9 +356,9 @@ def _prepare_receiver(
         "zipfile.ZipFile(root/'native.zip').extractall(src);build=root/'native-build';"
         "r=subprocess.run(['/usr/bin/cmake','-S',str(src),'-B',str(build),"
         "'-DWSPQ_BUILD_SOAPY=ON','-DWSPQ_BUILD_TESTS=OFF'],"
-        "capture_output=True,text=True,timeout=180);assert r.returncode==0,r.stdout+r.stderr;"
+        "capture_output=True,text=True);assert r.returncode==0,r.stdout+r.stderr;"
         "r=subprocess.run(['/usr/bin/cmake','--build',str(build),'--config','Release','-j2'],"
-        "capture_output=True,text=True,timeout=600);assert r.returncode==0,r.stdout+r.stderr;"
+        "capture_output=True,text=True);assert r.returncode==0,r.stdout+r.stderr;"
         "data=(build/'wspq-capture-soapy').read_bytes();"
         "fd=os.open(cached,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o700);"
         "os.write(fd,data);os.fsync(fd);os.close(fd);"
@@ -351,7 +367,7 @@ def _prepare_receiver(
         "(root/'gpio-inspect').chmod(0o700)"
     )
     _require(
-        stage.run_python(program, cached_capture, timeout_s=850),
+        stage.run_python_to_completion(program, cached_capture),
         "temporary receiver helper build",
     )
     helper = f"{deployment_root}/capability-helper"
@@ -432,7 +448,7 @@ def delegate_automatic_complete_test(
     wsprrypi_binary: str | None = DEFAULT_WSPRRRYPI_BINARY,
     wsprrypi_configuration: str = DEFAULT_WSPRRRYPI_CONFIGURATION,
     wsprrypi_source: Path | None = None,
-    timeout_s: float = 7500.0,
+    timeout_s: float | None = None,
     progress: Any | None = None,
 ) -> dict[str, Any]:
     """Stage current runtimes, execute on the receiver, validate, and clean both hosts."""
@@ -469,7 +485,7 @@ def _delegate_automatic_complete_test(
     wsprrypi_binary: str | None = DEFAULT_WSPRRRYPI_BINARY,
     wsprrypi_configuration: str = DEFAULT_WSPRRRYPI_CONFIGURATION,
     wsprrypi_source: Path | None = None,
-    timeout_s: float,
+    timeout_s: float | None,
     progress: Any | None = None,
 ) -> dict[str, Any]:
     source = _validate_runtime_selection(wsprrypi_binary, wsprrypi_configuration, wsprrypi_source)
@@ -534,7 +550,6 @@ def _delegate_automatic_complete_test(
             remote_python_sha256=tx_python[1],
             ssh=ssh,
             scp=scp,
-            timeout_s=120,
         )
         rx_stage = RemoteStage(
             receiver_host,
@@ -548,7 +563,6 @@ def _delegate_automatic_complete_test(
             remote_python_sha256=rx_python[1],
             ssh=ssh,
             scp=scp,
-            timeout_s=120,
         )
         with ExitStack() as stack:
             tx = stack.enter_context(tx_stage)
@@ -765,17 +779,32 @@ def _delegate_automatic_complete_test(
             ).decode()
             if progress is not None:
                 progress.emit("delegation", "started", "receiver campaign execution started")
-            runner = rx.run_python_stream if progress is not None else rx.run_python
-            result = runner(
+            program = (
                 "import base64,json,subprocess;"
                 "argv=json.loads(base64.urlsafe_b64decode(sys.argv[2]));"
-                "r=subprocess.run(argv,stdout=subprocess.PIPE,text=True,timeout=float(sys.argv[3]));"
-                "print(json.dumps({'returncode':r.returncode,'stdout':r.stdout,'stderr':''}))",
-                encoded,
-                str(timeout_s),
-                **({"reporter": progress} if progress is not None else {}),
-                timeout_s=timeout_s + 30,
+                + (
+                    "r=subprocess.run(argv,stdout=subprocess.PIPE,text=True);"
+                    if timeout_s is None
+                    else "r=subprocess.run(argv,stdout=subprocess.PIPE,text=True,"
+                    "timeout=float(sys.argv[3]));"
+                )
+                + "print(json.dumps({'returncode':r.returncode,'stdout':r.stdout,'stderr':''}))"
             )
+            arguments = (encoded,) if timeout_s is None else (encoded, str(timeout_s))
+            if timeout_s is None:
+                result = (
+                    rx.run_python_stream_to_completion(program, *arguments, reporter=progress)
+                    if progress is not None
+                    else rx.run_python_to_completion(program, *arguments)
+                )
+            else:
+                result = (
+                    rx.run_python_stream(
+                        program, *arguments, reporter=progress, timeout_s=timeout_s
+                    )
+                    if progress is not None
+                    else rx.run_python(program, *arguments, timeout_s=timeout_s)
+                )
             envelope = json.loads(_require(result, "receiver campaign execution"))
             if progress is not None:
                 progress.emit("delegation", "completed", "receiver campaign execution completed")
@@ -805,7 +834,6 @@ def _delegate_automatic_complete_test(
                 "validate-complete-test",
                 bundle_path,
             ],
-            timeout_s=180,
         )
         try:
             validated = json.loads(_require(validation, "post-cleanup campaign validation"))

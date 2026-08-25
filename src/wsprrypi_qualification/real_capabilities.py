@@ -455,6 +455,7 @@ class SshOwnedProcessLauncher:
             "privilege_wrapper_sha256": self.privilege_wrapper_sha256,
             "pinned_arguments": self.pinned_arguments,
             "hard_timeout_s": self.hard_timeout_s,
+            "cleanup_timeout_s": self.client.timeout_s,
             "environment": {},
         }
         if self.repository_guard is not None:
@@ -561,13 +562,17 @@ class OpenSshCapability:
             raise CapabilityError("SSH remote helper path contains unsafe shell characters")
         if min(plan.connect_timeout_s, plan.command_timeout_s, plan.overall_timeout_s) <= 0:
             raise CapabilityError("SSH deadlines must be positive")
+        cleanup_timeout_s = plan.overall_timeout_s - plan.command_timeout_s
+        if cleanup_timeout_s <= 0:
+            raise CapabilityError("SSH overall deadline must contain command and cleanup")
         if not plan.executable.is_absolute() or not plan.executable.is_file():
             raise CapabilityError("SSH executable must be an existing absolute file")
         _authorize(plan.document(), authorization)
         started = _utc()
         encoded = self.encode_remote_arguments(plan.remote_arguments)
         remote_command = (
-            f"{plan.remote_helper} --timeout {plan.command_timeout_s:g} --argv-base64 {encoded}"
+            f"{plan.remote_helper} --timeout {plan.command_timeout_s:g} "
+            f"--cleanup-timeout {cleanup_timeout_s:g} --argv-base64 {encoded}"
         )
         arguments = (
             str(plan.executable),
@@ -577,9 +582,7 @@ class OpenSshCapability:
             plan.host,
             remote_command,
         )
-        result = self._launcher.launch(
-            arguments, min(plan.command_timeout_s, plan.overall_timeout_s), cancellation
-        )
+        result = self._launcher.launch(arguments, plan.overall_timeout_s, cancellation)
         outcome = _execution_outcome(result)
         document = {
             "schema_version": 1,
@@ -679,7 +682,7 @@ class SoapyCaptureCapability:
             str(plan.metadata_path),
             plan.output_path.stem,
         )
-        result = self._launcher.launch(arguments, plan.maximum_elapsed_s + 5, cancellation)
+        result = self._launcher.launch(arguments, plan.maximum_elapsed_s, cancellation)
         if result.return_code != 0 or result.timed_out or result.cancelled:
             diagnostic = _retain_capture_failure(plan, arguments, result, "helper_execution_failed")
             raise CaptureCapabilityError(
@@ -1452,8 +1455,11 @@ def validate_capability_semantics(document: dict[str, object]) -> None:
             if not isinstance(arguments, list) or not isinstance(executable, dict):
                 raise CapabilityError("SSH execution evidence is malformed")
             timeout = cast(dict[str, object], document["deadlines"])["command_s"]
+            overall = cast(dict[str, object], document["deadlines"])["overall_s"]
+            cleanup = float(cast(float, overall)) - float(cast(float, timeout))
             expected_remote = (
                 f"{document['remote_helper']} --timeout {float(cast(float, timeout)):g} "
+                f"--cleanup-timeout {cleanup:g} "
                 f"--argv-base64 {encoded}"
             )
             if (
