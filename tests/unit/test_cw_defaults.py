@@ -38,7 +38,7 @@ def _message_events(mode: str) -> list[dict[str, Any]]:
 def test_generic_hardware_free_scenario_selects_canonical_defaults(mode: str) -> None:
     protocol = _plan(mode)["protocol"]
     assert isinstance(protocol, dict)
-    assert protocol["message"] == CANONICAL_KEYED_TEST_MESSAGE == "ET"
+    assert protocol["message"] == CANONICAL_KEYED_TEST_MESSAGE == "ETE"
     assert protocol["dot_seconds"] == CANONICAL_KEYED_TEST_DOT_SECONDS == 0.7
     assert protocol["repetitions"] == KEYED_MESSAGES_PER_TRANSACTION == 1
     assert KEYED_QUALIFICATION_TRANSACTION_COUNT == 3
@@ -68,27 +68,53 @@ def test_explicit_hardware_free_overrides_remain_available() -> None:
     assert protocol["post_quiet_seconds"] == 3.0
 
 
-def test_qrss_et_timing_is_dot_gap_dash() -> None:
+def test_qrss_ete_timing_is_dot_gap_dash_gap_dot() -> None:
     events = _message_events("qrss")
-    assert [event["role"] for event in events] == ["dot", "inter_character_gap", "dash"]
-    assert [event["end_s"] - event["start_s"] for event in events] == pytest.approx([0.7, 2.1, 2.1])
-    assert [event["rf_state"] for event in events] == ["primary", "off", "primary"]
+    assert [event["role"] for event in events] == [
+        "dot",
+        "inter_character_gap",
+        "dash",
+        "inter_character_gap",
+        "dot",
+    ]
+    assert [event["end_s"] - event["start_s"] for event in events] == pytest.approx(
+        [0.7, 2.1, 2.1, 2.1, 0.7]
+    )
+    assert [event["rf_state"] for event in events] == [
+        "primary",
+        "off",
+        "primary",
+        "off",
+        "primary",
+    ]
 
 
-def test_fskcw_et_is_continuous_for_4_9_seconds_with_five_hertz_shift() -> None:
+def test_fskcw_ete_is_continuous_for_7_7_seconds_with_five_hertz_shift() -> None:
     events = _message_events("fskcw")
-    assert [event["role"] for event in events] == ["mark", "space", "mark"]
+    assert [event["role"] for event in events] == ["mark", "space", "mark", "space", "mark"]
     assert all(event["continuity_required"] is True for event in events)
     assert all(event["rf_state"] in {"primary", "secondary"} for event in events)
-    assert events[-1]["end_s"] - events[0]["start_s"] == pytest.approx(4.9)
+    assert events[-1]["end_s"] - events[0]["start_s"] == pytest.approx(7.7)
     assert abs(events[0]["frequency_hz"] - events[1]["frequency_hz"]) == 5.0
 
 
-def test_dfcw_et_timing_is_equal_dot_gap_dash_on_distinct_frequencies() -> None:
+def test_dfcw_ete_has_three_active_frequency_observations() -> None:
     events = _message_events("dfcw")
-    assert [event["role"] for event in events] == ["dot", "inter_character_gap", "dash"]
-    assert [event["end_s"] - event["start_s"] for event in events] == pytest.approx([0.7, 0.7, 0.7])
-    assert [event["rf_state"] for event in events] == ["primary", "off", "secondary"]
+    assert [event["role"] for event in events] == [
+        "dot",
+        "inter_character_gap",
+        "dash",
+        "inter_character_gap",
+        "dot",
+    ]
+    assert [event["end_s"] - event["start_s"] for event in events] == pytest.approx([0.7] * 5)
+    assert [event["rf_state"] for event in events] == [
+        "primary",
+        "off",
+        "secondary",
+        "off",
+        "primary",
+    ]
     assert abs(events[0]["frequency_hz"] - events[2]["frequency_hz"]) == 5.0
 
 

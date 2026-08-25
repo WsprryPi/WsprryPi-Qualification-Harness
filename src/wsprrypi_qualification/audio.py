@@ -241,6 +241,8 @@ def create_slot_wav_acquired(
     slot_utc: datetime,
     output_directory: Path,
     evidence_path: Path,
+    *,
+    selected_frequency_hz: float | None = None,
 ) -> dict[str, Any]:
     context = load_profile_context(bench_profile_path, test_profile_path)
     metadata = validate_acquired_capture(capture_metadata_path, iq_path, context)
@@ -248,13 +250,18 @@ def create_slot_wav_acquired(
         raise OfflineAnalysisError("capture lacks authoritative retained-capture UTC start")
     receiver = context.bench.receiver
     half_bandwidth = receiver.bandwidth_hz / 2
-    if abs(context.test.frequency_hz - context.test.receiver_center_hz) > half_bandwidth:
+    selected = (
+        context.test.frequency_hz if selected_frequency_hz is None else float(selected_frequency_hz)
+    )
+    if abs(selected - context.test.frequency_hz) > 500.0:
+        raise OfflineAnalysisError("acquired RF frequency exceeds the bounded acquisition window")
+    if abs(selected - context.test.receiver_center_hz) > half_bandwidth:
         raise OfflineAnalysisError("selected RF frequency is outside recorded receiver coverage")
     canonical = output_directory / slot_wav_name(slot_utc)
     parameters = AudioParameters(
         receiver.sample_rate_hz,
         context.test.receiver_center_hz,
-        context.test.frequency_hz,
+        selected,
     )
     return create_slot_wav(
         iq_path,

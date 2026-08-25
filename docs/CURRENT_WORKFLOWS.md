@@ -14,6 +14,12 @@ Profiles are schema-valid only after both JSON Schema and maintained semantic
 validation pass. Runtime authorization and current RF-path facts cannot be
 supplied by a committed example.
 
+Receiver plans must keep the complete requested-carrier acquisition window
+outside the zero-IF DC exclusion and inside the usable sample-rate/bandwidth
+span. The complete-test composer supplies the maintained 25-kHz offset for all
+five modes. Expert-authored plans with contradictory tuning geometry are
+rejected before production adapters can operate.
+
 ## Turnkey campaign orchestration
 
 Use `turnkey-campaign plan`, `validate`, and `rehearse` for one typed workflow
@@ -36,8 +42,10 @@ wsprrypi-qualification complete-test TRANSMITTER_HOST RECEIVER_HOST \
 ```
 
 Every invocation creates an exclusive JSON Lines progress log and prints its
-absolute path to stderr before long-running work begins. Use `--progress-log
-PATH` to select it explicitly. Records are flushed individually and carry the
+absolute path to stderr before long-running work begins. By default it is kept
+in the invoking host's durable user-state directory, not temporary or remote
+deployment storage, so stage cleanup cannot remove it before review. Use
+`--progress-log PATH` to select another durable location explicitly. Records are flushed individually and carry the
 campaign, mode, stage, status, and optional frame or observation number; stdout
 remains reserved for the final structured result. Delegated receiver execution
 forwards protocol records into the invoking controller's local log, so the same
@@ -45,7 +53,12 @@ tailing interface works from either endpoint or a third system.
 
 The default path packages the current harness and local WsprryPi source, stages
 only the required runtime on both hosts, builds independently owned durable
-per-campaign executables, and removes both temporary stages. `--enable-rf`
+per-campaign executables, and removes both temporary stages. Generated mode
+plans, expected events, resolved profiles, and dispatch wrapper inputs are placed separately under
+`OUTPUT_PARENT/complete-test-inputs/CAMPAIGN_ID`; they are neither deployment
+scratch nor result-bundle contents. The resolved campaign retains that store
+while its aggregate or subordinate results exist, and only an explicit manual
+retention action may remove it. `--enable-rf`
 confirms the documented conducted default: antenna disconnected and a direct
 50-ohm SDR input through 20 dB attenuation. The receiver uniquely resolves the
 selected SDR through SoapySDR, validates all five generated subordinate plans, then
@@ -55,13 +68,35 @@ remote to the controller; execution is delegated to the receiver host.
 `--enable-rf`. Same-host local production transport remains unsupported until
 Track D; it fails before production adapter construction.
 
+The composed WSPR outer deadline follows the final three-slot schedule. It
+contains receiver setup derived from the configured read bound, the exact wait
+to coherent capture, capture duration, per-frame analysis, summary validation,
+publication, cleanup, and final quiescence. Offline bounds scale with exact CF32
+bytes and required validation/copy passes under the maintained minimum
+sequential-I/O capability; there is no fixed summary allowance or generic
+reserve. Production rechecks the same timing envelope from its actual start.
+
+The complete timer classification and formulas are maintained in
+[`development/timing-contracts.md`](development/timing-contracts.md).
+
+Until Track E supplies provenance-bound transmitter PPM resolution, every GPIO
+child process in `complete-test` explicitly disables WsprryPi's system-clock
+frequency estimate and applies the fixed manual value in that child's resolved
+plan. This includes the separately owned Tone server as well as WSPR, QRSS,
+FSKCW, and DFCW. A staged configuration file cannot re-enable Chrony-derived
+correction, and contradictory or mismatched process arguments fail during plan
+composition before host or RF access. This is containment, not a Track E
+provenance claim.
+
 ## Offline WSPR analysis
 
 The maintained sequence is:
 
 1. `validate-capture-metadata` authenticates exact-count capture metadata and
    its IQ artifact.
-2. `analyze-carrier` compares distinct RF-off and RF-on captures. Add
+2. `analyze-carrier` compares distinct RF-off and RF-on captures and selects
+   the carrier inside the requested target window; stronger span-wide features
+   remain diagnostic. Add
    `--plot OUTPUT.png` or `--plot OUTPUT.svg` for an authenticated relative-spectrum
    rendering using Matplotlib Agg.
 3. `make-slot-wav` creates a canonical WAV for each bounded UTC slot.
@@ -133,9 +168,19 @@ Each of the three transactions sends one keyed message. Plans bind receiver
 services that must run for capture separately from the complete service
 allowlist; they start only after cleanup installation, and all listed services
 return to their observed initial state during transaction cleanup.
-The production adapter establishes the exact-count capture and completes the
-resolved RF-off preamble before it launches WsprryPi; capture setup failure
-therefore blocks RF rather than producing a knowingly truncated observation.
+The production adapter establishes the exact-count capture, then arms WsprryPi
+on the transmitter for a future UTC start. The transmitter helper converts the
+accepted wall-clock interval to a local monotonic deadline, so SSH latency does
+not select the RF start instant. The coordinator monitors capture through the
+resolved RF-off preamble and cancels the armed process before RF if capture
+fails. Each transaction retains the accepted schedule, actual launch, schedule
+error, receiver capture start, and derived capture-relative start. Capture setup
+failure therefore blocks RF rather than producing a knowingly truncated
+observation.
+The resolved exact-count capture is calculated from the final generated keyed
+timeline plus a one-second guard and rounded upward to a whole sample. Scheduled
+quiet-time rebasing preserves that bound, and production preflight rejects an
+older or hand-authored plan that omits the guard.
 If capture fails after launch, the transaction is classified as receiver or
 fixture blockage. Its partial bundle retains authenticated native failure
 metadata and the bounded helper execution diagnostic, while incomplete or

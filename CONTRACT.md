@@ -115,6 +115,10 @@ or wrapper/executable/argument substitution fails before RF.
 The receiver capture must establish its retained output and complete the
 resolved RF-off preamble before WsprryPi is launched. Capture setup failure or
 premature capture termination must therefore prevent transmitter launch.
+Every QRSS, FSKCW, and DFCW capture must contain the final generated timeline
+plus a maintained one-second guard, with the required sample count rounded
+upward. Runtime scheduling may redistribute pre- and post-quiet time but must
+preserve that guarded capture bound; an under-sized plan fails preflight.
 After transmitter launch, a capture-helper or receiver-evidence failure is a
 receiver/fixture blockage, not transmitter unqualification. The live keyed
 bundle must retain the bounded helper execution diagnostic and any native
@@ -160,6 +164,21 @@ internally and does not require an operator identity. Internal evidence binding
 is automatic and is not part of the user interface. Advanced explicit-plan
 commands retain their existing confirmation interfaces.
 
+Generated complete-test mode plans, expected events, and resolved profiles are
+campaign inputs, not temporary deployment files and not result evidence. They
+must be created in a campaign-owned store outside source repositories and
+runtime deployment roots before authorization. The resolved campaign binds
+that store and retains it while the campaign result or any subordinate result
+depends on it. Deployment cleanup must not remove it; disposal is a separate
+manual evidence-retention action.
+
+The complete-test progress JSON Lines stream belongs to the invoking control
+host, regardless of whether execution is local, receiver-delegated, or launched
+from a third system. Its default is a new exclusive file in durable user-state
+storage, never an operating-system temporary directory or remote deployment
+stage. It remains available for review until explicitly removed. An operator
+may select another durable location with `--progress-log`.
+
 Receiver authorization and RF-path resolution are separate. An operator may
 record either single-run or universal authorization for receiver-only access,
 but every live run must still record the current antenna state, termination,
@@ -198,14 +217,24 @@ exact requested sample count, and explicit overflow reporting. These values are
 profile defaults for the preserved bench, not universal requirements.
 
 The carrier gate compares fixed-gain RF-on and RF-off intervals in linear
-power, using a Hann window and a documented FFT/averaging contract. Record the
-strongest transmitter-added feature, requested-frequency offset, on/off
-contrast, and best-20-Hz share. When the receiver is not frequency-calibrated,
-the gate uses bounded relative acquisition: the strongest transmitter-added
-feature must be within 500 Hz of the requested frequency and at least 10 dB
-above its RF-off power. The historical 100-Hz offset and 50-percent best-20-Hz
-thresholds remain recorded as nominal diagnostics; they are not calibrated
-frequency or thermal-stability claims.
+power, using a Hann window and a documented FFT/averaging contract. Zero-IF
+capture must place the complete requested-carrier search window outside the DC
+exclusion and inside the usable receiver span. The maintained complete-test
+policy tunes the receiver 25 kHz below requested RF. Invalid tuning geometry is
+a preflight/configuration failure, not transmitter unqualification.
+
+Carrier qualification selects the strongest resolved feature only inside the
+500-Hz target window around requested RF and requires at least 10 dB RF-on/off
+contrast. Record its requested-frequency offset, contrast, and target-window
+best-20-Hz share. Stronger features elsewhere in the captured span remain
+diagnostic and cannot redefine the requested carrier. The historical 100-Hz
+offset and 50-percent best-20-Hz thresholds remain nominal diagnostics; neither
+the carrier gate nor global feature reporting establishes calibrated power or
+spectral compliance.
+
+This target-window behavior is carrier-analysis schema version 2. Version-1
+evidence records the historical span-wide policy and is not silently
+reinterpreted or accepted as version-2 evidence.
 
 When a frozen receiver calibration is applied, retain both the indicated and
 estimated-true frequency, expanded uncertainty, selected model segment,
@@ -218,7 +247,16 @@ one coherent 370-second capture spanning three consecutive bounded frames,
 with exactly 92,500,000 samples at 250 ksps and zero overflows. Each frame is
 translated to 1500 Hz audio, cut into its correct UTC slot, and independently
 decoded with `wsprd`. Qualification requires three consecutive correct,
-complete decodes of the expected identity.
+complete decodes of the expected identity. The resolved outer deadline must
+contain the actual wait to the first capture launch, the coherent capture,
+three separately bounded frame-analysis intervals, summary validation, result
+publication, cleanup, and final quiescence. Receiver setup is derived from the
+bound read interval; offline-analysis, summary, and publication deadlines are
+derived from exact retained byte counts, required validation/copy passes,
+decoder subprocess bounds, and the maintained minimum sequential-I/O
+capability. No unexplained fixed allowance or scheduling reserve may
+participate in qualification timing. Runtime revalidates the complete bound
+against its actual start before installing the deadline.
 
 Successful decode qualifies only the recorded backend, band, transmitter
 hardware/profile, source revisions, receiver path, and production settings. It

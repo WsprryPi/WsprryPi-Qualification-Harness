@@ -42,6 +42,7 @@ from wsprrypi_qualification.complete_test import (
     validate_complete_test_bundle,
 )
 from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contract_chain
+from wsprrypi_qualification.cw_defaults import CANONICAL_KEYED_TEST_MESSAGE
 from wsprrypi_qualification.cw_host_preflight import (
     CwHostPreflightError,
     run_cw_actual_host_preflight,
@@ -340,6 +341,7 @@ def _parser() -> argparse.ArgumentParser:
     audio.add_argument("--slot", required=True)
     audio.add_argument("--bench-profile", type=Path, required=True)
     audio.add_argument("--test-profile", type=Path, required=True)
+    audio.add_argument("--selected-frequency-hz", type=float)
     decode = subparsers.add_parser("decode-wspr", help="run wsprd on an offline WAV")
     decode.add_argument("wav", type=Path)
     decode.add_argument("audio_evidence", type=Path)
@@ -411,7 +413,7 @@ def _parser() -> argparse.ArgumentParser:
     complete.add_argument(
         "--progress-log",
         type=Path,
-        help="append-only JSON Lines progress log (default: a new temporary file)",
+        help="append-only JSON Lines progress log (default: a new durable user-state file)",
     )
     complete.add_argument("--progress-stream", action="store_true", help=argparse.SUPPRESS)
     complete.add_argument("--band", default="20m")
@@ -419,7 +421,7 @@ def _parser() -> argparse.ArgumentParser:
     complete.add_argument("--callsign", default="Q0QQQ")
     complete.add_argument("--grid", default="JJ00")
     complete.add_argument("--power-dbm", type=int, default=0)
-    complete.add_argument("--message", default="ET")
+    complete.add_argument("--message", default=CANONICAL_KEYED_TEST_MESSAGE)
     complete.add_argument("--qrss-dot-seconds", type=float, default=0.7)
     complete.add_argument("--fskcw-dot-seconds", type=float, default=0.7)
     complete.add_argument("--dfcw-dot-seconds", type=float, default=0.7)
@@ -1155,6 +1157,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 datetime.fromisoformat(args.slot.replace("Z", "+00:00")),
                 args.output_directory,
                 args.evidence,
+                selected_frequency_hz=args.selected_frequency_hz,
             )
         elif args.command == "decode-wspr":
             document = run_wsprd_acquired(

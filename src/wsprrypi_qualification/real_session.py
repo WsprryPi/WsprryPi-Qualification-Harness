@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import shutil
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from itertools import pairwise
 from pathlib import Path
@@ -25,6 +26,7 @@ from wsprrypi_qualification.receiver_calibration import (
 from wsprrypi_qualification.receiver_calibration import (
     validate_binding as validate_receiver_calibration,
 )
+from wsprrypi_qualification.receiver_tuning import ReceiverTuningError, ReceiverTuningGeometry
 from wsprrypi_qualification.results import validate_result_document
 
 
@@ -42,6 +44,80 @@ HELPER_VERIFICATION_OPERATIONS = (
     "parent_revision_inspect",
     "submodule_revision_inspect",
 )
+
+
+def wspr_capture_setup_deadline(plan: dict[str, Any]) -> float:
+    """Bound receiver setup by the enforced capture-readiness deadline.
+
+    Setup includes device configuration, stream activation, the discarded first
+    read, and creation of the retained output.  A single read timeout bounds only
+    one of those operations; the adapter's helper deadline bounds the complete
+    readiness transition and is therefore the launch guard that can be enforced.
+    """
+    return float(plan["deadlines"]["helper_s"])
+
+
+CF32_BYTES_PER_SAMPLE = 8
+# Production offline processing requires at least this sustained sequential-I/O
+# rate.  It is a declared platform capability floor, not an elapsed-time guess.
+MINIMUM_OFFLINE_IO_BYTES_PER_SECOND = 25_000_000
+FRAME_ANALYSIS_CAPTURE_PASSES = 2
+SUMMARY_CAPTURE_PASSES_PER_FRAME = 2
+PUBLICATION_COHERENT_CAPTURE_PASSES = 4
+
+
+def _coherent_capture_bytes(plan: dict[str, Any]) -> int:
+    return int(plan["coherent_capture"]["sample_count"]) * CF32_BYTES_PER_SAMPLE
+
+
+def _offline_io_deadline(byte_count: int, passes: int) -> int:
+    if byte_count <= 0 or passes <= 0:
+        raise RealSessionError("offline timing work must be positive")
+    return math.ceil(byte_count * passes / MINIMUM_OFFLINE_IO_BYTES_PER_SECOND)
+
+
+def wspr_frame_analysis_deadline(plan: dict[str, Any]) -> float:
+    """Bound capture validation/render passes plus the plan-bound decoder."""
+    return _offline_io_deadline(
+        _coherent_capture_bytes(plan), FRAME_ANALYSIS_CAPTURE_PASSES
+    ) + float(plan["deadlines"]["helper_s"])
+
+
+def wspr_summary_deadline(plan: dict[str, Any]) -> float:
+    """Bound one coherent-capture semantic validation pass per frame."""
+    return _offline_io_deadline(
+        _coherent_capture_bytes(plan),
+        int(plan["frame_count"]) * SUMMARY_CAPTURE_PASSES_PER_FRAME,
+    )
+
+
+def wspr_publication_deadline(plan: dict[str, Any]) -> float:
+    """Bound source auth, copy, retained auth, and post-publication validation."""
+    return _offline_io_deadline(_coherent_capture_bytes(plan), PUBLICATION_COHERENT_CAPTURE_PASSES)
+
+
+def required_wspr_overall_deadline(plan: dict[str, Any], session_start: datetime) -> int:
+    """Return the complete wall-clock bound for a resolved WSPR session."""
+    if session_start.tzinfo is None:
+        raise RealSessionError("WSPR session start must be timezone-aware")
+    slots = [datetime.fromisoformat(value.replace("Z", "+00:00")) for value in plan["slots_utc"]]
+    if len(slots) != plan["frame_count"] or not slots:
+        raise RealSessionError("WSPR deadline requires one resolved slot per frame")
+    capture_launch = slots[0] - timedelta(
+        seconds=(
+            plan["coherent_capture"]["margin_before_first_slot_s"]
+            + wspr_capture_setup_deadline(plan)
+        )
+    )
+    wait_s = (capture_launch - session_start.astimezone(UTC)).total_seconds()
+    if wait_s < 0:
+        raise RealSessionError("WSPR session starts after its coherent-capture launch time")
+    required_s = float(wait_s) + float(plan["coherent_capture"]["duration_s"])
+    required_s += int(plan["frame_count"]) * wspr_frame_analysis_deadline(plan)
+    required_s += wspr_summary_deadline(plan)
+    required_s += wspr_publication_deadline(plan)
+    required_s += 2 * float(plan["deadlines"]["cleanup_s"])
+    return math.ceil(required_s)
 
 
 def helper_verification_deadline(plan: dict[str, Any]) -> float:
@@ -593,6 +669,16 @@ class RealQualificationSession:
 
 def validate_real_session_plan(document: dict[str, Any]) -> None:
     validate_document(document, "resolved-real-session-plan.schema.json")
+    receiver = document["receiver"]
+    try:
+        ReceiverTuningGeometry(
+            requested_frequency_hz=float(document["frequency_hz"]),
+            center_frequency_hz=float(receiver["center_frequency_hz"]),
+            sample_rate_hz=float(receiver["sample_rate_hz"]),
+            bandwidth_hz=float(receiver["bandwidth_hz"]),
+        ).validate()
+    except ReceiverTuningError as error:
+        raise RealSessionError(f"invalid receiver tuning geometry: {error}") from error
     try:
         validate_receiver_calibration(
             document["receiver_calibration"], receiver=document["receiver"]
@@ -733,8 +819,15 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
             "--socket-port",
             str(endpoint["port"]),
             "--socket-loopback-only",
-            "--no-http",
         ]
+        if document["backend"] == "gpio":
+            expected_arguments = [
+                document["wsprrypi"]["path"],
+                "--no-system-clock-frequency-estimate",
+                *expected_arguments[1:],
+                "--gpio-manual-ppm",
+                format(float(document["calibration"]["ppm"]), ".15g"),
+            ]
         if endpoint["host"] != "::1" or tone_server["arguments"] != expected_arguments:
             raise RealSessionError("bounded Tone server arguments differ from its endpoint")
         if tone_server["startup_seconds"] >= document["tone_schedule"]["off_seconds"]:
@@ -1007,8 +1100,14 @@ def validate_real_session_document(document: dict[str, Any]) -> None:
             raise RealSessionError("failed decode gate requires unqualified-decode status")
         if "blocked" in {carrier_gate, decode_gate} and status != "fixture_blocked":
             raise RealSessionError("blocked gate requires fixture-blocked status")
-        if (carrier_gate, decode_gate) == ("passed", "passed") and status != "inconclusive":
-            raise RealSessionError("passed hardware-free gates require inconclusive status")
+        if (carrier_gate, decode_gate) == ("passed", "passed"):
+            expected_passed_status = (
+                "inconclusive" if "incomplete_evidence" in causes else "qualified"
+            )
+            if status != expected_passed_status:
+                raise RealSessionError(
+                    "passed gates require qualified or explicitly incomplete status"
+                )
     if status == "fixture_blocked" and not (
         "blocked" in {document["carrier_gate"], document["decode_gate"]} or has_fixture_cause
     ):
@@ -1154,7 +1253,7 @@ def _validate_carrier(document: dict[str, object], plan: dict[str, Any], digest:
     if requested != plan["frequency_hz"] or abs((strongest - requested) - offset) > 1e-6:
         raise RealSessionError("carrier evidence frequency contradicts the plan")
     claimed = cast(str, details["gate_outcome"])
-    if policy != "bounded_relative_carrier_acquisition":
+    if policy != "target_window_relative_carrier_acquisition_v2":
         raise RealSessionError("carrier evidence uses an unsupported gate policy")
     carrier_derived = (
         "passed"

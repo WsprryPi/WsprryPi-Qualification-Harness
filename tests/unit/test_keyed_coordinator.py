@@ -56,7 +56,7 @@ def _plan(mode: str = "QRSS", session_id: str = "fake-keyed-session") -> dict[st
             "identity_sha256": _digest("none"),
             "sample_rate_hz": 250_000,
             "bandwidth_hz": 200_000,
-            "center_frequency_hz": 14_097_100,
+            "center_frequency_hz": 14_072_100,
             "gain_db": 20,
             "channel": 0,
             "read_timeout_us": 100_000,

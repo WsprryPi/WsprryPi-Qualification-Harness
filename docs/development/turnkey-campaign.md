@@ -88,13 +88,18 @@ replace that row with a status glyph and color, and visible output is limited to
 exit at the campaign terminal record. Use `--replay` to render an existing log
 without waiting for another record. This display is operational convenience;
 the authenticated campaign bundle remains authoritative evidence.
-
 The progress file uses `complete-test-progress.schema.json`. Each JSON Lines
 record is flushed before execution continues. The CLI announces the absolute
 path on stderr; stdout remains final-result JSON only. Delegated processes
 mirror schema-identified records over stderr, and the controller resequences
 them into its local log. Other stderr remains diagnostic text.
 
+The default log is a new exclusive file in durable user-state storage on the
+invoking host: macOS Application Support, Windows local application data, or
+the Linux XDG state directory (with the documented home-state fallback).
+`WSPQ_PROGRESS_DIR` provides a deployment-level override, while
+`--progress-log` selects an exact file. Automatic stage cleanup never owns or
+deletes this log; review and removal are explicit operator retention actions.
 Defaults are 20 m, 14,097,100 Hz, `Q0QQQ`, `JJ00`, 0 dBm, keyed message `ET`,
 0.7-second QRSS/FSKCW/DFCW dots, and 5.0 Hz FSKCW/DFCW separation. All are
 named CLI overrides. WSPR retains the maintained three-frame contract; keyed
@@ -102,6 +107,31 @@ modes retain three independent transactions. The application shim derives the
 WSPR dial frequency from its maintained 1500 Hz audio offset and derives the
 FSKCW space and DFCW dash frequency below the primary according to the existing
 protocol ordering.
+
+The WSPR child deadline is calculated from its final slot schedule rather than
+a fixed campaign allowance. It includes receiver setup derived from the
+configured maximum read interval, the actual first-slot wait, the 370-second
+coherent capture, byte-work-derived frame analysis, summary validation and
+publication, cleanup, and final quiescence. A boundary-adjacent composition can
+therefore select a later first slot without consuming time required after the
+capture. Production checks the same containment again using the real session
+start before installing the hard deadline.
+
+Each keyed capture is sized from its final generated timeline, not a nominal
+duration reconstructed elsewhere. The composer adds a one-second guard and
+rounds upward to a whole sample, then expands the transaction and overall
+deadlines when necessary. Production preflight and scheduled-plan analysis
+revalidate the same bound after runtime quiet-time rebasing.
+
+For every mode, the normal composer tunes the receiver 25 kHz below requested
+RF while leaving transmitter and protocol frequencies unchanged. This places
+the target at positive complex baseband, outside the maintained zero-IF DC
+exclusion and inside the 200-kHz usable receiver span. The carrier gate selects
+only within the requested target window; globally stronger features remain
+diagnostic. Any expert-authored receiver center whose target window overlaps DC
+or leaves the usable span is rejected during plan validation, before capture or
+RF. This gate is relative acquisition, not calibrated-power or spectral-
+compliance evidence.
 
 The command validates the complete bounded execution before constructing a
 production adapter. One deliberate invocation is the campaign authorization. Modes
@@ -123,7 +153,27 @@ Rehearsal routes and authenticates five generated plans but contacts no host,
 opens no receiver, inspects no service, touches no GPIO/I2C/GPCLK, and emits no
 RF. It is non-qualifying. Same-host local production transport is rejected as
 `unsupported_topology`; Track D owns that capability. Track E transmitter-PPM
-provenance and later prompt/qualification campaigns are also outside this work.
+provenance remains separate. Until that track closes, GPIO complete-test plans
+pin each transmitter process to the resolved fixed manual PPM value and
+explicitly disable the system-clock frequency estimate. The Tone server is not
+an exception. This prevents configuration defaults or a changing Chrony
+observation from altering RF during a campaign, but it does not establish the
+manual value's provenance. Later prompt/qualification campaigns are also
+outside this work.
+
+The simple complete-test composer gives generated mode plans, expected-event
+documents, resolved profiles, and production-dispatch wrapper inputs their own
+campaign ownership. It writes them
+under `OUTPUT_PARENT/complete-test-inputs/CAMPAIGN_ID`, outside source
+repositories, runtime staging directories, and the published result bundle.
+The resolved campaign records the exact directory and the policy
+`retain_while_campaign_or_subordinate_result_exists` with `manual_only`
+cleanup. Runtime staging cleanup therefore cannot invalidate a retained plan,
+and post-cleanup validation must reopen and authenticate every generated input
+from that store. Missing, changed, symlinked, or path-escaping inputs fail
+closed. Normal WsprryPi installation and `/usr/local/etc/wsprrypi.ini` behavior
+remain unchanged.
+
 The current `main` production application/quiescence contracts support GPIO and
 Si5351, not `rp1_gpclk`; selecting RP1 therefore returns `missing_capability`
 before adapter construction. GPIO4/2 mA RP1 defaults will apply only after that

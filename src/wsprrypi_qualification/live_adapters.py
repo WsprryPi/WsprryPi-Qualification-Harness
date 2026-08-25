@@ -17,8 +17,10 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, TypeVar, cast
@@ -32,7 +34,11 @@ from wsprrypi_qualification.application_shims import (
     WsprryPiShim,
 )
 from wsprrypi_qualification.cw_iq import analyze_synthetic_iq
-from wsprrypi_qualification.cw_reference import generate_expected_events
+from wsprrypi_qualification.cw_reference import (
+    generate_expected_events,
+    validate_keyed_capture_margin,
+    write_expected_events,
+)
 from wsprrypi_qualification.cw_replay import compose_acquired_replay
 from wsprrypi_qualification.keyed_session_contracts import resolved_keyed_plan_sha256
 from wsprrypi_qualification.offline import artifact, load_json_document, write_json_new
@@ -60,14 +66,19 @@ from wsprrypi_qualification.real_session import (
     helper_configuration_plan_sha256,
     helper_verification_contract,
     helper_verification_deadline,
+    required_wspr_overall_deadline,
     resolved_real_plan_sha256,
+    wspr_capture_setup_deadline,
+    wspr_frame_analysis_deadline,
+    wspr_publication_deadline,
+    wspr_summary_deadline,
 )
 from wsprrypi_qualification.receiver_calibration import (
     ReceiverCalibrationError,
     validate_live_binding,
 )
+from wsprrypi_qualification.timing import sample_index_at_utc
 
-_COHERENT_CAPTURE_STARTUP_GUARD_S = 2.0
 _T = TypeVar("_T")
 
 
@@ -108,18 +119,61 @@ def _derive_rebound_expected_events(
     return artifact(derived_destination)
 
 
-def _coherent_capture_launch_epoch(first_slot: datetime, required_margin_s: float) -> float:
+def _replace_json_document(path: Path, document: dict[str, Any], *, schema_name: str) -> None:
+    """Atomically replace mutable in-progress evidence without an absent-file window."""
+    temporary = path.with_name(f".{path.name}.updated")
+    write_json_new(temporary, document, schema_name=schema_name)
+    temporary.replace(path)
+
+
+def _derive_scheduled_mode_plan(
+    mode_plan: dict[str, Any], capture_start: datetime, scheduled_start: datetime
+) -> tuple[dict[str, Any], float]:
+    """Rebase only the quiet margins while preserving waveform and capture duration."""
+    relative_start_decimal = Decimal(str((scheduled_start - capture_start).total_seconds()))
+    original_prequiet = Decimal(str(mode_plan["protocol"]["pre_quiet_seconds"]))
+    original_postquiet = Decimal(str(mode_plan["protocol"]["post_quiet_seconds"]))
+    adjusted_postquiet = original_postquiet - (relative_start_decimal - original_prequiet)
+    if relative_start_decimal <= 0 or adjusted_postquiet <= 0:
+        raise RealSessionError("scheduled process start falls outside retained capture")
+    derived = deepcopy(mode_plan)
+    derived["protocol"]["pre_quiet_seconds"] = float(relative_start_decimal)
+    derived["protocol"]["post_quiet_seconds"] = float(adjusted_postquiet)
+    return derived, float(relative_start_decimal)
+
+
+def _coherent_capture_launch_epoch(
+    first_slot: datetime, required_margin_s: float, setup_deadline_s: float
+) -> float:
     """Start early enough for receiver setup while preserving the retained-data margin."""
-    return first_slot.timestamp() - required_margin_s - _COHERENT_CAPTURE_STARTUP_GUARD_S
+    return first_slot.timestamp() - required_margin_s - setup_deadline_s
 
 
-def _retained_capture_has_margin(
-    metadata: dict[str, Any], first_slot: datetime, required_margin_s: float
+def _retained_capture_covers_wspr_frames(
+    metadata: dict[str, Any],
+    slots: list[datetime],
+    *,
+    sample_rate_hz: int,
+    required_margin_s: float,
+    frame_duration_s: int = 120,
 ) -> bool:
-    retained_start = datetime.fromisoformat(
-        metadata["timestamps"]["retained_capture_start_utc"].replace("Z", "+00:00")
-    )
-    return retained_start <= first_slot - timedelta(seconds=required_margin_s)
+    """Prove the retained sample interval contains every required decoder window."""
+    try:
+        retained_start = datetime.fromisoformat(
+            metadata["timestamps"]["retained_capture_start_utc"].replace("Z", "+00:00")
+        )
+        retained_count = int(metadata["retained_sample_count"])
+        margin_samples = sample_rate_hz * required_margin_s
+        frame_samples = sample_rate_hz * frame_duration_s
+        if not margin_samples.is_integer():
+            return False
+        for slot in slots:
+            start = sample_index_at_utc(retained_start, slot, sample_rate_hz)
+            if start < int(margin_samples) or start + frame_samples > retained_count:
+                return False
+    except (KeyError, TypeError, ValueError):
+        return False
+    return bool(slots)
 
 
 def _intentional_carrier_stop_verified(result: object) -> bool:
@@ -212,22 +266,37 @@ class ProductionRealSessionAdapters:
             paths.capture_helper,
             paths.wsprd,
         ]
+        self._capture_artifacts: dict[str, tuple[Path, Path]] = {}
+        self._acquired_carrier_frequency_hz: float | None = None
+        self._final_quiescence: bool | None = None
+        self._session_deadline: float | None = None
+        self._cleanup_reserve_s = 0.0
+        self._publication_budget_s = 0.0
+        self._publication_deadline: float | None = None
+        self._closed = False
 
     def set_progress(
         self, callback: Callable[[str, str, str, int | None, int | None], None] | None
     ) -> None:
         self._progress = callback
-        self._capture_artifacts: dict[str, tuple[Path, Path]] = {}
-        self._final_quiescence: bool | None = None
-        self._session_deadline: float | None = None
-        self._cleanup_reserve_s = 0.0
-        self._closed = False
 
     def begin_session(self, plan: dict[str, Any]) -> None:
         if self._session_deadline is not None:
             raise RealSessionError("production adapter session already began")
+        if plan.get("session_kind", "wspr_qualification") == "wspr_qualification":
+            required = required_wspr_overall_deadline(plan, datetime.now(UTC))
+            if plan["deadlines"]["overall_s"] < required:
+                raise RealSessionError(
+                    "WSPR overall deadline cannot contain its resolved slot wait, capture, "
+                    "workload-derived analysis, summary, publication, cleanup, and final "
+                    "quiescence"
+                )
         self._session_deadline = time.monotonic() + plan["deadlines"]["overall_s"]
         self._cleanup_reserve_s = plan["deadlines"]["cleanup_s"]
+        if plan.get("session_kind", "wspr_qualification") == "wspr_qualification":
+            self._publication_budget_s = wspr_publication_deadline(plan)
+        else:
+            self._publication_budget_s = plan["deadlines"]["overall_s"]
 
     def _remaining(self, requested: float, *, reserve_cleanup: bool = False) -> float:
         if self._session_deadline is None:
@@ -985,6 +1054,11 @@ class ProductionRealSessionAdapters:
             if errors or not worker.is_alive():
                 break
             time.sleep(0.01)
+        # Do not turn poll cadence into an undeclared subtraction from the
+        # resolved readiness bound. Accept an output established at the exact
+        # boundary, but never wait beyond it.
+        if expected.exists() and not errors and worker.is_alive():
+            return
         raise RealSessionError("receiver capture did not establish its retained output before RF")
 
     def analyze_carrier(
@@ -1027,6 +1101,9 @@ class ProductionRealSessionAdapters:
         document = load_json_document(evidence, "carrier-analysis.schema.json")
         self._artifacts.append(evidence)
         metrics = document["metrics"]
+        self._acquired_carrier_frequency_hz = float(
+            metrics["strongest_transmitter_added_frequency_hz"]
+        )
         gate_outcome = document["gate_outcome"]
         mode_gate = "not_applicable"
         if plan.get("session_kind") == "cw_live_tone":
@@ -1131,7 +1208,9 @@ class ProductionRealSessionAdapters:
         del authorization
         first_slot = datetime.fromisoformat(plan["slots_utc"][0].replace("Z", "+00:00"))
         capture_start = _coherent_capture_launch_epoch(
-            first_slot, plan["coherent_capture"]["margin_before_first_slot_s"]
+            first_slot,
+            plan["coherent_capture"]["margin_before_first_slot_s"],
+            wspr_capture_setup_deadline(plan),
         )
         delay = capture_start - time.time()
         if delay < 0 or delay > self._remaining(
@@ -1200,13 +1279,17 @@ class ProductionRealSessionAdapters:
                 raise RealSessionError(f"coherent capture failed: {capture_error[0]}")
             metadata_path = self._capture_artifacts["coherent"][1]
             metadata = load_json_document(metadata_path, "capture-metadata.schema.json")
-            if not _retained_capture_has_margin(
+            slot_datetimes = [
+                datetime.fromisoformat(value.replace("Z", "+00:00")) for value in plan["slots_utc"]
+            ]
+            if not _retained_capture_covers_wspr_frames(
                 metadata,
-                first_slot,
-                plan["coherent_capture"]["margin_before_first_slot_s"],
+                slot_datetimes,
+                sample_rate_hz=plan["coherent_capture"]["sample_rate_hz"],
+                required_margin_s=plan["coherent_capture"]["margin_before_first_slot_s"],
             ):
                 raise RealSessionError(
-                    "coherent capture retained start missed its resolved UTC margin"
+                    "coherent capture cannot supply every resolved WSPR decoder window"
                 )
             wait = process.wait(
                 self._remaining(plan["deadlines"]["transmitter_s"], reserve_cleanup=True), None
@@ -1240,6 +1323,18 @@ class ProductionRealSessionAdapters:
         slot_documents: list[dict[str, Any]] = []
         slot_paths: list[Path] = []
         for index, slot_text in enumerate(plan["slots_utc"]):
+            frame_deadline = time.monotonic() + wspr_frame_analysis_deadline(plan)
+
+            def frame_remaining(
+                deadline: float = frame_deadline, frame_number: int = index + 1
+            ) -> float:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RealSessionError(
+                        f"WSPR frame {frame_number} analysis exceeded its hard deadline"
+                    )
+                return self._remaining(remaining, reserve_cleanup=True)
+
             audio_evidence = self.paths.work_directory / f"audio-{index}.json"
             self._run_offline(
                 (
@@ -1254,8 +1349,14 @@ class ProductionRealSessionAdapters:
                     str(self.paths.bench_profile),
                     "--test-profile",
                     str(self.paths.test_profile),
+                    "--selected-frequency-hz",
+                    str(
+                        self._acquired_carrier_frequency_hz
+                        if self._acquired_carrier_frequency_hz is not None
+                        else plan["frequency_hz"]
+                    ),
                 ),
-                self._remaining(plan["deadlines"]["overall_s"], reserve_cleanup=True),
+                frame_remaining(),
             )
             audio = load_json_document(audio_evidence, "audio-conversion.schema.json")
             wav = Path(cast(str, cast(dict[str, object], audio["output"])["path"]))
@@ -1271,7 +1372,7 @@ class ProductionRealSessionAdapters:
                     "--timeout",
                     str(plan["deadlines"]["helper_s"]),
                 ),
-                self._remaining(plan["deadlines"]["helper_s"] + 5, reserve_cleanup=True),
+                frame_remaining(),
             )
             decoded = load_json_document(decoder_evidence, "decoder-evidence.schema.json")
             slot_documents.append(decoded)
@@ -1281,7 +1382,7 @@ class ProductionRealSessionAdapters:
         summary_path = self.paths.work_directory / "decode-summary.json"
         self._run_offline(
             ("summarize-decodes", str(summary_path), *(str(path) for path in slot_paths)),
-            self._remaining(plan["deadlines"]["overall_s"], reserve_cleanup=True),
+            self._remaining(wspr_summary_deadline(plan), reserve_cleanup=True),
         )
         summary = load_json_document(summary_path, "decode-summary.schema.json")
         self._artifacts.append(summary_path)
@@ -1479,6 +1580,7 @@ class ProductionRealSessionAdapters:
         )
 
     def publish_artifacts(self, destination: Path) -> list[dict[str, object]]:
+        self._publication_deadline = time.monotonic() + self._remaining(self._publication_budget_s)
         retained: list[dict[str, object]] = []
         records: list[dict[str, object]] = []
         unique_sources = list(dict.fromkeys(path.resolve() for path in self._artifacts))
@@ -1507,10 +1609,10 @@ class ProductionRealSessionAdapters:
         index_identity = artifact(index_path)
         index_identity["path"] = index_path.name
         retained.append(index_identity)
+        self._verify_publication_deadline()
         return retained
 
-    @staticmethod
-    def validate_published_artifacts(bundle: Path) -> None:
+    def validate_published_artifacts(self, bundle: Path) -> None:
         index = json.loads((bundle / "live-artifact-index.json").read_text(encoding="utf-8"))
         if set(index) != {"schema_version", "evidence_type", "artifacts"}:
             raise RealSessionError("live artifact index structure is invalid")
@@ -1552,6 +1654,12 @@ class ProductionRealSessionAdapters:
                     matched[key] != reference[key] for key in ("size_bytes", "sha256")
                 ):
                     raise RealSessionError("published JSON has an unauthenticated dependency")
+        self._verify_publication_deadline()
+
+    def _verify_publication_deadline(self) -> None:
+        if self._publication_deadline is None or time.monotonic() > self._publication_deadline:
+            raise RealSessionError("live evidence publication exceeded its hard deadline")
+        self._remaining(self._publication_budget_s)
 
 
 def build_production_adapters(
@@ -1787,6 +1895,8 @@ class KeyedCapabilityProviders:
         self.validated_captures: set[int] = set()
         self.process_evidence: dict[int, Path] = {}
         self.process_outcomes: dict[int, Path] = {}
+        self.schedule_evidence: dict[int, Path] = {}
+        self.schedule_acknowledgements: dict[int, dict[str, object]] = {}
         self.analysis_evidence: dict[int, Path] = {}
         self.capture_diagnostics: dict[int, Path] = {}
         self.capture_tasks: dict[
@@ -1807,6 +1917,10 @@ class KeyedCapabilityProviders:
         mode_plan = load_json_document(
             Path(plan["reference"]["plan"]["path"]), "cw-mode-plan.schema.json"
         )
+        try:
+            validate_keyed_capture_margin(mode_plan)
+        except ValueError:
+            return False
         protocol = mode_plan["protocol"]
         application = plan["application_plan"]["protocol_contract"]
         receiver = plan["receiver"]
@@ -1863,7 +1977,41 @@ class KeyedCapabilityProviders:
     def start_process(self, arguments: tuple[str, ...], number: int) -> str | None:
         if not self._start_capture(number):
             return None
-        process = self.launcher.begin(arguments)
+        mode_plan = load_json_document(
+            Path(self.plan["reference"]["plan"]["path"]), "cw-mode-plan.schema.json"
+        )
+        pre_quiet = float(mode_plan["protocol"]["pre_quiet_seconds"])
+        minimum_margin = min(0.25, pre_quiet / 2.0)
+        scheduled = datetime.now(UTC) + timedelta(seconds=pre_quiet)
+        scheduled_text = scheduled.isoformat().replace("+00:00", "Z")
+        request_sent = datetime.now(UTC)
+        process = self.launcher.begin_scheduled(
+            arguments,
+            scheduled_start_utc=scheduled_text,
+            minimum_arm_margin_s=minimum_margin,
+        )
+        response_received = datetime.now(UTC)
+        acknowledgement = cast(Any, process).arming_acknowledgement
+        try:
+            helper_observed = datetime.fromisoformat(
+                str(acknowledgement.get("helper_observed_utc", "")).replace("Z", "+00:00")
+            )
+        except ValueError:
+            helper_observed = datetime.min.replace(tzinfo=UTC)
+        clock_uncertainty_s = max(
+            abs((helper_observed - request_sent).total_seconds()),
+            abs((helper_observed - response_received).total_seconds()),
+        )
+        if (
+            acknowledgement.get("scheduled_start_utc") != scheduled_text
+            or not isinstance(acknowledgement.get("helper_observed_utc"), str)
+            or not isinstance(acknowledgement.get("arm_margin_s"), (int, float))
+            or isinstance(acknowledgement.get("arm_margin_s"), bool)
+            or float(acknowledgement["arm_margin_s"]) < minimum_margin
+            or clock_uncertainty_s > 1.0
+        ):
+            process.stop()
+            return None
         if process.handle_id in {owned.handle_id for owned in self.owned.values()}:
             process.stop()
             return None
@@ -1875,7 +2023,41 @@ class KeyedCapabilityProviders:
             process_path,
             {"handle_id": process.handle_id, "arguments": list(arguments)},
         )
+        schedule_path = directory / "process-schedule.json"
+        write_json_new(
+            schedule_path,
+            {
+                "schema_version": 1,
+                "evidence_type": "scheduled_process_start",
+                "requested_start_utc": scheduled_text,
+                "minimum_arm_margin_s": minimum_margin,
+                "helper_acknowledgement": acknowledgement,
+                "actual_start_utc": None,
+                "schedule_error_ms": None,
+                "capture_start_utc": None,
+                "capture_relative_start_s": None,
+            },
+            schema_name="keyed-process-schedule.schema.json",
+        )
+        if not hasattr(self, "schedule_evidence"):
+            self.schedule_evidence = {}
+        if not hasattr(self, "schedule_acknowledgements"):
+            self.schedule_acknowledgements = {}
+        self.schedule_evidence[number] = schedule_path
+        self.schedule_acknowledgements[number] = dict(acknowledgement)
         self.process_evidence[number] = process_path
+        task = self.capture_tasks[number]
+        worker, _, _, errors = task
+        monitor_deadline = time.monotonic() + max(
+            0.0, (scheduled - response_received).total_seconds()
+        )
+        while time.monotonic() < monitor_deadline:
+            if errors or not worker.is_alive():
+                stopped = process.stop()
+                if stopped.cleanup_verified:
+                    self.owned.pop(number, None)
+                return None
+            time.sleep(min(0.01, max(0.0, monitor_deadline - time.monotonic())))
         return process.handle_id
 
     def _start_capture(self, number: int) -> bool:
@@ -1959,12 +2141,6 @@ class KeyedCapabilityProviders:
             time.sleep(0.01)
         else:
             return False
-        pre_quiet = float(mode_plan["protocol"]["pre_quiet_seconds"])
-        quiet_deadline = time.monotonic() + pre_quiet
-        while time.monotonic() < quiet_deadline:
-            if errors or not worker.is_alive():
-                return False
-            time.sleep(min(0.01, quiet_deadline - time.monotonic()))
         return not errors and worker.is_alive()
 
     def _retain_process_outcome(self, number: int, result: object) -> None:
@@ -1972,6 +2148,16 @@ class KeyedCapabilityProviders:
         path = self.work_directory / f"transaction-{number}" / "process-outcome.json"
         if path.exists():
             return
+        schedule_path = getattr(self, "schedule_evidence", {}).get(number)
+        schedule: dict[str, Any] | None = None
+        if schedule_path is not None and schedule_path.exists():
+            schedule = load_json_document(schedule_path, "keyed-process-schedule.schema.json")
+            accepted = schedule["helper_acknowledgement"]["scheduled_start_utc"]
+            completed = getattr(execution, "scheduled_start_utc", None)
+            if accepted != schedule["requested_start_utc"] or (
+                completed is not None and completed != schedule["requested_start_utc"]
+            ):
+                raise RealSessionError("scheduled process response changed the accepted start")
         write_json_new(
             path,
             {
@@ -1985,9 +2171,21 @@ class KeyedCapabilityProviders:
                 "cleanup_verified": execution.cleanup_verified,
                 "stop_requested": execution.stop_requested,
                 "running_before_stop": execution.running_before_stop,
+                "scheduled_start_utc": getattr(execution, "scheduled_start_utc", None),
+                "actual_start_utc": getattr(execution, "actual_start_utc", None),
+                "schedule_error_ms": getattr(execution, "schedule_error_ms", None),
+                "launch_error": getattr(execution, "launch_error", None),
             },
         )
         self.process_outcomes[number] = path
+        if schedule_path is not None and schedule is not None:
+            schedule["actual_start_utc"] = getattr(execution, "actual_start_utc", None)
+            schedule["schedule_error_ms"] = getattr(execution, "schedule_error_ms", None)
+            _replace_json_document(
+                schedule_path,
+                schedule,
+                schema_name="keyed-process-schedule.schema.json",
+            )
 
     def capture(self, plan: dict[str, Any], number: int) -> tuple[str, str, str] | None:
         task = self.capture_tasks.get(number)
@@ -2038,18 +2236,100 @@ class KeyedCapabilityProviders:
         )
 
     def analyze(self, plan: dict[str, Any], number: int) -> tuple[str, str]:
-        result = compose_acquired_replay(
-            Path(plan["reference"]["plan"]["path"]),
-            Path(plan["reference"]["expected_events"]["path"]),
-            self.capture_metadata[number],
-            self.work_directory / f"transaction-{number}" / "analysis",
-            source_revision=plan["analyzer_revision"],
-            receiver_calibration=plan["receiver_calibration"],
-        )
-        result_path = self.work_directory / f"transaction-{number}" / "analysis" / "result.json"
-        self.analysis_evidence[number] = result_path
-        outcome = "passed" if result["measurement"]["mode_gate"] == "passed" else "failed"
-        return outcome, str(artifact(result_path)["sha256"])
+        directory = self.work_directory / f"transaction-{number}"
+        plan_path = Path(plan["reference"]["plan"]["path"])
+        acquired_path = directory / "acquired-capture.json"
+        try:
+            mode_plan = load_json_document(plan_path, "cw-mode-plan.schema.json")
+            native = load_json_document(
+                self.capture_metadata[number], "capture-metadata.schema.json"
+            )
+            contract = mode_plan["capture_contract"]
+            schedule_path = self.schedule_evidence[number]
+            schedule = load_json_document(schedule_path, "keyed-process-schedule.schema.json")
+            if (
+                schedule["helper_acknowledgement"]["scheduled_start_utc"]
+                != schedule["requested_start_utc"]
+                or schedule["actual_start_utc"] is None
+                or schedule["schedule_error_ms"] is None
+            ):
+                raise RealSessionError("scheduled process evidence is incomplete or inconsistent")
+            capture_start = datetime.fromisoformat(
+                native["timestamps"]["retained_capture_start_utc"].replace("Z", "+00:00")
+            )
+            scheduled_start = datetime.fromisoformat(
+                schedule["requested_start_utc"].replace("Z", "+00:00")
+            )
+            mode_plan, relative_start = _derive_scheduled_mode_plan(
+                mode_plan, capture_start, scheduled_start
+            )
+            validate_keyed_capture_margin(mode_plan)
+            derived_plan_path = directory / "scheduled-plan.json"
+            derived_expected_path = directory / "scheduled-expected-events.json"
+            write_json_new(derived_plan_path, mode_plan, schema_name="cw-mode-plan.schema.json")
+            write_expected_events(
+                derived_plan_path,
+                derived_expected_path,
+                source_revision=mode_plan["source"]["parent_revision"],
+            )
+            schedule["capture_start_utc"] = native["timestamps"]["retained_capture_start_utc"]
+            schedule["capture_relative_start_s"] = relative_start
+            _replace_json_document(
+                schedule_path,
+                schedule,
+                schema_name="keyed-process-schedule.schema.json",
+            )
+            write_json_new(
+                acquired_path,
+                {
+                    "schema_version": 1,
+                    "evidence_type": "cw_acquired_capture",
+                    "run_id": mode_plan["run_id"],
+                    "mode": mode_plan["mode"],
+                    "plan": artifact(derived_plan_path),
+                    "expected_events": artifact(derived_expected_path),
+                    "capture": artifact(self.capture_outputs[number]),
+                    "format": contract["format"],
+                    "sample_count": contract["sample_count"],
+                    "sample_rate_hz": contract["sample_rate_hz"],
+                    "center_frequency_hz": contract["center_frequency_hz"],
+                    "acquired_sample_count": native["retained_sample_count"],
+                    "overflow_count": native["overflow_count"],
+                    "fixed_gain": contract["fixed_gain"],
+                    "agc_enabled": contract["agc_enabled"],
+                    "bias_tee_enabled": contract["bias_tee_enabled"],
+                    "first_read_discarded": native["first_read"]["discarded"],
+                    "receiver": mode_plan["receiver"],
+                    "acquired_utc": native["timestamps"]["retained_capture_start_utc"],
+                    "synthetic": False,
+                },
+                schema_name="cw-acquired-capture.schema.json",
+            )
+            result = compose_acquired_replay(
+                derived_plan_path,
+                derived_expected_path,
+                acquired_path,
+                directory / "analysis",
+                source_revision=plan["analyzer_revision"],
+                receiver_calibration=plan["receiver_calibration"],
+            )
+            result_path = directory / "analysis" / "result.json"
+            self.analysis_evidence[number] = result_path
+            outcome = "passed" if result["measurement"]["mode_gate"] == "passed" else "failed"
+            return outcome, str(artifact(result_path)["sha256"])
+        except Exception as error:
+            diagnostic = directory / "analysis-failure.json"
+            write_json_new(
+                diagnostic,
+                {
+                    "schema_version": 1,
+                    "evidence_type": "keyed_analysis_failure",
+                    "exception_type": type(error).__name__,
+                    "message": str(error),
+                },
+            )
+            self.analysis_evidence[number] = diagnostic
+            raise
 
     def cleanup(self, plan: dict[str, Any], number: int) -> bool:
         okay = True
@@ -2089,6 +2369,7 @@ class KeyedCapabilityProviders:
         paths = {
             "process": self.process_outcomes.get(number, self.process_evidence.get(number)),
             "process_launch": self.process_evidence.get(number),
+            "process_schedule": getattr(self, "schedule_evidence", {}).get(number),
             "capture": self.capture_outputs.get(number) if capture_validated else None,
             "acquisition": self.capture_metadata.get(number) if capture_validated else None,
             "analysis": self.analysis_evidence.get(number),

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,7 @@ GENERATOR_NAME = "wsprrypi-qualification-cw-reference"
 GENERATOR_VERSION = "1"
 DFCW_V1_DEFINITION = "wsprrypi-dfcw@v1"
 DFCW_V1_GAPS = (Decimal("0.333333"), Decimal("1"), Decimal("3"))
+KEYED_CAPTURE_GUARD_SECONDS = Decimal("1.0")
 
 MORSE: dict[str, str] = {
     "A": ".-",
@@ -317,6 +318,27 @@ def generate_expected_events(plan: dict[str, Any]) -> list[dict[str, Any]]:
     )
     if offset > capture_duration:
         _fail("generated expected timeline extends beyond the planned capture duration")
+    return events
+
+
+def required_keyed_capture_sample_count(plan: dict[str, Any]) -> int:
+    """Return the exact-count floor including the maintained keyed guard."""
+    if plan.get("mode") not in {"qrss", "fskcw", "dfcw"}:
+        _fail("keyed capture margin applies only to QRSS, FSKCW, and DFCW")
+    timeline = generate_expected_events(plan)
+    if not timeline:
+        _fail("keyed capture margin requires a non-empty expected timeline")
+    rate = _decimal(plan["capture_contract"]["sample_rate_hz"])
+    endpoint = _decimal(timeline[-1]["end_s"])
+    required = (endpoint + KEYED_CAPTURE_GUARD_SECONDS) * rate
+    return int(required.to_integral_value(rounding=ROUND_CEILING))
+
+
+def validate_keyed_capture_margin(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """Require the complete keyed timeline plus one maintained second of IQ."""
+    events = generate_expected_events(plan)
+    if int(plan["capture_contract"]["sample_count"]) < required_keyed_capture_sample_count(plan):
+        _fail("keyed capture omits the required post-timeline guard margin")
     return events
 
 

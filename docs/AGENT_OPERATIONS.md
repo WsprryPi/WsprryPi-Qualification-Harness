@@ -369,8 +369,11 @@ For the simple fixed five-mode workflow, use `complete-test TRANSMITTER_HOST
 RECEIVER_HOST --sdr SELECTOR --enable-rf`. The normal path requires no
 configuration argument: it temporarily stages
 the current harness and local WsprryPi source. It retains independently owned
-per-campaign executables and generated inputs, removes temporary stages, and
-revalidates the aggregate after cleanup. `--enable-rf` confirms the documented
+per-campaign executables, places generated campaign and dispatch inputs under
+`OUTPUT_PARENT/complete-test-inputs/CAMPAIGN_ID`, removes temporary stages, and
+revalidates the aggregate after cleanup. The invoking host's default progress
+JSONL is likewise durable user-state, not stage scratch, and remains until
+explicitly reviewed and removed. `--enable-rf` confirms the documented
 conducted default of an antenna-disconnected, direct 50-ohm SDR input through
 20 dB attenuation; per-run current state is rechecked by production preflight.
 If both endpoints are

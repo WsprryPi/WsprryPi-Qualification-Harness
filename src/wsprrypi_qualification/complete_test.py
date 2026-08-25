@@ -27,7 +27,12 @@ from wsprrypi_qualification.application_shims import (
     WsprryPiBackendConfig,
     WsprryPiShim,
 )
-from wsprrypi_qualification.cw_reference import generate_expected_events
+from wsprrypi_qualification.cw_defaults import CANONICAL_KEYED_TEST_MESSAGE
+from wsprrypi_qualification.cw_reference import (
+    generate_expected_events,
+    required_keyed_capture_sample_count,
+    validate_keyed_capture_margin,
+)
 from wsprrypi_qualification.keyed_session_contracts import (
     canonical_sha256,
     validate_keyed_result,
@@ -39,12 +44,25 @@ from wsprrypi_qualification.manifests import (
     validate_manifest_name,
     write_manifest,
 )
-from wsprrypi_qualification.offline import artifact, validate_document, write_json_new
+from wsprrypi_qualification.offline import (
+    OfflineAnalysisError,
+    artifact,
+    validate_document,
+    write_json_new,
+)
 from wsprrypi_qualification.progress import run_streaming
 from wsprrypi_qualification.real_session import (
     helper_configuration_plan_sha256,
+    required_wspr_overall_deadline,
     resolved_real_plan_sha256,
     validate_real_session_plan,
+)
+from wsprrypi_qualification.receiver_tuning import (
+    DEFAULT_DC_EXCLUSION_HZ,
+    DEFAULT_TARGET_SEARCH_HALF_WIDTH_HZ,
+    ReceiverTuningError,
+    ReceiverTuningGeometry,
+    default_receiver_center_hz,
 )
 from wsprrypi_qualification.results import validate_result_document
 from wsprrypi_qualification.tool_discovery import discover_executable
@@ -57,7 +75,7 @@ DEFAULTS: dict[str, object] = {
     "callsign": "Q0QQQ",
     "grid": "JJ00",
     "power_dbm": 0,
-    "message": "ET",
+    "message": CANONICAL_KEYED_TEST_MESSAGE,
     "qrss_dot_seconds": 0.7,
     "fskcw_dot_seconds": 0.7,
     "dfcw_dot_seconds": 0.7,
@@ -353,7 +371,7 @@ class CompleteTestOverrides:
     callsign: str = "Q0QQQ"
     grid: str = "JJ00"
     power_dbm: int = 0
-    message: str = "ET"
+    message: str = CANONICAL_KEYED_TEST_MESSAGE
     qrss_dot_seconds: float = 0.7
     fskcw_dot_seconds: float = 0.7
     dfcw_dot_seconds: float = 0.7
@@ -487,10 +505,67 @@ def _contains_symlink(path: Path) -> bool:
     return False
 
 
+def _validate_campaign_input(binding: dict[str, Any], input_store: Path, *, label: str) -> Path:
+    candidate = Path(binding["path"])
+    if _contains_symlink(candidate) or not candidate.is_file():
+        raise CompleteTestError(f"{label} is unavailable or unsafe")
+    try:
+        candidate.resolve().relative_to(input_store.resolve())
+    except ValueError as error:
+        raise CompleteTestError(f"{label} escapes the campaign input store") from error
+    current = artifact(candidate)
+    fields = ("size_bytes", "sha256") if "size_bytes" in binding else ("sha256",)
+    if any(current[field] != binding[field] for field in fields):
+        raise CompleteTestError(f"{label} changed")
+    return candidate
+
+
 def _set_real_digest(plan: dict[str, Any]) -> None:
     digest = helper_configuration_plan_sha256(plan)
     for field in ("remote_helper", "receiver_helper", "capture_helper", "wsprd", "wsprrypi"):
         plan[field]["plan_sha256"] = digest
+
+
+def _fixed_gpio_ppm_arguments(arguments: list[str], ppm: object) -> list[str]:
+    """Return a GPIO argv with one explicit fixed-manual correction policy."""
+    try:
+        value = float(cast(Any, ppm))
+    except (TypeError, ValueError) as error:
+        raise CompleteTestError("resolved GPIO manual PPM must be numeric") from error
+    if not math.isfinite(value) or not -200 <= value <= 200:
+        raise CompleteTestError("resolved GPIO manual PPM must be finite and within +/-200")
+    forbidden = {"-n", "--use-system-clock-frequency-estimate", "-p", "--ppm"}
+    if any(
+        argument in forbidden
+        or argument.startswith("--use-system-clock-frequency-estimate=")
+        or argument.startswith("--gpio-manual-ppm=")
+        or argument.startswith("--ppm=")
+        for argument in arguments
+    ):
+        raise CompleteTestError("GPIO launch contradicts fixed manual PPM containment")
+    if arguments.count("--no-system-clock-frequency-estimate") > 1:
+        raise CompleteTestError("GPIO launch duplicates the estimate-disable argument")
+    positions = [
+        index for index, argument in enumerate(arguments) if argument == "--gpio-manual-ppm"
+    ]
+    if len(positions) > 1:
+        raise CompleteTestError("GPIO launch duplicates the manual PPM argument")
+    rendered = format(value, ".15g")
+    if positions:
+        position = positions[0]
+        if position + 1 >= len(arguments):
+            raise CompleteTestError("GPIO launch has a malformed manual PPM argument")
+        try:
+            observed = float(arguments[position + 1])
+        except ValueError as error:
+            raise CompleteTestError("GPIO launch has a malformed manual PPM value") from error
+        if not math.isfinite(observed) or observed != value:
+            raise CompleteTestError("GPIO launch manual PPM differs from the resolved plan")
+    else:
+        arguments.extend(("--gpio-manual-ppm", rendered))
+    if "--no-system-clock-frequency-estimate" not in arguments:
+        arguments.insert(1, "--no-system-clock-frequency-estimate")
+    return arguments
 
 
 def _resolve_real(
@@ -511,7 +586,9 @@ def _resolve_real(
     plan["run_id"] = f"{now.strftime('%Y%m%dT%H%M%SZ')}-{suffix}"
     plan["test_id"] = suffix
     plan["frequency_hz"] = values["frequency_hz"]
-    plan["receiver"]["center_frequency_hz"] = values["frequency_hz"]
+    plan["receiver"]["center_frequency_hz"] = default_receiver_center_hz(
+        float(cast(int, values["frequency_hz"]))
+    )
     plan["band"] = values["band"]
     plan["identity"] = {
         "callsign": values["callsign"],
@@ -525,8 +602,10 @@ def _resolve_real(
         arguments = plan["tone_server"]["arguments"]
         if "--socket-loopback-only" not in arguments:
             raise CompleteTestError("TONE server must use loopback-only control")
-        if "--no-http" not in arguments:
-            arguments.append("--no-http")
+        if plan["backend"] == "gpio":
+            plan["tone_server"]["arguments"] = _fixed_gpio_ppm_arguments(
+                arguments, plan["calibration"]["ppm"]
+            )
     else:
         plan.pop("session_kind", None)
         plan.pop("tone_schedule", None)
@@ -537,16 +616,18 @@ def _resolve_real(
         plan["carrier"]["rf_on_sample_count"] = plan["carrier"]["rf_off_sample_count"]
         plan["deadlines"]["transmitter_s"] = max(plan["deadlines"]["transmitter_s"], 380)
         plan["deadlines"]["receiver_s"] = max(plan["deadlines"]["receiver_s"], 390)
-        plan["deadlines"]["overall_s"] = max(plan["deadlines"]["overall_s"], 500)
-        boundary = datetime.fromtimestamp(((int(now.timestamp()) // 120) + 1) * 120, UTC)
-        if (boundary - now).total_seconds() < plan["coherent_capture"][
-            "margin_before_first_slot_s"
-        ]:
-            boundary += timedelta(seconds=120)
+        # All five child plans are composed before execution. Reserve a full slot
+        # beyond the composition instant so the preceding tone run and this
+        # mode's carrier precheck cannot consume the coherent-capture margin.
+        earliest = now + timedelta(seconds=120)
+        boundary = datetime.fromtimestamp(((int(earliest.timestamp()) // 120) + 1) * 120, UTC)
         plan["slots_utc"] = [
             (boundary + timedelta(seconds=120 * index)).isoformat().replace("+00:00", "Z")
             for index in range(3)
         ]
+        plan["deadlines"]["overall_s"] = max(
+            plan["deadlines"]["overall_s"], required_wspr_overall_deadline(plan, now)
+        )
     _set_real_digest(plan)
     validate_real_session_plan(plan)
     return plan
@@ -586,7 +667,7 @@ def _resolve_keyed(
     )
     plan["mode"] = mode
     plan["transmitter"]["frequency_hz"] = values["frequency_hz"]
-    plan["receiver"]["center_frequency_hz"] = values["frequency_hz"]
+    plan["receiver"]["center_frequency_hz"] = default_receiver_center_hz(frequency)
     device_identity = _parse_sdr_selector(sdr_selector)["serial"]
     plan["receiver"]["device"] = device_identity
     plan["receiver"]["identity_sha256"] = hashlib.sha256(
@@ -700,22 +781,22 @@ def _materialize_cw_reference(
             "first_read_discarded": True,
         },
         "thresholds": {
-            "frequency_tolerance_hz": 1.0,
-            "spacing_tolerance_hz": 1.0,
+            "frequency_tolerance_hz": 2.0,
+            "spacing_tolerance_hz": 2.0,
             "minimum_contrast_db": 10.0,
             "timing_tolerance_s": 0.15,
             "maximum_transition_s": 0.25,
+            "maximum_alignment_shift_s": 0.75,
             "maximum_clipping_fraction": 0.01,
         },
         "resolved_utc": now.isoformat().replace("+00:00", "Z"),
     }
     events = generate_expected_events(mode_plan)
     if not tone:
-        duration = float(events[-1]["end_s"])
-        mode_plan["capture_contract"]["sample_count"] = math.ceil(
-            duration * plan["receiver"]["sample_rate_hz"]
+        mode_plan["capture_contract"]["sample_count"] = required_keyed_capture_sample_count(
+            mode_plan
         )
-        events = generate_expected_events(mode_plan)
+        events = validate_keyed_capture_margin(mode_plan)
     plan_path = destination / "mode-plan.json"
     expected_path = destination / "expected-events.json"
     write_json_new(plan_path, mode_plan, schema_name="cw-mode-plan.schema.json")
@@ -743,6 +824,17 @@ def _materialize_cw_reference(
             "plan": artifact(plan_path),
             "expected_events": artifact(expected_path),
         }
+        capture_seconds = (
+            mode_plan["capture_contract"]["sample_count"]
+            / mode_plan["capture_contract"]["sample_rate_hz"]
+        )
+        plan["deadlines"]["transaction_s"] = max(
+            plan["deadlines"]["transaction_s"], math.ceil(capture_seconds) + 5
+        )
+        plan["deadlines"]["overall_s"] = max(
+            plan["deadlines"]["overall_s"],
+            3 * plan["deadlines"]["transaction_s"] + plan["deadlines"]["cleanup_s"],
+        )
 
 
 def _materialize_real_profiles(plan: dict[str, Any], destination: Path, *, now: datetime) -> None:
@@ -867,6 +959,71 @@ def _materialize_real_profiles(plan: dict[str, Any], destination: Path, *, now: 
         plan["resolved_profiles"][name] = binding
 
 
+def _compose_complete_mode_plans(
+    *,
+    config_path: Path,
+    config: dict[str, Any],
+    values: dict[str, object],
+    campaign_id: str,
+    composed_at: datetime,
+    input_path: Path,
+    transmitter_host: str,
+    receiver_host: str,
+    sdr_selector: str,
+    selector_fields: dict[str, str],
+) -> list[dict[str, Any]]:
+    bindings: list[dict[str, Any]] = []
+    for mode in MODE_ORDER:
+        family = "real_session" if mode in {"TONE", "WSPR"} else "keyed_session"
+        source = _mode_plan_path(config_path, config["production_templates"][family])
+        template = _load(source)
+        plan = (
+            _resolve_real(template, mode, values, campaign_id=campaign_id, now=composed_at)
+            if mode in {"TONE", "WSPR"}
+            else _resolve_keyed(
+                template,
+                mode,
+                values,
+                campaign_id=campaign_id,
+                sdr_selector=sdr_selector,
+            )
+        )
+        if mode != "WSPR":
+            _materialize_cw_reference(plan, mode, input_path / mode.lower(), now=composed_at)
+        if mode in {"TONE", "WSPR"}:
+            _materialize_real_profiles(
+                plan, input_path / mode.lower() / "profiles", now=composed_at
+            )
+            _set_real_digest(plan)
+            validate_real_session_plan(plan)
+        else:
+            validate_resolved_keyed_plan(plan)
+        resolved_host = plan["host"] if mode in {"TONE", "WSPR"} else plan["transmitter"]["host"]
+        if resolved_host != transmitter_host:
+            raise CompleteTestError(f"{mode} plan transmitter differs from TRANSMITTER_HOST")
+        if plan["receiver"]["host"] != receiver_host:
+            raise CompleteTestError(f"{mode} plan receiver differs from RECEIVER_HOST")
+        receiver = plan["receiver"]
+        expected_driver = selector_fields.get("driver")
+        if expected_driver is not None and receiver["driver"] != expected_driver:
+            raise CompleteTestError(f"{mode} plan receiver driver differs from --sdr")
+        plan_device = receiver["serial"] if mode in {"TONE", "WSPR"} else receiver["device"]
+        if plan_device != selector_fields["serial"]:
+            raise CompleteTestError(f"{mode} plan receiver serial differs from --sdr")
+        bindings.append(
+            {
+                "mode": mode,
+                "source": artifact(source),
+                "plan": plan,
+                "plan_sha256": resolved_real_plan_sha256(plan)
+                if mode in {"TONE", "WSPR"}
+                else canonical_sha256(plan),
+                "production_route": "real_session" if mode in {"TONE", "WSPR"} else "live_keyed",
+            }
+        )
+    return bindings
+
+
 def compose_complete_test_plan(
     transmitter_host: str,
     receiver_host: str,
@@ -893,66 +1050,35 @@ def compose_complete_test_plan(
     if config["sdr_selector"] != sdr_selector:
         raise CompleteTestError("specified SDR differs from the deployed receiver binding")
     values = (overrides or CompleteTestOverrides()).validated()
+    requested_frequency = float(cast(int, values["frequency_hz"]))
     composed_at = datetime.now(UTC) if now is None else now.astimezone(UTC)
     campaign_id = validate_manifest_name(
         f"{composed_at.strftime('%Y%m%dT%H%M%S%fZ')}-{secrets.token_hex(4)}-{config['campaign_id']}"
     )
-    bindings: list[dict[str, Any]] = []
     ssh_path = _mode_plan_path(config_path, config["ssh_executable"])
     if ssh_path.is_symlink() or not ssh_path.is_file():
         raise CompleteTestError("saved SSH executable is unavailable or unsafe")
     work_path = _mode_plan_path(config_path, config["work_directory"])
     output_path = _mode_plan_path(config_path, config["output_parent"])
-    for mode in MODE_ORDER:
-        family = "real_session" if mode in {"TONE", "WSPR"} else "keyed_session"
-        source = _mode_plan_path(config_path, config["production_templates"][family])
-        template = _load(source)
-        plan = (
-            _resolve_real(template, mode, values, campaign_id=campaign_id, now=composed_at)
-            if mode in {"TONE", "WSPR"}
-            else _resolve_keyed(
-                template,
-                mode,
-                values,
-                campaign_id=campaign_id,
-                sdr_selector=sdr_selector,
-            )
+    input_path = output_path / "complete-test-inputs" / campaign_id
+    if input_path.exists() or _contains_symlink(input_path.parent):
+        raise CompleteTestError("campaign input destination is unavailable or unsafe")
+    try:
+        bindings = _compose_complete_mode_plans(
+            config_path=config_path,
+            config=config,
+            values=values,
+            campaign_id=campaign_id,
+            composed_at=composed_at,
+            input_path=input_path,
+            transmitter_host=transmitter_host,
+            receiver_host=receiver_host,
+            sdr_selector=sdr_selector,
+            selector_fields=selector_fields,
         )
-        if mode != "WSPR":
-            reference_directory = work_path / f"{campaign_id}-inputs" / mode.lower()
-            _materialize_cw_reference(plan, mode, reference_directory, now=composed_at)
-        if mode in {"TONE", "WSPR"}:
-            profile_directory = work_path / f"{campaign_id}-inputs" / mode.lower() / "profiles"
-            _materialize_real_profiles(plan, profile_directory, now=composed_at)
-        if mode in {"TONE", "WSPR"}:
-            _set_real_digest(plan)
-            validate_real_session_plan(plan)
-        else:
-            validate_resolved_keyed_plan(plan)
-        resolved_host = plan["host"] if mode in {"TONE", "WSPR"} else plan["transmitter"]["host"]
-        if resolved_host != transmitter_host:
-            raise CompleteTestError(f"{mode} plan transmitter differs from TRANSMITTER_HOST")
-        if plan["receiver"]["host"] != receiver_host:
-            raise CompleteTestError(f"{mode} plan receiver differs from RECEIVER_HOST")
-        receiver = plan["receiver"]
-        expected_driver = selector_fields.get("driver")
-        if expected_driver is not None and receiver["driver"] != expected_driver:
-            raise CompleteTestError(f"{mode} plan receiver driver differs from --sdr")
-        plan_device = receiver["serial"] if mode in {"TONE", "WSPR"} else receiver["device"]
-        expected_device = selector_fields["serial"]
-        if plan_device != expected_device:
-            raise CompleteTestError(f"{mode} plan receiver serial differs from --sdr")
-        bindings.append(
-            {
-                "mode": mode,
-                "source": artifact(source),
-                "plan": plan,
-                "plan_sha256": resolved_real_plan_sha256(plan)
-                if mode in {"TONE", "WSPR"}
-                else canonical_sha256(plan),
-                "production_route": "real_session" if mode in {"TONE", "WSPR"} else "live_keyed",
-            }
-        )
+    except BaseException:
+        shutil.rmtree(input_path, ignore_errors=True)
+        raise
     document = {
         "schema_version": 1,
         "evidence_type": "resolved_complete_test_plan",
@@ -975,6 +1101,12 @@ def compose_complete_test_plan(
             "dfcw_secondary_frequency_hz": float(cast(int, values["frequency_hz"]))
             - float(cast(float, values["dfcw_separation_hz"])),
         },
+        "receiver_tuning": ReceiverTuningGeometry(
+            requested_frequency_hz=requested_frequency,
+            center_frequency_hz=default_receiver_center_hz(requested_frequency),
+            sample_rate_hz=250_000,
+            bandwidth_hz=200_000,
+        ).to_document(),
         "mode_order": list(MODE_ORDER),
         "mode_plans": bindings,
         "topology": config["topology"],
@@ -985,10 +1117,20 @@ def compose_complete_test_plan(
             "work_directory": str(work_path),
             "output_parent": str(output_path),
         },
+        "input_store": {
+            "directory": str(input_path),
+            "ownership": "campaign",
+            "retention": "retain_while_campaign_or_subordinate_result_exists",
+            "cleanup": "manual_only",
+        },
         "production_adapters_constructed": False,
         "qualification_claim": False,
     }
-    validate_complete_test_plan(document)
+    try:
+        validate_complete_test_plan(document)
+    except BaseException:
+        shutil.rmtree(input_path, ignore_errors=True)
+        raise
     return document
 
 
@@ -1022,6 +1164,19 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
     }
     if document["derived_frequencies"] != expected_derived:
         raise CompleteTestError("derived frequency evidence contradicts resolved overrides")
+    try:
+        expected_tuning = ReceiverTuningGeometry(
+            requested_frequency_hz=float(values["frequency_hz"]),
+            center_frequency_hz=default_receiver_center_hz(float(values["frequency_hz"])),
+            sample_rate_hz=250_000,
+            bandwidth_hz=200_000,
+            dc_exclusion_hz=DEFAULT_DC_EXCLUSION_HZ,
+            target_search_half_width_hz=DEFAULT_TARGET_SEARCH_HALF_WIDTH_HZ,
+        ).to_document()
+    except ReceiverTuningError as error:
+        raise CompleteTestError(str(error)) from error
+    if document["receiver_tuning"] != expected_tuning:
+        raise CompleteTestError("complete-test receiver tuning policy changed")
     if [entry["mode"] for entry in document["mode_plans"]] != list(MODE_ORDER):
         raise CompleteTestError(
             "complete-test subordinate plans are missing, duplicated, or reordered"
@@ -1037,6 +1192,20 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
         raise CompleteTestError("campaign deadline cannot contain all subordinate deadlines")
     if document["campaign_deadline_s"] > 7200:
         raise CompleteTestError("campaign deadline exceeds the maintained two-hour safety bound")
+    input_store = Path(document["input_store"]["directory"])
+    output_parent = Path(document["execution_paths"]["output_parent"])
+    expected_input_store = output_parent / "complete-test-inputs" / document["campaign_id"]
+    if input_store != expected_input_store:
+        raise CompleteTestError("campaign input store differs from its owned output location")
+    if _contains_symlink(input_store) or not input_store.is_dir():
+        raise CompleteTestError("campaign input store is unavailable or unsafe")
+    try:
+        input_store.resolve().relative_to(output_parent.resolve())
+    except ValueError as error:
+        raise CompleteTestError("campaign input store escapes its output parent") from error
+    work_directory = Path(document["execution_paths"]["work_directory"])
+    if input_store.resolve().is_relative_to(work_directory.resolve()):
+        raise CompleteTestError("campaign input store cannot belong to runtime deployment")
     config_binding = document["configuration"]
     config_document = config_binding["document"]
     if (
@@ -1079,6 +1248,17 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
             child["host"] if mode in {"TONE", "WSPR"} else child["transmitter"]["host"]
         )
         receiver = child["receiver"]
+        try:
+            geometry = ReceiverTuningGeometry(
+                requested_frequency_hz=float(values["frequency_hz"]),
+                center_frequency_hz=float(receiver["center_frequency_hz"]),
+                sample_rate_hz=float(receiver["sample_rate_hz"]),
+                bandwidth_hz=float(receiver["bandwidth_hz"]),
+            ).validate()
+        except ReceiverTuningError as error:
+            raise CompleteTestError(f"{mode} receiver tuning is invalid: {error}") from error
+        if geometry.to_document() != document["receiver_tuning"]:
+            raise CompleteTestError(f"{mode} receiver tuning differs from campaign policy")
         if transmitter_host != document["transmitter_host"]:
             raise CompleteTestError(f"{mode} retained transmitter binding changed")
         if receiver["host"] != document["receiver_host"]:
@@ -1097,6 +1277,42 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
             current_source[field] != entry["source"][field] for field in ("size_bytes", "sha256")
         ):
             raise CompleteTestError(f"{mode} source template changed")
+        if mode in {"TONE", "WSPR"}:
+            for profile_name, binding in child["resolved_profiles"].items():
+                _validate_campaign_input(
+                    binding,
+                    input_store,
+                    label=f"{mode} {profile_name} profile",
+                )
+            if mode == "TONE":
+                for reference_name, binding in child["cw_contract"].items():
+                    if reference_name == "analyzer_source_revision":
+                        continue
+                    _validate_campaign_input(
+                        binding,
+                        input_store,
+                        label=f"TONE {reference_name.replace('_', ' ')}",
+                    )
+        if mode not in {"TONE", "WSPR"}:
+            references = child["reference"]
+            reference_path = _validate_campaign_input(
+                references["plan"], input_store, label=f"{mode} reference plan"
+            )
+            _validate_campaign_input(
+                references["expected_events"],
+                input_store,
+                label=f"{mode} expected events",
+            )
+            try:
+                reference = _load(reference_path)
+                validate_document(reference, "cw-mode-plan.schema.json")
+                validate_keyed_capture_margin(reference)
+            except (OfflineAnalysisError, ValueError) as error:
+                raise CompleteTestError(f"{mode} capture margin is invalid: {error}") from error
+            capture = reference["capture_contract"]
+            capture_seconds = capture["sample_count"] / capture["sample_rate_hz"]
+            if child["deadlines"]["transaction_s"] <= capture_seconds:
+                raise CompleteTestError(f"{mode} transaction deadline cannot contain capture")
         expected = (
             resolved_real_plan_sha256(child)
             if mode in {"TONE", "WSPR"}
@@ -1174,6 +1390,22 @@ def _stops_campaign(mode: str, status: str) -> bool:
         "fixture_blocked",
         "inconclusive",
     }
+
+
+def _campaign_mode_status(mode: str, result: dict[str, Any]) -> str:
+    """Translate a subordinate result into the complete-campaign mode outcome."""
+    status = validate_result_document(result).value
+    if (
+        mode == "TONE"
+        and status == "inconclusive"
+        and result["preflight_passed"] is True
+        and result["carrier_gate"] == "passed"
+        and result["decode_gate"] == "not_run"
+        and result["cleanup_outcome"] == "verified"
+        and result["failure_causes"] == []
+    ):
+        return "qualified"
+    return status
 
 
 def validate_complete_test_bundle(bundle: Path) -> dict[str, Any]:
@@ -1441,11 +1673,7 @@ def run_complete_test(
         if production_dispatch:
             from wsprrypi_qualification.turnkey_campaign import compose_resolved_campaign_plan
 
-            generated = (
-                work_directory.resolve().parent
-                / f"{resolved['campaign_id']}-generated"
-                / mode.lower()
-            )
+            generated = Path(resolved["input_store"]["directory"]) / "dispatch" / mode.lower()
             generated.mkdir(parents=True, exist_ok=False)
             request_path = generated / "request.json"
             child_path = generated / "resolved-mode-plan.json"
@@ -1561,7 +1789,7 @@ def run_complete_test(
             raise CompleteTestError("authoritative subordinate manifest does not match bundle")
         result_document = _load(result_path)
         if mode in {"TONE", "WSPR"}:
-            status = validate_result_document(result_document).value
+            status = _campaign_mode_status(mode, result_document)
             session_document = _load(bundle / "session.json")
             if outcome["underlying_result"] != session_document:
                 raise CompleteTestError("returned real-session result differs from its bundle")

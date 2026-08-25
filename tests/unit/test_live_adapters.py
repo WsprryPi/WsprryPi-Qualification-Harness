@@ -4,7 +4,7 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -12,14 +12,20 @@ import pytest
 from tests.unit.test_cw_contracts import _chain
 from tests.unit.test_real_session import plan_document, tone_plan_document
 from wsprrypi_qualification.cw_iq import analyze_synthetic_iq, generate_synthetic_iq
+from wsprrypi_qualification.cw_reference import (
+    generate_expected_events,
+    required_keyed_capture_sample_count,
+    validate_keyed_capture_margin,
+)
 from wsprrypi_qualification.live_adapters import (
     LiveAdapterPaths,
     ProductionRealSessionAdapters,
     _coherent_capture_launch_epoch,
     _derive_rebound_expected_events,
+    _derive_scheduled_mode_plan,
     _intentional_carrier_stop_verified,
     _owned_process_released,
-    _retained_capture_has_margin,
+    _retained_capture_covers_wspr_frames,
     _stage_bound_artifact,
 )
 from wsprrypi_qualification.manifests import build_manifest, render_manifest, write_manifest
@@ -57,9 +63,60 @@ def bare_adapter(tmp_path: Path) -> ProductionRealSessionAdapters:
     adapter._artifacts = []
     adapter._session_deadline = float("inf")
     adapter._cleanup_reserve_s = 0.0
+    adapter._publication_budget_s = float("inf")
     adapter._capture_tasks = []
     adapter._capture_artifacts = {}
     return adapter
+
+
+def test_progress_hook_does_not_reset_live_session_state(tmp_path: Path) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._session_deadline = 123.0
+    adapter._cleanup_reserve_s = 7.0
+
+    adapter.set_progress(lambda *args: None)
+
+    assert adapter._session_deadline == 123.0
+    assert adapter._cleanup_reserve_s == 7.0
+
+
+def test_begin_wspr_session_rejects_insufficient_resolved_deadline(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._session_deadline = None
+    plan = plan_document()
+    now = datetime(2026, 8, 12, 19, 58, 20, tzinfo=UTC)
+    monkeypatch.setattr(
+        "wsprrypi_qualification.live_adapters.datetime",
+        type("FixedDatetime", (), {"now": staticmethod(lambda tz: now)}),
+    )
+
+    with pytest.raises(RealSessionError, match="cannot contain its resolved slot wait"):
+        adapter.begin_session(plan)
+
+
+@pytest.mark.parametrize("mode", ["qrss", "fskcw", "dfcw"])
+def test_scheduled_keyed_rebase_preserves_capture_guard(tmp_path: Path, mode: str) -> None:
+    plan_path, *_ = _chain(tmp_path, mode)
+    mode_plan = json.loads(plan_path.read_text())
+    mode_plan["protocol"]["message"] = "ETE"
+    mode_plan["protocol"]["dot_seconds"] = 0.7
+    mode_plan["protocol"]["pre_quiet_seconds"] = 2.0
+    mode_plan["protocol"]["post_quiet_seconds"] = 2.0
+    events = generate_expected_events(mode_plan)
+    mode_plan["capture_contract"]["sample_count"] = required_keyed_capture_sample_count(mode_plan)
+    capture_start = datetime(2026, 8, 24, 19, 0, tzinfo=UTC)
+
+    scheduled, relative_start = _derive_scheduled_mode_plan(
+        mode_plan,
+        capture_start,
+        capture_start + timedelta(seconds=2.027201),
+    )
+
+    assert relative_start == 2.027201
+    validate_keyed_capture_margin(scheduled)
+    assert generate_expected_events(scheduled)[-1]["end_s"] == events[-1]["end_s"]
 
 
 def test_stage_bound_artifact_retains_external_path_with_spaces(tmp_path: Path) -> None:
@@ -141,7 +198,7 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
                     "strongest_feature_contrast_db": 20.0,
                 },
                 "contract": {
-                    "gate_policy": "bounded_relative_carrier_acquisition",
+                    "gate_policy": "target_window_relative_carrier_acquisition_v2",
                     "relative_acquisition_offset_gate_hz": 500.0,
                     "relative_acquisition_contrast_gate_db": 10.0,
                 },
@@ -245,7 +302,7 @@ def test_live_tone_analysis_propagates_detailed_carrier_failure(
                     "strongest_feature_contrast_db": 110.0,
                 },
                 "contract": {
-                    "gate_policy": "bounded_relative_carrier_acquisition",
+                    "gate_policy": "target_window_relative_carrier_acquisition_v2",
                     "relative_acquisition_offset_gate_hz": 500.0,
                     "relative_acquisition_contrast_gate_db": 10.0,
                 },
@@ -532,18 +589,51 @@ def test_verified_early_exit_releases_owned_process_without_claiming_intentional
     )
 
 
-def test_coherent_capture_guard_and_retained_margin_are_distinct() -> None:
+def test_coherent_capture_guard_covers_complete_bounded_receiver_setup() -> None:
     slot = datetime(2026, 8, 13, 20, 44, tzinfo=UTC)
-    assert _coherent_capture_launch_epoch(slot, 5) == slot.timestamp() - 7
-    assert _retained_capture_has_margin(
-        {"timestamps": {"retained_capture_start_utc": "2026-08-13T20:43:55Z"}},
-        slot,
-        5,
+    launch = _coherent_capture_launch_epoch(slot, 5, 5)
+    assert launch == slot.timestamp() - 10
+    # The live failure took 591 ms from helper start to retained capture.  With
+    # the complete readiness bound as the guard, the same startup is safely early.
+    retained = datetime.fromtimestamp(launch + 0.591, UTC)
+    assert _retained_capture_covers_wspr_frames(
+        {
+            "timestamps": {"retained_capture_start_utc": retained.isoformat()},
+            "retained_sample_count": 92_500_000,
+        },
+        [slot, slot + timedelta(seconds=120), slot + timedelta(seconds=240)],
+        sample_rate_hz=250_000,
+        required_margin_s=5,
     )
-    assert not _retained_capture_has_margin(
-        {"timestamps": {"retained_capture_start_utc": "2026-08-13T20:43:55.001Z"}},
-        slot,
-        5,
+
+
+@pytest.mark.parametrize(
+    ("start_offset_s", "sample_count", "expected"),
+    [
+        (-5.0, 92_500_000, True),
+        (-5.001, 92_500_000, True),
+        (-4.999, 92_500_000, False),
+        (-4.909, 92_500_000, False),
+        (-5.0, 91_249_999, False),
+        (-5.091, 92_500_000, True),
+    ],
+)
+def test_retained_capture_proves_all_decoder_windows(
+    start_offset_s: float, sample_count: int, expected: bool
+) -> None:
+    slot = datetime(2026, 8, 13, 20, 44, tzinfo=UTC)
+    retained = slot + timedelta(seconds=start_offset_s)
+    assert (
+        _retained_capture_covers_wspr_frames(
+            {
+                "timestamps": {"retained_capture_start_utc": retained.isoformat()},
+                "retained_sample_count": sample_count,
+            },
+            [slot, slot + timedelta(seconds=120), slot + timedelta(seconds=240)],
+            sample_rate_hz=250_000,
+            required_margin_s=5,
+        )
+        is expected
     )
 
 
@@ -673,6 +763,15 @@ def test_overall_deadline_is_cumulative_and_reserves_cleanup(tmp_path: Path, mon
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: 90.1)
     with pytest.raises(RealSessionError, match="overall deadline"):
         adapter._remaining(5.0, reserve_cleanup=True)
+
+
+def test_live_publication_refuses_to_hide_its_deadline_overrun(tmp_path: Path, monkeypatch) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._publication_deadline = 100.0
+    monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: 100.1)
+
+    with pytest.raises(RealSessionError, match="publication exceeded its hard deadline"):
+        adapter._verify_publication_deadline()
 
 
 def _bounded_tone_envelope(plan: dict, cycle: int) -> dict:

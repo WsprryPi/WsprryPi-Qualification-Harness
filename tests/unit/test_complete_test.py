@@ -1,11 +1,14 @@
 import json
+import shutil
 from copy import deepcopy
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 import wsprrypi_qualification.cli as cli_module
+import wsprrypi_qualification.complete_test as complete_test_module
 from tests.unit.test_keyed_session_contracts import plan as keyed_plan
 from tests.unit.test_real_session import tone_plan_document
 from wsprrypi_qualification.cli import main
@@ -14,6 +17,8 @@ from wsprrypi_qualification.complete_test import (
     MODE_ORDER,
     CompleteTestError,
     CompleteTestOverrides,
+    _fixed_gpio_ppm_arguments,
+    _validate_campaign_input,
     complete_test_sha256,
     compose_complete_test_plan,
     configuration_path,
@@ -22,7 +27,9 @@ from wsprrypi_qualification.complete_test import (
     resolve_local_sdr,
     run_complete_test,
     validate_complete_test_bundle,
+    validate_complete_test_plan,
 )
+from wsprrypi_qualification.cw_reference import validate_keyed_capture_margin
 from wsprrypi_qualification.manifests import write_manifest
 from wsprrypi_qualification.offline import artifact
 from wsprrypi_qualification.progress import ProgressReporter
@@ -58,11 +65,19 @@ def _write(path: Path, document: dict) -> Path:
     return path
 
 
-def _configuration(tmp_path: Path, *, topology: str = "split_host_ssh") -> Path:
+def _configuration(
+    tmp_path: Path,
+    *,
+    topology: str = "split_host_ssh",
+    campaign_deadline_s: float = 7200,
+) -> Path:
     known_hosts = tmp_path / "known_hosts"
+    ssh_executable = tmp_path / "ssh-fixture"
     known_hosts.parent.mkdir(parents=True, exist_ok=True)
     if not known_hosts.exists():
         known_hosts.write_text("receiver key", encoding="utf-8")
+    if not ssh_executable.exists():
+        ssh_executable.write_text("portable ssh fixture", encoding="utf-8")
     real = tone_plan_document(execution_mode="live")
     real["backend"] = "gpio"
     real["output"] = "GPIO4"
@@ -99,7 +114,7 @@ def _configuration(tmp_path: Path, *, topology: str = "split_host_ssh") -> Path:
             "receiver_host": "wspr5.local",
             "sdr_selector": SDR,
             "receiver_delegation": {
-                "ssh": artifact(Path("/usr/bin/ssh")),
+                "ssh": artifact(ssh_executable),
                 "known_hosts": artifact(known_hosts),
                 "remote_exec": REMOTE_EXEC_IDENTITY,
                 "qualification": QUALIFICATION_IDENTITY,
@@ -109,10 +124,10 @@ def _configuration(tmp_path: Path, *, topology: str = "split_host_ssh") -> Path:
                 "real_session": "templates/real.json",
                 "keyed_session": "templates/keyed.json",
             },
-            "ssh_executable": "/usr/bin/ssh",
+            "ssh_executable": str(ssh_executable),
             "work_directory": str(tmp_path / "work"),
             "output_parent": str(tmp_path / "runs"),
-            "campaign_deadline_s": 1200,
+            "campaign_deadline_s": campaign_deadline_s,
         },
     )
 
@@ -127,6 +142,7 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert [entry["mode"] for entry in plan["mode_plans"]] == list(MODE_ORDER)
     wspr = plan["mode_plans"][1]["plan"]
     assert wspr["frequency_hz"] == 14_097_100
+    assert wspr["receiver"]["center_frequency_hz"] == 14_072_100
     assert wspr["frame_count"] == 3
     assert plan["derived_frequencies"]["wspr_dial_frequency_hz"] == 14_095_600
     assert wspr["backend"] == "gpio"
@@ -134,12 +150,29 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert wspr["backend_contract"]["gpio_pin"] == 4
     assert wspr["backend_contract"]["drive_or_power_level"] == 2
     tone = plan["mode_plans"][0]["plan"]
-    assert "--no-http" in tone["tone_server"]["arguments"]
+    assert "--no-web" not in tone["tone_server"]["arguments"]
+    tone_arguments = tone["tone_server"]["arguments"]
+    assert tone_arguments.count("--no-system-clock-frequency-estimate") == 1
+    assert tone_arguments.count("--gpio-manual-ppm") == 1
+    assert tone_arguments[tone_arguments.index("--gpio-manual-ppm") + 1] == "2.3536"
     assert Path(tone["cw_contract"]["plan"]["path"]).is_file()
     assert Path(tone["resolved_profiles"]["bench"]["path"]).is_file()
     keyed = {entry["mode"]: entry["plan"] for entry in plan["mode_plans"][2:]}
+    assert plan["receiver_tuning"] == {
+        "policy": "zero_if_offset_target_window_v1",
+        "requested_frequency_hz": 14_097_100.0,
+        "center_frequency_hz": 14_072_100.0,
+        "tuning_offset_hz": 25_000.0,
+        "dc_exclusion_hz": 1_000.0,
+        "target_search_half_width_hz": 500.0,
+        "usable_half_span_hz": 100_000.0,
+    }
+    assert all(
+        entry["plan"]["receiver"]["center_frequency_hz"] == 14_072_100
+        for entry in plan["mode_plans"]
+    )
     assert keyed["QRSS"]["application_plan"]["protocol_contract"] == {
-        "message": "ET",
+        "message": "ETE",
         "dot_seconds": 0.7,
         "primary_frequency_hz": 14_097_100.0,
         "secondary_frequency_hz": None,
@@ -155,6 +188,23 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert keyed["QRSS"]["transmitter"]["drive"] == 0
     assert Path(keyed["QRSS"]["reference"]["plan"]["path"]).is_file()
     assert keyed["QRSS"]["application_plan"]["backend_contract"]["gpio_pin"] == 4
+    for child in keyed.values():
+        reference = json.loads(Path(child["reference"]["plan"]["path"]).read_text())
+        validate_keyed_capture_margin(reference)
+        capture = reference["capture_contract"]
+        assert child["deadlines"]["transaction_s"] > (
+            capture["sample_count"] / capture["sample_rate_hz"]
+        )
+        assert child["deadlines"]["overall_s"] >= (
+            3 * child["deadlines"]["transaction_s"] + child["deadlines"]["cleanup_s"]
+        )
+        arguments = child["application_plan"]["arguments"]
+        assert arguments.count("--no-system-clock-frequency-estimate") == 1
+        assert arguments.count("--gpio-manual-ppm") == 1
+        assert (
+            float(arguments[arguments.index("--gpio-manual-ppm") + 1])
+            == child["application_plan"]["backend_contract"]["ppm"]
+        )
     with pytest.raises(SystemExit) as help_exit:
         main(["complete-test", "--help"])
     assert help_exit.value.code == 0
@@ -163,6 +213,65 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
     assert "--enable-rf" in help_text
     assert "--operator" not in help_text
     assert "TRANSMITTER_HOST RECEIVER_HOST" in help_text
+
+
+@pytest.mark.parametrize(
+    ("composed_at", "expected_deadline"),
+    (
+        (datetime(2026, 8, 24, 21, 0, 20, tzinfo=UTC), 1092),
+        (datetime(2026, 8, 24, 21, 1, 59, tzinfo=UTC), 993),
+        (datetime(2026, 8, 24, 21, 2, 0, tzinfo=UTC), 1112),
+    ),
+)
+def test_wspr_deadline_tracks_final_slot_boundary(
+    tmp_path: Path, composed_at: datetime, expected_deadline: int
+) -> None:
+    plan = compose_complete_test_plan(
+        "wspr4.local",
+        "wspr5.local",
+        SDR,
+        configuration=_configuration(tmp_path),
+        live=False,
+        now=composed_at,
+    )
+
+    wspr = next(entry["plan"] for entry in plan["mode_plans"] if entry["mode"] == "WSPR")
+    assert wspr["deadlines"]["overall_s"] == expected_deadline
+
+
+@pytest.mark.parametrize(
+    ("arguments", "match"),
+    (
+        (["wsprrypi", "-n"], "contradicts"),
+        (["wsprrypi", "--use-system-clock-frequency-estimate"], "contradicts"),
+        (["wsprrypi", "--use-system-clock-frequency-estimate=true"], "contradicts"),
+        (["wsprrypi", "-p", "1.25"], "contradicts"),
+        (["wsprrypi", "--ppm", "1.25"], "contradicts"),
+        (["wsprrypi", "--ppm=1.25"], "contradicts"),
+        (["wsprrypi", "--gpio-manual-ppm=1.25"], "contradicts"),
+        (["wsprrypi", "--gpio-manual-ppm", "1", "--gpio-manual-ppm", "1"], "duplicates"),
+        (["wsprrypi", "--gpio-manual-ppm"], "malformed"),
+        (["wsprrypi", "--gpio-manual-ppm", "not-a-number"], "malformed"),
+        (["wsprrypi", "--gpio-manual-ppm", "2"], "differs"),
+    ),
+)
+def test_gpio_manual_ppm_containment_rejects_ambiguous_launches(
+    arguments: list[str], match: str
+) -> None:
+    with pytest.raises(CompleteTestError, match=match):
+        _fixed_gpio_ppm_arguments(arguments, 1.25)
+
+
+def test_gpio_manual_ppm_containment_overrides_configuration_defaults() -> None:
+    arguments = _fixed_gpio_ppm_arguments(["wsprrypi", "-i", "estimate-enabled.ini"], -1.25)
+    assert arguments == [
+        "wsprrypi",
+        "--no-system-clock-frequency-estimate",
+        "-i",
+        "estimate-enabled.ini",
+        "--gpio-manual-ppm",
+        "-1.25",
+    ]
 
 
 def test_default_path_needs_no_cli_configuration_argument(tmp_path: Path, monkeypatch) -> None:
@@ -227,7 +336,7 @@ def test_remote_receiver_returns_classified_nonpassing_result(tmp_path: Path, mo
     configuration = _configuration(tmp_path)
     receipt = {
         "receiver_host": "wspr5.local",
-        "ssh": artifact(Path("/usr/bin/ssh")),
+        "ssh": artifact(tmp_path / "ssh-fixture"),
         "known_hosts": artifact(tmp_path / "known_hosts"),
         "remote_exec": REMOTE_EXEC_IDENTITY,
         "qualification": QUALIFICATION_IDENTITY,
@@ -297,9 +406,15 @@ def test_remote_receiver_returns_classified_nonpassing_result(tmp_path: Path, mo
 
 
 def test_every_override_is_bound_and_changes_digest(tmp_path: Path) -> None:
-    config = _configuration(tmp_path)
+    config = _configuration(tmp_path, campaign_deadline_s=7200)
+    composed_at = datetime(2026, 8, 24, 21, 0, 20, tzinfo=UTC)
     baseline = compose_complete_test_plan(
-        "wspr4.local", "wspr5.local", SDR, configuration=config, live=False
+        "wspr4.local",
+        "wspr5.local",
+        SDR,
+        configuration=config,
+        live=False,
+        now=composed_at,
     )
     override = CompleteTestOverrides(
         band="30m",
@@ -315,7 +430,13 @@ def test_every_override_is_bound_and_changes_digest(tmp_path: Path) -> None:
         dfcw_separation_hz=7.0,
     )
     changed = compose_complete_test_plan(
-        "wspr4.local", "wspr5.local", SDR, configuration=config, overrides=override, live=False
+        "wspr4.local",
+        "wspr5.local",
+        SDR,
+        configuration=config,
+        overrides=override,
+        live=False,
+        now=composed_at,
     )
     assert changed["resolved_values"] == override.validated()
     assert complete_test_sha256(changed) != complete_test_sha256(baseline)
@@ -378,6 +499,96 @@ def test_hardware_free_rehearsal_publishes_five_mode_immutable_bundle(tmp_path: 
         validate_complete_test_bundle(bundle)
 
 
+def test_campaign_inputs_survive_runtime_work_cleanup_and_remain_separate(
+    tmp_path: Path,
+) -> None:
+    plan = compose_complete_test_plan(
+        "wspr4.local",
+        "wspr5.local",
+        SDR,
+        configuration=_configuration(tmp_path),
+        live=False,
+        now=datetime(2026, 8, 24, 21, 0, 20, tzinfo=UTC),
+    )
+    input_store = Path(plan["input_store"]["directory"])
+    work_directory = Path(plan["execution_paths"]["work_directory"])
+    output_parent = Path(plan["execution_paths"]["output_parent"])
+
+    assert input_store.parent == output_parent / "complete-test-inputs"
+    assert not input_store.is_relative_to(work_directory)
+    assert plan["input_store"] == {
+        "directory": str(input_store),
+        "ownership": "campaign",
+        "retention": "retain_while_campaign_or_subordinate_result_exists",
+        "cleanup": "manual_only",
+    }
+
+    shutil.rmtree(work_directory, ignore_errors=True)
+    validate_complete_test_plan(plan)
+    outcome = rehearse_complete_test(plan, output_parent)
+    assert Path(outcome["bundle"]).is_dir()
+    assert input_store.is_dir()
+    validate_complete_test_bundle(Path(outcome["bundle"]))
+
+
+def test_campaign_input_missing_changed_symlink_and_escape_fail_closed(tmp_path: Path) -> None:
+    plan = compose_complete_test_plan(
+        "wspr4.local",
+        "wspr5.local",
+        SDR,
+        configuration=_configuration(tmp_path),
+        live=False,
+        now=datetime(2026, 8, 24, 21, 0, 20, tzinfo=UTC),
+    )
+    input_store = Path(plan["input_store"]["directory"])
+    qrss = plan["mode_plans"][2]["plan"]["reference"]["plan"]
+    reference = Path(qrss["path"])
+    original = reference.read_bytes()
+
+    reference.unlink()
+    with pytest.raises(CompleteTestError, match="unavailable or unsafe"):
+        validate_complete_test_plan(plan)
+
+    reference.write_bytes(original + b" ")
+    with pytest.raises(CompleteTestError, match="changed"):
+        validate_complete_test_plan(plan)
+
+    reference.write_bytes(original)
+    outside = tmp_path / "outside-reference.json"
+    outside.write_bytes(original)
+    escaped = {**qrss, **artifact(outside)}
+    with pytest.raises(CompleteTestError, match="escapes the campaign input store"):
+        _validate_campaign_input(escaped, input_store, label="QRSS reference plan")
+
+    reference.unlink()
+    reference.symlink_to(outside)
+    with pytest.raises(CompleteTestError, match="unavailable or unsafe"):
+        validate_complete_test_plan(plan)
+
+
+def test_failed_composition_removes_unretained_campaign_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _configuration(tmp_path)
+
+    def fail_profiles(*args, **kwargs):
+        raise CompleteTestError("injected profile failure")
+
+    monkeypatch.setattr(complete_test_module, "_materialize_real_profiles", fail_profiles)
+    with pytest.raises(CompleteTestError, match="injected profile failure"):
+        compose_complete_test_plan(
+            "wspr4.local",
+            "wspr5.local",
+            SDR,
+            configuration=config,
+            live=False,
+            now=datetime(2026, 8, 24, 21, 0, 20, tzinfo=UTC),
+        )
+
+    parent = tmp_path / "runs/complete-test-inputs"
+    assert not parent.exists() or list(parent.iterdir()) == []
+
+
 def test_unsupported_topology_and_invalid_input_fail_before_dispatch(tmp_path: Path) -> None:
     with pytest.raises(CompleteTestError, match="unsupported_topology"):
         compose_complete_test_plan(
@@ -417,7 +628,7 @@ def test_live_order_early_stop_and_not_attempted(tmp_path: Path) -> None:
         calls.append(mode)
         bundle = output_parent / f"child-{mode.lower()}"
         bundle.mkdir(parents=True)
-        status = "fixture_blocked" if mode == "WSPR" else "qualified"
+        status = "fixture_blocked" if mode == "WSPR" else "inconclusive"
         document = {
             "schema_version": 1,
             "run_id": f"20260823T200000Z-{mode.lower()}",
@@ -426,7 +637,7 @@ def test_live_order_early_stop_and_not_attempted(tmp_path: Path) -> None:
             "completed_utc": "2026-08-23T20:00:01Z",
             "preflight_passed": True,
             "carrier_gate": "blocked" if status == "fixture_blocked" else "passed",
-            "decode_gate": "not_run" if status == "fixture_blocked" else "passed",
+            "decode_gate": "not_run" if mode == "TONE" or status == "fixture_blocked" else "passed",
             "cleanup_outcome": "verified",
             "failure_causes": ["receiver_unavailable"] if status == "fixture_blocked" else [],
             "artifacts": [],
@@ -442,7 +653,7 @@ def test_live_order_early_stop_and_not_attempted(tmp_path: Path) -> None:
         outcome = run_complete_test(
             plan,
             tmp_path / "runs",
-            ssh_executable=Path("/usr/bin/ssh"),
+            ssh_executable=tmp_path / "ssh-fixture",
             work_directory=tmp_path / "work",
             dispatcher=dispatch,
             progress=reporter.emit,
@@ -500,7 +711,7 @@ def test_tampering_reordering_and_path_escape_are_rejected(tmp_path: Path) -> No
         run_complete_test(
             plan,
             tmp_path / "runs",
-            ssh_executable=Path("/usr/bin/ssh"),
+            ssh_executable=tmp_path / "ssh-fixture",
             work_directory=tmp_path / "work",
             dispatcher=escape,
         )
@@ -551,7 +762,7 @@ def test_coordinator_exception_publishes_partial_authenticated_campaign(tmp_path
     outcome = run_complete_test(
         plan,
         tmp_path / "runs",
-        ssh_executable=Path("/usr/bin/ssh"),
+        ssh_executable=tmp_path / "ssh-fixture",
         work_directory=tmp_path / "work",
         dispatcher=blocked,
     )
@@ -564,6 +775,7 @@ def test_coordinator_exception_publishes_partial_authenticated_campaign(tmp_path
     }
     assert all(entry["state"] == "not_attempted" for entry in outcome["result"]["modes"][1:])
     assert "capability unavailable" in outcome["result"]["modes"][0]["stopping_reason"]
+    assert Path(plan["input_store"]["directory"]).is_dir()
 
 
 def test_complete_validation_precedes_dispatch_and_rehearsal_has_no_contact(
@@ -589,7 +801,7 @@ def test_complete_validation_precedes_dispatch_and_rehearsal_has_no_contact(
         run_complete_test(
             plan,
             tmp_path / "runs",
-            ssh_executable=Path("/usr/bin/ssh"),
+            ssh_executable=tmp_path / "ssh-fixture",
             work_directory=tmp_path / "work",
             dispatcher=forbidden,
         )
@@ -612,11 +824,12 @@ def test_keyboard_interrupt_is_authenticated_as_campaign_abort(tmp_path: Path) -
     outcome = run_complete_test(
         plan,
         tmp_path / "runs",
-        ssh_executable=Path("/usr/bin/ssh"),
+        ssh_executable=tmp_path / "ssh-fixture",
         work_directory=tmp_path / "work",
         dispatcher=cancelled,
     )
     assert outcome["result"]["final_status"] == "aborted"
+    assert Path(plan["input_store"]["directory"]).is_dir()
 
 
 @pytest.mark.parametrize(
@@ -632,6 +845,7 @@ def test_keyboard_interrupt_is_authenticated_as_campaign_abort(tmp_path: Path) -
 def test_live_cli_classified_exit_codes(
     tmp_path: Path, monkeypatch, capsys, status: str, exit_code: int
 ) -> None:
+    monkeypatch.setenv("WSPQ_PROGRESS_DIR", str(tmp_path / "progress"))
     config = _configuration(tmp_path)
 
     def outcome(*args, **kwargs):
@@ -670,6 +884,7 @@ def test_live_cli_classified_exit_codes(
 def test_receiver_delegation_returns_full_machine_result(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
+    monkeypatch.setenv("WSPQ_PROGRESS_DIR", str(tmp_path / "progress"))
     config = _configuration(tmp_path)
     expected = {
         "bundle": str(tmp_path / "remote-run"),

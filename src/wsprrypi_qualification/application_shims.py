@@ -183,6 +183,7 @@ class WsprryPiShim:
             str(config.gpio_pin),
             "--gpio-power-level",
             str(config.drive_or_power_level),
+            "--no-system-clock-frequency-estimate",
             "--gpio-manual-ppm",
             self._number(config.ppm) if config.ppm > 0 else str(config.ppm),
         )
