@@ -924,6 +924,8 @@ class ProductionRealSessionAdapters:
     ) -> dict[str, object]:
         del authorization
         self._prepare_transmitter_services(plan)
+        if plan.get("session_kind") == "cw_live_tone":
+            return self._run_tone_pattern(plan)
         captured: list[dict[str, object]] = []
         errors: list[BaseException] = []
         cancellation = threading.Event()
@@ -941,8 +943,6 @@ class ProductionRealSessionAdapters:
         self._capture_tasks.append((worker, cancellation))
         worker.start()
         self._wait_capture_ready(plan, "rf_on", worker, errors)
-        if plan.get("session_kind") == "cw_live_tone":
-            return self._run_tone_pattern(plan, worker, cancellation, captured, errors)
         try:
             process = self._begin_transmitter(plan, True)
         except Exception as exc:
@@ -974,10 +974,6 @@ class ProductionRealSessionAdapters:
     def _run_tone_pattern(
         self,
         plan: dict[str, Any],
-        worker: threading.Thread,
-        cancellation: threading.Event,
-        captured: list[dict[str, object]],
-        errors: list[BaseException],
     ) -> dict[str, object]:
         if not self._cleanup_installed:
             raise RealSessionError("bounded Tone server refused before cleanup registration")
@@ -1008,13 +1004,34 @@ class ProductionRealSessionAdapters:
             cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
         )
         server = launcher.begin(tuple(server_plan["arguments"]))
-        epoch = time.monotonic()
         self._owned.append(server)
+        captured: list[dict[str, object]] = []
+        errors: list[BaseException] = []
+        cancellation = threading.Event()
+        worker = threading.Thread(
+            target=lambda: self._capture_into(
+                captured,
+                errors,
+                plan,
+                "rf_on",
+                plan["carrier"]["rf_on_sample_count"],
+                cancellation,
+            ),
+            name="wspq-tone-rf-on-capture",
+        )
+        self._capture_tasks.append((worker, cancellation))
         try:
+            worker.start()
+            self._wait_capture_ready(plan, "rf_on", worker, errors)
+            epoch = time.monotonic()
             return self._run_tone_pattern_cycles(
                 plan, worker, cancellation, captured, errors, epoch=epoch
             )
         finally:
+            if worker.is_alive():
+                cancellation.set()
+            if not worker.is_alive() and (worker, cancellation) in self._capture_tasks:
+                self._capture_tasks.remove((worker, cancellation))
             result = server.stop()
             self._retain_transmitter_result(plan, tone=True, result=result)
             if _owned_process_released(result):
@@ -1285,8 +1302,6 @@ class ProductionRealSessionAdapters:
             )
             mode_gate = generated_gate["mode_gate"]
             self._artifacts.extend((observations, mode_gate_path))
-            if gate_outcome == "passed":
-                gate_outcome = generated_gate["carrier_gate"]
         return self._stage(
             plan,
             "carrier_analysis",

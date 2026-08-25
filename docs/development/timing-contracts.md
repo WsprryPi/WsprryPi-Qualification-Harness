@@ -93,6 +93,13 @@ analysis and publication derived from the RF-off and RF-on CF32 byte counts.
 The analysis subprocess and publication phase receive only their own derived
 budgets; they do not receive the complete remaining session time.
 
+For live TONE, repository verification and server startup complete before the
+RF-on capture begins. The retained capture readiness event then establishes the
+epoch for the exact leading-quiet and on/off cadence, so repository inspection
+cannot shift the observed waveform relative to its expected events. The
+separate cadence analyzer remains retained diagnostic evidence and cannot
+overwrite the carrier-acquisition gate.
+
 Polling values such as JSONL refresh, process-status checks, and readiness-file
 checks are cadences only. They may affect how quickly completion is noticed,
 but they do not subtract a fixed allowance, count a fixed number of attempts,

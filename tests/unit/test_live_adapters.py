@@ -264,7 +264,7 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
     assert result["details"]["mode_gate"] == "not_applicable"
 
 
-def test_live_tone_analysis_propagates_detailed_carrier_failure(
+def test_live_tone_diagnostic_failure_does_not_overwrite_acquisition_gate(
     tmp_path: Path, monkeypatch
 ) -> None:
     work = tmp_path / "analysis work"
@@ -336,8 +336,10 @@ def test_live_tone_analysis_propagates_detailed_carrier_failure(
 
     result = adapter.analyze_carrier(plan, {}, {})
     assert result["details"]["offset_hz"] == 186.0
-    assert result["details"]["gate_outcome"] == "failed"
+    assert result["details"]["gate_outcome"] == "passed"
     assert result["details"]["mode_gate"] == "not_applicable"
+    assert work / "tone-observations.json" in adapter._artifacts
+    assert work / "tone-mode-gate.json" in adapter._artifacts
 
 
 def test_rebound_retained_contracts_complete_real_iq_analysis(tmp_path: Path) -> None:
@@ -976,6 +978,7 @@ def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, mo
     adapter.tx_client = object()
     plan = tone_plan_document()
     observed = {}
+    ordering = []
 
     class Process:
         def stop(self):
@@ -1013,18 +1016,33 @@ def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, mo
 
         def begin(self, arguments):
             observed["arguments"] = arguments
+            ordering.append("server_started")
             return Process()
 
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.SshOwnedProcessLauncher", Launcher)
     monkeypatch.setattr(
         adapter,
         "_run_tone_pattern_cycles",
-        lambda plan, worker, cancellation, captured, errors, **kwargs: captured[0],
+        lambda plan, worker, cancellation, captured, errors, **kwargs: (
+            ordering.append("cycles_started"),
+            captured[0],
+        )[1],
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_capture_into",
+        lambda captured, errors, plan, kind, count, cancellation: (
+            ordering.append("capture_started"),
+            captured.append({"capture": "complete"}),
+        ),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_wait_capture_ready",
+        lambda plan, kind, worker, errors: worker.join(),
     )
     monkeypatch.setattr(adapter, "_retain_transmitter_result", lambda *args, **kwargs: None)
-    result = adapter._run_tone_pattern(
-        plan, object(), threading.Event(), [{"capture": "complete"}], []
-    )
+    result = adapter._run_tone_pattern(plan)
     assert result == {"capture": "complete"}
     assert observed["arguments"] == tuple(plan["tone_server"]["arguments"])
     assert observed["repository_guard"] == {
@@ -1047,6 +1065,7 @@ def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, mo
         plan["tone_server"]["configuration"]["path"]: plan["tone_server"]["configuration"]["sha256"]
     }
     assert observed["cleanup_timeout_s"] == plan["deadlines"]["cleanup_s"]
+    assert ordering == ["server_started", "capture_started", "cycles_started"]
     assert adapter._owned == []
 
 
