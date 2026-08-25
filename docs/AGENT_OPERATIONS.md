@@ -383,8 +383,10 @@ hosted-CI result into a hardware qualification claim.
 
 For the simple fixed five-mode workflow, use `complete-test TRANSMITTER_HOST
 RECEIVER_HOST --sdr SELECTOR --enable-rf`. The normal path requires no
-configuration argument: it temporarily stages
-the current harness and local WsprryPi source. It retains independently owned
+configuration argument: it temporarily stages the current harness and copies
+the transmitter's installed WsprryPi executable and configuration. It never
+falls back to source compilation; `--wsprrypi-source LOCAL_CHECKOUT` is the
+explicit source-build operation. It retains independently owned
 per-campaign executables, places generated campaign and dispatch inputs under
 `OUTPUT_PARENT/complete-test-inputs/CAMPAIGN_ID`, removes temporary stages, and
 revalidates the aggregate after cleanup. The invoking host's default progress

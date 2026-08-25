@@ -410,6 +410,31 @@ def _parser() -> argparse.ArgumentParser:
         "--rehearse", action="store_true", help="hardware-free plan and routing rehearsal"
     )
     complete.add_argument("--configuration", type=Path)
+    wsprrypi_runtime = complete.add_mutually_exclusive_group()
+    wsprrypi_runtime.add_argument(
+        "--wsprrypi-binary",
+        default="/usr/local/bin/wsprrypi",
+        metavar="REMOTE_PATH",
+        help=(
+            "installed transmitter executable to copy into the campaign deployment "
+            "(default: /usr/local/bin/wsprrypi)"
+        ),
+    )
+    wsprrypi_runtime.add_argument(
+        "--wsprrypi-source",
+        type=Path,
+        metavar="LOCAL_CHECKOUT",
+        help="explicitly opt in to packaging and compiling this WsprryPi checkout",
+    )
+    complete.add_argument(
+        "--wsprrypi-config",
+        default="/usr/local/etc/wsprrypi.ini",
+        metavar="REMOTE_PATH",
+        help=(
+            "installed transmitter configuration to copy with --wsprrypi-binary "
+            "(default: /usr/local/etc/wsprrypi.ini)"
+        ),
+    )
     complete.add_argument(
         "--progress-log",
         type=Path,
@@ -491,6 +516,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             reporter.emit("command", "started", "complete-test command accepted")
             if args.rehearse and args.enable_rf:
                 raise CompleteTestError("--rehearse conflicts with --enable-rf")
+            if (
+                args.wsprrypi_source is not None
+                and args.wsprrypi_config != "/usr/local/etc/wsprrypi.ini"
+            ):
+                raise CompleteTestError(
+                    "--wsprrypi-config applies only to an installed WsprryPi binary"
+                )
+            if args.configuration is not None and (
+                args.wsprrypi_source is not None
+                or args.wsprrypi_binary != "/usr/local/bin/wsprrypi"
+                or args.wsprrypi_config != "/usr/local/etc/wsprrypi.ini"
+            ):
+                raise CompleteTestError(
+                    "WsprryPi runtime selectors apply only to automatic deployment"
+                )
             if not args.rehearse and not args.enable_rf:
                 raise CompleteTestError("live complete-test requires explicit --enable-rf")
             receiver_local = receiver_is_local(args.receiver_host)
@@ -550,6 +590,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                         args.receiver_host,
                         args.sdr,
                         forwarded,
+                        wsprrypi_binary=(
+                            None if args.wsprrypi_source is not None else args.wsprrypi_binary
+                        ),
+                        wsprrypi_configuration=args.wsprrypi_config,
+                        wsprrypi_source=args.wsprrypi_source,
                         progress=reporter,
                     )
                 else:
