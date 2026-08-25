@@ -26,6 +26,7 @@ dev = [
 wsprrypi-qualification = "wsprrypi_qualification.cli:main"
 wspq-remote-exec = "wsprrypi_qualification.remote_exec:main"
 wspq-capability-helper = "wsprrypi_qualification.capability_helper:main"
+wspq-progress = "wsprrypi_qualification.progress_viewer:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/wsprrypi_qualification"]
