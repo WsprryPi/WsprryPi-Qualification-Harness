@@ -79,6 +79,29 @@ from wsprrypi_qualification.receiver_calibration import (
 )
 from wsprrypi_qualification.timing import sample_index_at_utc
 
+WSPR_FRAME_DURATION_S = 110.592
+
+
+def _wspr_frame_transitions(
+    slots: list[float],
+    now_epoch: float,
+    announced: set[int],
+    completed: set[int],
+) -> list[tuple[int, str]]:
+    transitions: list[tuple[int, str]] = []
+    for index, slot_epoch in enumerate(slots, 1):
+        if index not in announced and now_epoch >= slot_epoch:
+            announced.add(index)
+            transitions.append((index, "started"))
+        if (
+            index in announced
+            and index not in completed
+            and now_epoch >= slot_epoch + WSPR_FRAME_DURATION_S
+        ):
+            completed.add(index)
+            transitions.append((index, "completed"))
+    return transitions
+
 
 def _reject_git_worktree_runtime(path: Path) -> None:
     """Reject a prospective runtime directory beneath any local Git worktree."""
@@ -1312,6 +1335,7 @@ class ProductionRealSessionAdapters:
             raise
         try:
             announced: set[int] = set()
+            completed: set[int] = set()
             deadline = time.monotonic() + self._remaining(
                 plan["deadlines"]["receiver_s"], reserve_cleanup=True
             )
@@ -1321,17 +1345,17 @@ class ProductionRealSessionAdapters:
             ]
             while worker.is_alive() and time.monotonic() < deadline:
                 now_epoch = time.time()
-                for index, slot_epoch in enumerate(slots, 1):
-                    if index not in announced and now_epoch >= slot_epoch:
-                        announced.add(index)
-                        if self._progress is not None:
-                            self._progress(
-                                "wspr_frame",
-                                "started",
-                                f"WSPR frame {index} UTC window started",
-                                index,
-                                3,
-                            )
+                for index, status in _wspr_frame_transitions(
+                    slots, now_epoch, announced, completed
+                ):
+                    if self._progress is not None:
+                        self._progress(
+                            "wspr_frame",
+                            status,
+                            f"WSPR frame {index} UTC window {status}",
+                            index,
+                            3,
+                        )
                 worker.join(min(0.25, max(0.0, deadline - time.monotonic())))
             if worker.is_alive():
                 cancellation.set()
@@ -1397,6 +1421,14 @@ class ProductionRealSessionAdapters:
                 return self._remaining(remaining, reserve_cleanup=True)
 
             audio_evidence = self.paths.work_directory / f"audio-{index}.json"
+            if self._progress is not None:
+                self._progress(
+                    "wspr_wav",
+                    "started",
+                    f"WSPR frame {index + 1} WAV generation started",
+                    index + 1,
+                    3,
+                )
             self._run_offline(
                 (
                     "make-slot-wav",
@@ -1421,7 +1453,23 @@ class ProductionRealSessionAdapters:
             )
             audio = load_json_document(audio_evidence, "audio-conversion.schema.json")
             wav = Path(cast(str, cast(dict[str, object], audio["output"])["path"]))
+            if self._progress is not None:
+                self._progress(
+                    "wspr_wav",
+                    "completed",
+                    f"WSPR frame {index + 1} WAV generation completed",
+                    index + 1,
+                    3,
+                )
             decoder_evidence = self.paths.work_directory / f"decoder-{index}.json"
+            if self._progress is not None:
+                self._progress(
+                    "wspr_decode",
+                    "started",
+                    f"WSPR frame {index + 1} decode started",
+                    index + 1,
+                    3,
+                )
             self._run_offline(
                 (
                     "decode-wspr",
@@ -1436,6 +1484,14 @@ class ProductionRealSessionAdapters:
                 frame_remaining(),
             )
             decoded = load_json_document(decoder_evidence, "decoder-evidence.schema.json")
+            if self._progress is not None:
+                self._progress(
+                    "wspr_decode",
+                    "completed",
+                    f"WSPR frame {index + 1} decode completed",
+                    index + 1,
+                    3,
+                )
             slot_documents.append(decoded)
             slot_paths.append(decoder_evidence)
             self._artifacts.extend((wav, audio_evidence, decoder_evidence))

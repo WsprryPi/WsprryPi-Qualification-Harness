@@ -11,6 +11,7 @@ import sys
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
 
@@ -41,6 +42,8 @@ _STAGE_LABELS = {
     "carrier_gate": "Carrier gate",
     "coherent_capture": "Coherent capture",
     "wspr_frame": "WSPR frame",
+    "wspr_wav": "WAV generation",
+    "wspr_decode": "WSPR decode",
     "wav_and_decode": "WAV and decode",
     "keyed_observation": "Observation",
     "cleanup": "Cleanup",
@@ -59,6 +62,7 @@ _RESET = "\x1b[0m"
 
 @dataclass(frozen=True)
 class Step:
+    timestamp: str
     scope: str
     label: str
     state: str
@@ -126,6 +130,7 @@ def _step(event: dict[str, object]) -> tuple[tuple[object, ...], Step]:
     status = str(event.get("status", "recorded"))
     detail = str(event.get("detail", ""))
     state, kind = _semantic_state(status, detail)
+    timestamp = _display_timestamp(event.get("timestamp_utc"))
     campaign_id = event.get("campaign_id")
     key = (
         "" if campaign_id is None else str(campaign_id),
@@ -133,7 +138,19 @@ def _step(event: dict[str, object]) -> tuple[tuple[object, ...], Step]:
         mode,
         "" if item is None else str(item),
     )
-    return key, Step(scope=scope, label=label, state=state, kind=kind)
+    return key, Step(timestamp=timestamp, scope=scope, label=label, state=state, kind=kind)
+
+
+def _display_timestamp(value: object) -> str:
+    if not isinstance(value, str):
+        return "????-??-??T??:??:??Z"
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return "????-??-??T??:??:??Z"
+    if parsed.tzinfo is None:
+        return "????-??-??T??:??:??Z"
+    return parsed.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _glyph(kind: str) -> str:
@@ -152,7 +169,7 @@ def format_step(step: Step, *, color: bool) -> str:
     state = step.state
     if len(state) > 30:
         state = state[:29] + "…"
-    prefix = f"{_glyph(step.kind)} {scope:<6} "
+    prefix = f"{_glyph(step.kind)} {step.timestamp} {scope:<6} "
     suffix = f"  {state}"
     available = MAX_COLUMNS - len(prefix) - len(suffix)
     if available < 1:
@@ -183,13 +200,6 @@ class Renderer:
     def update(self, event: dict[str, object]) -> None:
         key, step = _step(event)
         self._steps[key] = step
-        if event.get("stage") == "wspr_frames":
-            terminal_state = "completed" if step.kind == "success" else step.state
-            for existing_key, existing_step in self._steps.items():
-                if existing_key[1] == "wspr_frame" and existing_key[2] == key[2]:
-                    self._steps[existing_key] = Step(
-                        existing_step.scope, existing_step.label, terminal_state, step.kind
-                    )
         if (event.get("stage") == "campaign" and event.get("status") == "terminal") or (
             event.get("stage") == "delegation"
             and event.get("status") in {"completed", "failed", "terminal"}
@@ -197,7 +207,11 @@ class Renderer:
             for existing_key, existing_step in self._steps.items():
                 if existing_key[1] == "command":
                     self._steps[existing_key] = Step(
-                        existing_step.scope, existing_step.label, "completed", "success"
+                        step.timestamp,
+                        existing_step.scope,
+                        existing_step.label,
+                        "completed",
+                        "success",
                     )
         if self._interactive and self._emit_updates:
             self._redraw()
