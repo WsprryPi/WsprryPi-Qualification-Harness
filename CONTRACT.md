@@ -205,6 +205,22 @@ children, disable output, restore the GPIO/input or Si5351 state, restore only
 services the harness intentionally changed, verify no helper remains, and
 record the outcome. Cleanup failure overrides an otherwise successful result.
 
+Target source repositories and linked worktrees are immutable inputs. A file
+that a managed child may normalize, migrate, persist, cache, or otherwise write
+must be copied with exclusive creation into an authorization-bound runtime
+directory outside every discovered or declared Git root before execution. The
+child receives only that staged path and runs from an external runtime working
+directory. Immediately before launch, the helper rechecks the source and staged
+identities, exact arguments, writable paths, working directory, Git executable,
+and protected roots. It snapshots repository state without requiring a clean
+checkout and compares that exact dirty baseline after every exit path.
+
+Repository mutation is an integrity and cleanup failure. It prevents a
+qualification result and is reported without reset, checkout, clean, deletion,
+or automatic restoration; operator work may have changed concurrently and must
+not be overwritten or concealed. Service restoration is not permitted to erase
+or supersede that integrity outcome.
+
 The carrier gate must pass before WSPR frames may run. The harness must never
 automatically classify receiver coverage, overload, ownership, or RF-fixture
 failure as transmitter unqualification.

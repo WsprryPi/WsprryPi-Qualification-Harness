@@ -174,6 +174,14 @@ from that store. Missing, changed, symlinked, or path-escaping inputs fail
 closed. Normal WsprryPi installation and `/usr/local/etc/wsprrypi.ini` behavior
 remain unchanged.
 
+For production composition, a target checkout is immutable source provenance,
+never a runtime directory. Any child-writable configuration is copied into a
+new deployment-owned directory outside all protected Git roots before the final
+plan is authorized. That plan binds the source file, staged file, protected
+roots, and external process working directory. The helper verifies the boundary
+at spawn and compares the post-process repository state with its exact original
+baseline, including pre-existing dirty work. Mutation fails cleanup and is
+reported without automatic repair.
 The current `main` production application/quiescence contracts support GPIO and
 Si5351, not `rp1_gpclk`; selecting RP1 therefore returns `missing_capability`
 before adapter construction. GPIO4/2 mA RP1 defaults will apply only after that

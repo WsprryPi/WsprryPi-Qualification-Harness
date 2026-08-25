@@ -240,6 +240,7 @@ class LaunchResult:
     actual_start_utc: str | None = None
     schedule_error_ms: float | None = None
     launch_error: str | None = None
+    repository_integrity: tuple[dict[str, object], ...] = ()
 
 
 class ExternalLauncher(Protocol):
@@ -418,6 +419,7 @@ class SshOwnedProcessLauncher:
         hard_timeout_s: float,
         executable_sha256: str,
         pinned_arguments: dict[str, str] | None = None,
+        repository_guard: dict[str, object] | None = None,
         privilege_wrapper_path: str | None = None,
         privilege_wrapper_sha256: str | None = None,
     ) -> None:
@@ -426,6 +428,11 @@ class SshOwnedProcessLauncher:
         self.client, self.hard_timeout_s = client, hard_timeout_s
         self.executable_sha256 = executable_sha256
         self.pinned_arguments = dict(pinned_arguments or {})
+        if self.pinned_arguments and repository_guard is None:
+            raise CapabilityError(
+                "mutable pinned process inputs require repository protection metadata"
+            )
+        self.repository_guard = repository_guard
         if (privilege_wrapper_path is None) is not (privilege_wrapper_sha256 is None):
             raise CapabilityError("remote process privilege wrapper binding is incomplete")
         self.privilege_wrapper_path = privilege_wrapper_path
@@ -450,6 +457,8 @@ class SshOwnedProcessLauncher:
             "hard_timeout_s": self.hard_timeout_s,
             "environment": {},
         }
+        if self.repository_guard is not None:
+            payload["repository_guard"] = self.repository_guard
         if scheduled_start_utc is not None:
             payload["scheduled_start_utc"] = scheduled_start_utc
             payload["minimum_arm_margin_s"] = minimum_arm_margin_s
@@ -506,6 +515,9 @@ def _launch_result_from_helper(document: dict[str, object], handle: str) -> Laun
             cast(str, document.get("launch_error"))
             if isinstance(document.get("launch_error"), str)
             else None
+        ),
+        repository_integrity=tuple(
+            cast(list[dict[str, object]], document.get("repository_integrity", []))
         ),
     )
 
@@ -1022,8 +1034,17 @@ class PersistentHelperTransport:
 
 
 class HelperServiceProvider:
-    def __init__(self, client: JsonHelperClient, manager: str) -> None:
+    def __init__(
+        self,
+        client: JsonHelperClient,
+        manager: str,
+        repository_guard: dict[str, object] | None = None,
+    ) -> None:
         self.client, self.manager = client, manager
+        self.repository_guard = repository_guard
+
+    def set_repository_guard(self, guard: dict[str, object]) -> None:
+        self.repository_guard = guard
 
     def inspect(self, name: str) -> ServiceState:
         response = self.client.request("service-inspect", {"name": name, "manager": self.manager})
@@ -1032,9 +1053,16 @@ class HelperServiceProvider:
         return ServiceState(name, self.manager, response["running"] is True)
 
     def set_running(self, name: str, running: bool) -> None:
-        response = self.client.request(
-            "service-set", {"name": name, "manager": self.manager, "running": running}
-        )
+        payload: dict[str, object] = {
+            "name": name,
+            "manager": self.manager,
+            "running": running,
+        }
+        if self.repository_guard is not None:
+            payload["repository_guard"] = self.repository_guard
+        response = self.client.request("service-set", payload)
+        if response.get("cleanup_verified") is False:
+            raise CapabilityError("service action changed protected repository state")
         if response.get("name") != name or response.get("running") is not running:
             raise CapabilityError("service helper did not reach requested state")
 

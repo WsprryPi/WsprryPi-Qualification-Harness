@@ -35,10 +35,17 @@ and evidence. Deployment and live RF remain later authorization gates.
 The live adapter owns one dedicated WsprryPi process for the complete carrier
 cadence. Its exact argument vector must select the plan-bound INI file, socket
 port, and `--socket-loopback-only`; the helper re-hashes both the executable and
-the INI argument immediately before spawning it. The service instance is
+the INI argument immediately before spawning it. A tracked INI is source
+provenance only: deployment copies it into a unique external runtime directory
+before final plan authorization, and the child receives only that staged path.
+The final plan binds the protected Git roots, source and staged identities, and
+external working directory. Legacy plans that pass a checkout path through
+`-i` are rejected. The service instance is
 stopped first when required, the dedicated server is started only after cleanup
 ownership is installed, and every tone cycle uses the same server transaction
 endpoint. The server is then stopped and its complete owned-process result is
 retained before service restoration and GPIO quiescence verification. A
 missing server, changed INI file, premature exit, or unverified owned stop makes
-the run unsuccessful.
+the run unsuccessful. Post-stop repository comparison preserves any existing
+dirty baseline. A detected mutation is a cleanup failure and is never silently
+repaired.

@@ -25,12 +25,20 @@ def test_discovered_facts_create_all_five_production_plans(tmp_path: Path) -> No
         "rx_gpio",
         "capture_helper",
         "wsprd",
+        "tone_ini_source",
         "tone_ini",
     )
     artifacts = {}
     for name in names:
-        path = tmp_path / name
-        path.write_text(name)
+        path = (
+            tmp_path / "source/config/wsprrypi.ini"
+            if name == "tone_ini_source"
+            else tmp_path / "runtime/wsprrypi.ini"
+            if name == "tone_ini"
+            else tmp_path / name
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("tone configuration" if name.startswith("tone_ini") else name)
         artifacts[name] = artifact(path)
     launcher = {
         "launcher": artifacts["rx_helper"],
@@ -49,7 +57,7 @@ def test_discovered_facts_create_all_five_production_plans(tmp_path: Path) -> No
         "artifacts": artifacts,
         "source": {"parent_revision": "1" * 40, "submodule_revision": "2" * 40},
         "transmitter_host_key_sha256": "SHA256:" + "A" * 43,
-        "transmitter_source_path": "/tmp/source",
+        "transmitter_source_path": str(tmp_path / "source"),
         "work_directory": str(tmp_path / "work"),
         "output_parent": str(tmp_path / "runs"),
         "rf_confirmation": {
