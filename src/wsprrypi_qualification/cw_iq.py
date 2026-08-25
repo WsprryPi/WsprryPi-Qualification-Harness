@@ -19,7 +19,7 @@ from wsprrypi_qualification.offline import (
 )
 
 ANALYZER_NAME = "wsprrypi-qualification-cw-iq"
-ANALYZER_VERSION = "4"
+ANALYZER_VERSION = "5"
 RELATIVE_ACQUISITION_OFFSET_GATE_HZ = 500.0
 
 
@@ -29,6 +29,15 @@ class CwIqError(OfflineAnalysisError):
 
 def _fail(message: str, cause: FailureCause = FailureCause.CONTRADICTORY_EVIDENCE) -> None:
     raise CwIqError(message, cause=cause)
+
+
+def _unmatched_event_cause(state: str, continuous: bool | None) -> str:
+    """Distinguish absent RF from a present carrier with no resolved state boundary."""
+    if state == "off":
+        return "false_silence"
+    if continuous is True:
+        return "unresolved_frequency_transition"
+    return "missing_carrier"
 
 
 def _load_inputs(plan_path: Path, expected_path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -535,7 +544,7 @@ def analyze_synthetic_iq(
             outcome = "blocked"
         elif run is None:
             outcome = "failed"
-            causes.append("missing_carrier" if state != "off" else "false_silence")
+            causes.append(_unmatched_event_cause(state, continuous))
         elif max(
             abs(
                 start / rate

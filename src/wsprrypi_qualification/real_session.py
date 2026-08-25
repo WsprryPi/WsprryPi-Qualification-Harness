@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from itertools import pairwise
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Protocol, cast
 
 from wsprrypi_qualification.manifests import write_manifest
@@ -47,8 +47,14 @@ HELPER_VERIFICATION_OPERATIONS = (
 
 
 def wspr_capture_setup_deadline(plan: dict[str, Any]) -> float:
-    """Bound receiver setup by the plan's maximum blocking read interval."""
-    return float(plan["receiver"]["read_timeout_us"]) / 1_000_000.0
+    """Bound receiver setup by the enforced capture-readiness deadline.
+
+    Setup includes device configuration, stream activation, the discarded first
+    read, and creation of the retained output.  A single read timeout bounds only
+    one of those operations; the adapter's helper deadline bounds the complete
+    readiness transition and is therefore the launch guard that can be enforced.
+    """
+    return float(plan["deadlines"]["helper_s"])
 
 
 CF32_BYTES_PER_SAMPLE = 8
@@ -805,6 +811,26 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         tone_server = document.get("tone_server")
         if not isinstance(tone_server, dict):
             raise RealSessionError("CW live Tone requires a pinned loopback server process")
+        protected_roots = [PurePosixPath(value) for value in tone_server["protected_source_roots"]]
+        source_configuration = PurePosixPath(tone_server["configuration_source"]["path"])
+        runtime_configuration = PurePosixPath(tone_server["configuration"]["path"])
+        working_directory = PurePosixPath(tone_server["working_directory"])
+        if (
+            not source_configuration.is_absolute()
+            or not runtime_configuration.is_absolute()
+            or not working_directory.is_absolute()
+            or source_configuration == runtime_configuration
+            or any(runtime_configuration.is_relative_to(root) for root in protected_roots)
+            or any(working_directory.is_relative_to(root) for root in protected_roots)
+            or runtime_configuration.parent != working_directory
+            or tone_server["configuration_source"]["size_bytes"]
+            != tone_server["configuration"]["size_bytes"]
+            or tone_server["configuration_source"]["sha256"]
+            != tone_server["configuration"]["sha256"]
+        ):
+            raise RealSessionError(
+                "bounded Tone mutable configuration is not staged outside protected source"
+            )
         endpoint = helper["bounded_tone_endpoint"]
         expected_arguments = [
             document["wsprrypi"]["path"],

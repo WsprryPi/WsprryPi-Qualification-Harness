@@ -123,3 +123,13 @@ target checkout or persistent runtime. `tests/unit/test_remote_staging.py`
 covers normal removal, partial-copy removal, unsafe targets, and cleanup-failure
 precedence; actual-host smoke tests must additionally verify post-run process
 absence and hardware quiescence.
+
+Mutable runtime inputs require a stricter boundary than ordinary file staging.
+Discover all declared Git roots, retain the tracked source only as provenance,
+and create the mutable copy under the fresh deployment namespace with exclusive
+creation, bounded permissions, byte/hash verification, and an external working
+directory. The finalized source binding, staged binding, protected roots, and
+working directory enter the resolved plan before authorization. The helper
+rejects pinned mutable inputs without this repository guard, rechecks it before
+spawn, and records post-process integrity. Cleanup removes only the owned stage;
+it never deletes or repairs a repository path.

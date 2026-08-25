@@ -72,6 +72,22 @@ wsprrypi-qualification complete-test wspr4 wspr5 \
 wsprrypi-qualification validate-complete-test CAMPAIGN-BUNDLE
 ```
 
+When the complete-test progress producer opens its JSONL file, it prints the
+exact tracking command for another terminal. The command binds the running
+Python interpreter and resolved viewer source, so it does not depend on a
+separately installed console script or shell `PATH`:
+
+```text
+/path/to/python /path/to/progress_viewer.py /path/to/complete-test-progress.jsonl
+```
+
+The viewer keeps each logical campaign, mode, capture, frame, observation, and
+cleanup step on one terminal row. Later queued, started, and terminal records
+replace that row with a status glyph and color, and visible output is limited to
+79 columns. It exits after receiver delegation completes; direct receiver runs
+exit at the campaign terminal record. Use `--replay` to render an existing log
+without waiting for another record. This display is operational convenience;
+the authenticated campaign bundle remains authoritative evidence.
 The progress file uses `complete-test-progress.schema.json`. Each JSON Lines
 record is flushed before execution continues. The CLI announces the absolute
 path on stderr; stdout remains final-result JSON only. Delegated processes
@@ -84,7 +100,6 @@ the Linux XDG state directory (with the documented home-state fallback).
 `WSPQ_PROGRESS_DIR` provides a deployment-level override, while
 `--progress-log` selects an exact file. Automatic stage cleanup never owns or
 deletes this log; review and removal are explicit operator retention actions.
-
 Defaults are 20 m, 14,097,100 Hz, `Q0QQQ`, `JJ00`, 0 dBm, keyed message `ET`,
 0.7-second QRSS/FSKCW/DFCW dots, and 5.0 Hz FSKCW/DFCW separation. All are
 named CLI overrides. WSPR retains the maintained three-frame contract; keyed
@@ -159,6 +174,14 @@ from that store. Missing, changed, symlinked, or path-escaping inputs fail
 closed. Normal WsprryPi installation and `/usr/local/etc/wsprrypi.ini` behavior
 remain unchanged.
 
+For production composition, a target checkout is immutable source provenance,
+never a runtime directory. Any child-writable configuration is copied into a
+new deployment-owned directory outside all protected Git roots before the final
+plan is authorized. That plan binds the source file, staged file, protected
+roots, and external process working directory. The helper verifies the boundary
+at spawn and compares the post-process repository state with its exact original
+baseline, including pre-existing dirty work. Mutation fails cleanup and is
+reported without automatic repair.
 The current `main` production application/quiescence contracts support GPIO and
 Si5351, not `rp1_gpclk`; selecting RP1 therefore returns `missing_capability`
 before adapter construction. GPIO4/2 mA RP1 defaults will apply only after that

@@ -26,7 +26,7 @@ correctness are forbidden.
 | Scheduled helper process | accepted UTC schedule converted once to a monotonic launch instant; watchdog and waiter share the same hard deadline and outcome | protocol/plan-bound |
 | Soapy capture | exact sample count/rate plus receiver read interval | protocol/work-derived and external API |
 | Tone | exact off/on cadence and bounded transaction count | protocol/work-derived |
-| WSPR capture launch | first UTC slot minus retained margin minus one maximum receiver read | protocol and external API |
+| WSPR capture launch | first UTC slot minus retained margin minus the enforced helper-readiness bound covering configuration, activation, discarded first read, and retained-output establishment | protocol and external API |
 | WSPR frame analysis | coherent CF32 bytes times two validation/render passes at the supported I/O floor, plus decoder subprocess bound | work-derived |
 | WSPR summary | coherent CF32 bytes times two semantic-validation passes per frame at the supported I/O floor | work-derived |
 | WSPR publication | coherent CF32 bytes times source-authentication, copy, retained-authentication, and post-publication-validation passes at the supported I/O floor | work-derived |

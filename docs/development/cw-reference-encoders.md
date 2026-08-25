@@ -5,6 +5,13 @@ answer used by later analyzers. The encoder is deliberately independent of
 transmitter logs, captured IQ, clocks, devices, and operating-system behavior.
 Its output remains non-qualifying.
 
+The FSKCW reference mirrors the target execution-plan compiler: dot and dash
+events use the requested Morse durations and intervening gaps remain continuous
+RF at the space frequency. Backend initialization before the first timed symbol
+is not an event and cannot be inferred or fitted from acquired IQ. A backend
+that enables RF while performing variable initialization therefore fails the
+timing contract; the harness does not add that observed latency to its reference.
+
 ## Supported definitions
 
 - `wspq-tone@v1`, `wspq-cw@v1`, `wspq-qrss@v1`, and `wspq-fskcw@v1` are the

@@ -80,6 +80,7 @@ from wsprrypi_qualification.offline import (
 )
 from wsprrypi_qualification.profiles import ProfileError, load_profile
 from wsprrypi_qualification.progress import default_progress_path, stderr_reporter
+from wsprrypi_qualification.progress_viewer import tracking_command
 from wsprrypi_qualification.real_session import (
     RealQualificationSession,
     RealRuntimeAuthorization,
@@ -480,6 +481,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         reporter = stderr_reporter(progress_path, stream=args.progress_stream)
         if not args.progress_stream:
             print(f"Progress log: {reporter.path}", file=sys.stderr, flush=True)
+            if reporter.path is not None:
+                print(
+                    f"Track progress: {tracking_command(reporter.path)}",
+                    file=sys.stderr,
+                    flush=True,
+                )
         try:
             reporter.emit("command", "started", "complete-test command accepted")
             if args.rehearse and args.enable_rf:

@@ -77,7 +77,34 @@ from wsprrypi_qualification.receiver_calibration import (
     ReceiverCalibrationError,
     validate_live_binding,
 )
+from wsprrypi_qualification.timing import sample_index_at_utc
 
+
+def _reject_git_worktree_runtime(path: Path) -> None:
+    """Reject a prospective runtime directory beneath any local Git worktree."""
+    candidate = path.resolve(strict=False)
+    ancestor = candidate
+    while not ancestor.exists() and ancestor != ancestor.parent:
+        ancestor = ancestor.parent
+    git = shutil.which("git")
+    if git is None or not ancestor.is_dir():
+        raise RealSessionError("runtime Git-boundary discovery is unavailable")
+    result = subprocess.run(
+        (git, "-C", str(ancestor), "rev-parse", "--show-toplevel"),
+        shell=False,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=5,
+    )
+    if result.returncode == 0:
+        root = Path(result.stdout.strip()).resolve(strict=True)
+        if candidate.is_relative_to(root):
+            raise RealSessionError("runtime directory resolves inside a Git worktree")
+
+
+_COHERENT_CAPTURE_STARTUP_GUARD_S = 2.0
 _T = TypeVar("_T")
 
 
@@ -148,13 +175,31 @@ def _coherent_capture_launch_epoch(
     return first_slot.timestamp() - required_margin_s - setup_deadline_s
 
 
-def _retained_capture_has_margin(
-    metadata: dict[str, Any], first_slot: datetime, required_margin_s: float
+def _retained_capture_covers_wspr_frames(
+    metadata: dict[str, Any],
+    slots: list[datetime],
+    *,
+    sample_rate_hz: int,
+    required_margin_s: float,
+    frame_duration_s: int = 120,
 ) -> bool:
-    retained_start = datetime.fromisoformat(
-        metadata["timestamps"]["retained_capture_start_utc"].replace("Z", "+00:00")
-    )
-    return retained_start <= first_slot - timedelta(seconds=required_margin_s)
+    """Prove the retained sample interval contains every required decoder window."""
+    try:
+        retained_start = datetime.fromisoformat(
+            metadata["timestamps"]["retained_capture_start_utc"].replace("Z", "+00:00")
+        )
+        retained_count = int(metadata["retained_sample_count"])
+        margin_samples = sample_rate_hz * required_margin_s
+        frame_samples = sample_rate_hz * frame_duration_s
+        if not margin_samples.is_integer():
+            return False
+        for slot in slots:
+            start = sample_index_at_utc(retained_start, slot, sample_rate_hz)
+            if start < int(margin_samples) or start + frame_samples > retained_count:
+                return False
+    except (KeyError, TypeError, ValueError):
+        return False
+    return bool(slots)
 
 
 def _intentional_carrier_stop_verified(result: object) -> bool:
@@ -278,6 +323,17 @@ class ProductionRealSessionAdapters:
             self._publication_budget_s = wspr_publication_deadline(plan)
         else:
             self._publication_budget_s = plan["deadlines"]["overall_s"]
+        repository_guard = {
+            "protected_source_roots": [plan["source"]["repository_path"]],
+            "git_path": plan["source"]["git_path"],
+            "git_sha256": plan["source"]["git_sha256"],
+            "working_directory": str(Path(plan["wsprrypi"]["path"]).parent),
+            "mutable_inputs": [],
+            "writable_paths": [],
+        }
+        self.tx_launcher.repository_guard = repository_guard
+        self.source_launcher.repository_guard = repository_guard
+        self.tx_services.set_repository_guard(repository_guard)
 
     def _remaining(self, requested: float, *, reserve_cleanup: bool = False) -> float:
         if self._session_deadline is None:
@@ -745,6 +801,14 @@ class ProductionRealSessionAdapters:
                 self.tx_client,
                 plan["tone_schedule"]["on_seconds"],
                 plan["wsprrypi"]["sha256"],
+                repository_guard={
+                    "protected_source_roots": [plan["source"]["repository_path"]],
+                    "git_path": plan["source"]["git_path"],
+                    "git_sha256": plan["source"]["git_sha256"],
+                    "working_directory": str(Path(plan["wsprrypi"]["path"]).parent),
+                    "mutable_inputs": [],
+                    "writable_paths": [],
+                },
             )
         process = launcher.begin(application.arguments)
         self._owned.append(process)
@@ -794,6 +858,7 @@ class ProductionRealSessionAdapters:
                 "cancelled": execution.cancelled,
                 "disconnected": execution.disconnected,
                 "cleanup_verified": execution.cleanup_verified,
+                "repository_integrity": list(execution.repository_integrity),
                 "stop_requested": execution.stop_requested,
                 "running_before_stop": execution.running_before_stop,
                 "outcome": (
@@ -881,6 +946,21 @@ class ProductionRealSessionAdapters:
             plan["wsprrypi"]["sha256"],
             pinned_arguments={
                 server_plan["configuration"]["path"]: server_plan["configuration"]["sha256"]
+            },
+            repository_guard={
+                "protected_source_roots": server_plan["protected_source_roots"],
+                "git_path": plan["source"]["git_path"],
+                "git_sha256": plan["source"]["git_sha256"],
+                "working_directory": server_plan["working_directory"],
+                "mutable_inputs": [
+                    {
+                        "source_path": server_plan["configuration_source"]["path"],
+                        "source_sha256": server_plan["configuration_source"]["sha256"],
+                        "runtime_path": server_plan["configuration"]["path"],
+                        "runtime_sha256": server_plan["configuration"]["sha256"],
+                    }
+                ],
+                "writable_paths": [server_plan["configuration"]["path"]],
             },
         )
         server = launcher.begin(tuple(server_plan["arguments"]))
@@ -1035,6 +1115,11 @@ class ProductionRealSessionAdapters:
             if errors or not worker.is_alive():
                 break
             time.sleep(0.01)
+        # Do not turn poll cadence into an undeclared subtraction from the
+        # resolved readiness bound. Accept an output established at the exact
+        # boundary, but never wait beyond it.
+        if expected.exists() and not errors and worker.is_alive():
+            return
         raise RealSessionError("receiver capture did not establish its retained output before RF")
 
     def analyze_carrier(
@@ -1255,13 +1340,17 @@ class ProductionRealSessionAdapters:
                 raise RealSessionError(f"coherent capture failed: {capture_error[0]}")
             metadata_path = self._capture_artifacts["coherent"][1]
             metadata = load_json_document(metadata_path, "capture-metadata.schema.json")
-            if not _retained_capture_has_margin(
+            slot_datetimes = [
+                datetime.fromisoformat(value.replace("Z", "+00:00")) for value in plan["slots_utc"]
+            ]
+            if not _retained_capture_covers_wspr_frames(
                 metadata,
-                first_slot,
-                plan["coherent_capture"]["margin_before_first_slot_s"],
+                slot_datetimes,
+                sample_rate_hz=plan["coherent_capture"]["sample_rate_hz"],
+                required_margin_s=plan["coherent_capture"]["margin_before_first_slot_s"],
             ):
                 raise RealSessionError(
-                    "coherent capture retained start missed its resolved UTC margin"
+                    "coherent capture cannot supply every resolved WSPR decoder window"
                 )
             wait = process.wait(
                 self._remaining(plan["deadlines"]["transmitter_s"], reserve_cleanup=True), None
@@ -1742,6 +1831,7 @@ def build_production_adapters(
     ):
         if not path.is_file():
             raise RealSessionError(f"required local live input is unavailable: {path}")
+    _reject_git_worktree_runtime(work_directory)
     work_directory.mkdir(parents=True, exist_ok=False)
     digest = helper_configuration_plan_sha256(plan)
     remote_command = (
@@ -1845,12 +1935,33 @@ class KeyedCapabilityProviders:
         self.plan = plan
         self.tx_transport, self.rx_transport = tx_transport, rx_transport
         self.tx_client, self.rx_client = tx_client, rx_client
-        self.tx_services = HelperServiceProvider(tx_client, "systemd")
+        transmitter = plan["transmitter"]
+        if (
+            not {
+                "protected_source_roots",
+                "git",
+                "runtime_working_directory",
+            }
+            <= transmitter.keys()
+        ):
+            raise RealSessionError(
+                "keyed production plan must be regenerated with repository protection"
+            )
+        repository_guard = {
+            "protected_source_roots": transmitter["protected_source_roots"],
+            "git_path": transmitter["git"]["path"],
+            "git_sha256": transmitter["git"]["sha256"],
+            "working_directory": transmitter["runtime_working_directory"],
+            "mutable_inputs": [],
+            "writable_paths": [],
+        }
+        self.tx_services = HelperServiceProvider(tx_client, "systemd", repository_guard)
         self.rx_services = HelperServiceProvider(rx_client, "systemd")
         self.launcher = SshOwnedProcessLauncher(
             tx_client,
             plan["deadlines"]["transaction_s"],
             plan["transmitter"]["executable"]["sha256"],
+            repository_guard=repository_guard,
             privilege_wrapper_path=plan["capability_bindings"][
                 "transmitter_process_privilege_wrapper"
             ]["path"],
@@ -2411,6 +2522,7 @@ def build_keyed_capability_providers(
         )
     ):
         raise RealSessionError("remote keyed helper or configuration path is unsafe")
+    _reject_git_worktree_runtime(work_directory)
     work_directory.mkdir(parents=True, exist_ok=False)
     digest = resolved_keyed_plan_sha256(plan)
     helper_arguments = (

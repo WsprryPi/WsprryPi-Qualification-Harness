@@ -85,6 +85,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "rx_gpio",
             "capture_helper",
             "wsprd",
+            "tone_ini_source",
             "tone_ini",
         )
     }
@@ -264,6 +265,9 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "analyzer_source_revision": revisions["parent_revision"],
         },
         "tone_server": {
+            "protected_source_roots": [str(facts["transmitter_source_path"])],
+            "working_directory": str(Path(artifacts["tone_ini"]["path"]).parent),
+            "configuration_source": artifacts["tone_ini_source"],
             "configuration": artifacts["tone_ini"],
             "arguments": [
                 artifacts["tx_wsprrypi"]["path"],
@@ -433,6 +437,9 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "frequency_hz": 14_097_100,
             "drive": 0,
             "executable": artifacts["tx_wsprrypi"],
+            "protected_source_roots": [str(facts["transmitter_source_path"])],
+            "git": artifacts["tx_git"],
+            "runtime_working_directory": str(Path(artifacts["tx_wsprrypi"]["path"]).parent),
         },
         "receiver": {
             "host": rx_host,

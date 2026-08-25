@@ -326,6 +326,22 @@ relocation/index mechanism. A matching hash alone is not path provenance.
 
 ## Development and acceptance validation
 
+### Target repository containment
+
+Treat every target checkout, linked worktree, nested repository, and submodule
+as an immutable source boundary, whether clean or dirty. Managed processes must
+never receive a repository-contained mutable configuration. Resolve Git roots
+with the maintained repository-protection API, stage mutable bytes into a new
+external runtime directory before authorization, and bind both the source and
+runtime identities. Run the child from that external directory with controlled
+outputs. Cleanup compares the post-process repository state to its exact
+pre-process baseline; it reports mutation and never repairs it automatically.
+
+The historical wspr4 Tone pattern--passing a tracked
+`config/wsprrypi.ini` through `-i`--is explicitly rejected before launch. A
+matching initial file identity, short process lifetime, or installed cleanup
+does not make a mutable repository input safe.
+
 Use static checks and tests directly affected by a change for the development
 loop. Run the complete set below once for cross-cutting changes, releases, or
 when CI is unavailable:

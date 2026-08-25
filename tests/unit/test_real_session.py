@@ -34,10 +34,10 @@ def test_wspr_deadline_contains_slot_wait_capture_analysis_publication_and_clean
     plan = plan_document()
     session_start = datetime(2026, 8, 12, 19, 58, 20, tzinfo=UTC)
 
-    assert required_wspr_overall_deadline(plan, session_start) == 977
+    assert required_wspr_overall_deadline(plan, session_start) == 972
 
     plan["deadlines"]["cleanup_s"] += 7
-    assert required_wspr_overall_deadline(plan, session_start) == 991
+    assert required_wspr_overall_deadline(plan, session_start) == 986
 
 
 def test_wspr_deadline_rejects_session_after_capture_launch() -> None:
@@ -50,7 +50,7 @@ def test_wspr_deadline_rejects_session_after_capture_launch() -> None:
 def test_wspr_offline_deadlines_scale_from_exact_coherent_capture_work() -> None:
     plan = plan_document()
     assert plan["coherent_capture"]["sample_count"] * 8 == 740_000_000
-    assert wspr_capture_setup_deadline(plan) == 0.5
+    assert wspr_capture_setup_deadline(plan) == 5
     assert wspr_frame_analysis_deadline(plan) == 65
     assert wspr_summary_deadline(plan) == 178
     assert wspr_publication_deadline(plan) == 119
@@ -294,6 +294,13 @@ def tone_plan_document(
                 "analyzer_source_revision": "3" * 40,
             },
             "tone_server": {
+                "protected_source_roots": ["/source/WsprryPi"],
+                "working_directory": "/carrier-session",
+                "configuration_source": {
+                    "path": "/source/WsprryPi/config/wsprrypi.ini",
+                    "size_bytes": 1,
+                    "sha256": "c" * 64,
+                },
                 "configuration": {
                     "path": "/carrier-session/wsprrypi-tone.ini",
                     "size_bytes": 1,
@@ -350,6 +357,25 @@ def test_tone_plan_rejects_missing_or_mismatched_manual_ppm_before_adapters() ->
             arguments[arguments.index("--no-system-clock-frequency-estimate")] = "-n"
         with pytest.raises(RealSessionError, match="server arguments"):
             validate_real_session_plan(document)
+
+
+@pytest.mark.parametrize("mutation", ("legacy_source", "same_path", "source_cwd", "changed_copy"))
+def test_tone_plan_rejects_unstaged_or_unbound_mutable_configuration(
+    mutation: str,
+) -> None:
+    document = tone_plan_document()
+    server = document["tone_server"]
+    if mutation == "legacy_source":
+        server["configuration"]["path"] = "/source/WsprryPi/config/wsprrypi.ini"
+        server["arguments"][server["arguments"].index("-i") + 1] = server["configuration"]["path"]
+    elif mutation == "same_path":
+        server["configuration_source"]["path"] = server["configuration"]["path"]
+    elif mutation == "source_cwd":
+        server["working_directory"] = "/source/WsprryPi"
+    else:
+        server["configuration"]["sha256"] = "d" * 64
+    with pytest.raises(RealSessionError, match="staged outside protected source"):
+        validate_real_session_plan(document)
 
 
 def test_tone_helper_bindings_change_every_plan_digest() -> None:

@@ -25,7 +25,8 @@ from wsprrypi_qualification.live_adapters import (
     _derive_scheduled_mode_plan,
     _intentional_carrier_stop_verified,
     _owned_process_released,
-    _retained_capture_has_margin,
+    _reject_git_worktree_runtime,
+    _retained_capture_covers_wspr_frames,
     _stage_bound_artifact,
 )
 from wsprrypi_qualification.manifests import build_manifest, render_manifest, write_manifest
@@ -531,10 +532,19 @@ def test_transmitter_execution_retains_complete_owned_process_result(tmp_path: P
         "cancelled": False,
         "disconnected": False,
         "cleanup_verified": False,
+        "repository_integrity": [],
         "stop_requested": False,
         "running_before_stop": None,
         "outcome": "failed",
     }
+
+
+def test_runtime_directory_inside_git_worktree_is_rejected(tmp_path: Path) -> None:
+    repository = tmp_path / "target checkout"
+    repository.mkdir()
+    subprocess.run(("git", "-C", str(repository), "init", "-q"), check=True)
+    with pytest.raises(RealSessionError, match="inside a Git worktree"):
+        _reject_git_worktree_runtime(repository / "runs/session")
 
 
 def test_capture_ready_requires_native_incomplete_output(tmp_path: Path) -> None:
@@ -589,18 +599,51 @@ def test_verified_early_exit_releases_owned_process_without_claiming_intentional
     )
 
 
-def test_coherent_capture_guard_and_retained_margin_are_distinct() -> None:
+def test_coherent_capture_guard_covers_complete_bounded_receiver_setup() -> None:
     slot = datetime(2026, 8, 13, 20, 44, tzinfo=UTC)
-    assert _coherent_capture_launch_epoch(slot, 5, 0.5) == slot.timestamp() - 5.5
-    assert _retained_capture_has_margin(
-        {"timestamps": {"retained_capture_start_utc": "2026-08-13T20:43:55Z"}},
-        slot,
-        5,
+    launch = _coherent_capture_launch_epoch(slot, 5, 5)
+    assert launch == slot.timestamp() - 10
+    # The live failure took 591 ms from helper start to retained capture.  With
+    # the complete readiness bound as the guard, the same startup is safely early.
+    retained = datetime.fromtimestamp(launch + 0.591, UTC)
+    assert _retained_capture_covers_wspr_frames(
+        {
+            "timestamps": {"retained_capture_start_utc": retained.isoformat()},
+            "retained_sample_count": 92_500_000,
+        },
+        [slot, slot + timedelta(seconds=120), slot + timedelta(seconds=240)],
+        sample_rate_hz=250_000,
+        required_margin_s=5,
     )
-    assert not _retained_capture_has_margin(
-        {"timestamps": {"retained_capture_start_utc": "2026-08-13T20:43:55.001Z"}},
-        slot,
-        5,
+
+
+@pytest.mark.parametrize(
+    ("start_offset_s", "sample_count", "expected"),
+    [
+        (-5.0, 92_500_000, True),
+        (-5.001, 92_500_000, True),
+        (-4.999, 92_500_000, False),
+        (-4.909, 92_500_000, False),
+        (-5.0, 91_249_999, False),
+        (-5.091, 92_500_000, True),
+    ],
+)
+def test_retained_capture_proves_all_decoder_windows(
+    start_offset_s: float, sample_count: int, expected: bool
+) -> None:
+    slot = datetime(2026, 8, 13, 20, 44, tzinfo=UTC)
+    retained = slot + timedelta(seconds=start_offset_s)
+    assert (
+        _retained_capture_covers_wspr_frames(
+            {
+                "timestamps": {"retained_capture_start_utc": retained.isoformat()},
+                "retained_sample_count": sample_count,
+            },
+            [slot, slot + timedelta(seconds=120), slot + timedelta(seconds=240)],
+            sample_rate_hz=250_000,
+            required_margin_s=5,
+        )
+        is expected
     )
 
 
@@ -840,12 +883,20 @@ def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, mo
             )
 
     class Launcher:
-        def __init__(self, client, hard_timeout_s, executable_sha256, pinned_arguments=None):
+        def __init__(
+            self,
+            client,
+            hard_timeout_s,
+            executable_sha256,
+            pinned_arguments=None,
+            repository_guard=None,
+        ):
             observed.update(
                 client=client,
                 hard_timeout_s=hard_timeout_s,
                 executable_sha256=executable_sha256,
                 pinned_arguments=pinned_arguments,
+                repository_guard=repository_guard,
             )
 
         def begin(self, arguments):
@@ -864,6 +915,21 @@ def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, mo
     )
     assert result == {"capture": "complete"}
     assert observed["arguments"] == tuple(plan["tone_server"]["arguments"])
+    assert observed["repository_guard"] == {
+        "protected_source_roots": plan["tone_server"]["protected_source_roots"],
+        "git_path": plan["source"]["git_path"],
+        "git_sha256": plan["source"]["git_sha256"],
+        "working_directory": plan["tone_server"]["working_directory"],
+        "mutable_inputs": [
+            {
+                "source_path": plan["tone_server"]["configuration_source"]["path"],
+                "source_sha256": plan["tone_server"]["configuration_source"]["sha256"],
+                "runtime_path": plan["tone_server"]["configuration"]["path"],
+                "runtime_sha256": plan["tone_server"]["configuration"]["sha256"],
+            }
+        ],
+        "writable_paths": [plan["tone_server"]["configuration"]["path"]],
+    }
     assert observed["pinned_arguments"] == {
         plan["tone_server"]["configuration"]["path"]: plan["tone_server"]["configuration"]["sha256"]
     }
@@ -1039,12 +1105,20 @@ def test_each_live_tone_cycle_uses_its_resolved_remote_watchdog(
     observed = {}
 
     class Launcher:
-        def __init__(self, client, hard_timeout_s, executable_sha256, pinned_arguments=None):
+        def __init__(
+            self,
+            client,
+            hard_timeout_s,
+            executable_sha256,
+            pinned_arguments=None,
+            repository_guard=None,
+        ):
             observed.update(
                 client=client,
                 hard_timeout_s=hard_timeout_s,
                 executable_sha256=executable_sha256,
                 pinned_arguments=pinned_arguments,
+                repository_guard=repository_guard,
             )
 
         def begin(self, arguments):

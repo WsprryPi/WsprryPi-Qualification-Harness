@@ -32,6 +32,14 @@ class _TransmitterStage(_Stage):
         return result
 
 
+class _InstalledTransmitterStage(_Stage):
+    def run_python(
+        self, program: str, *arguments: str, timeout_s: float | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        super().run_python(program, *arguments, timeout_s=timeout_s)
+        return subprocess.CompletedProcess([], 0, f"{arguments[0]}/wsprrypi\n", "")
+
+
 def test_transmitter_binary_is_exclusively_installed_per_campaign() -> None:
     stage = _TransmitterStage()
 
@@ -40,11 +48,29 @@ def test_transmitter_binary_is_exclusively_installed_per_campaign() -> None:
     deployment = "/home/pi/wsprrypi-qualification-runs/complete-test-deployment-stage"
     assert paths["binary"] == f"{deployment}/wsprrypi"
     assert paths["deployment_root"] == deployment
+    assert paths["tone_configuration"] == f"{deployment}/wsprrypi.ini"
+    assert paths["tone_configuration_source"] == (f"{stage.root}/source/config/wsprrypi.ini")
     assert stage.calls[0][1] == (deployment, stage.owner_token)
     compile(stage.calls[0][0], "<transmitter-build-program>", "exec")
     assert "os.O_EXCL" in stage.calls[0][0]
     assert "os.fsync" in stage.calls[0][0]
     assert "cached.write_bytes" not in stage.calls[0][0]
+    assert "build_source=root/'build-source'" in stage.calls[0][0]
+    assert "str(build_source/'src')" in stage.calls[0][0]
+    assert "str(src/'src')" not in stage.calls[0][0]
+
+
+def test_installed_configuration_is_staged_byte_for_byte_without_normalization() -> None:
+    stage = _InstalledTransmitterStage()
+    paths = automatic_deployment._prepare_transmitter(
+        stage, installed_binary="/usr/local/bin/wsprrypi"
+    )
+    program, arguments, _ = stage.calls[0]
+    assert arguments[-2:] == ("/usr/local/bin/wsprrypi", "/usr/local/etc/wsprrypi.ini")
+    assert "config_source.read_bytes()" in program
+    assert "splitlines" not in program
+    assert "filtered" not in program
+    assert paths["tone_configuration"].startswith(paths["deployment_root"])
 
 
 def test_receiver_preparation_binds_cache_and_transmitter_trust() -> None:
