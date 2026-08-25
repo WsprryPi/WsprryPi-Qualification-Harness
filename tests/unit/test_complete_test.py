@@ -881,6 +881,94 @@ def test_live_cli_classified_exit_codes(
     assert set(rendered) == {"status", "transmitter", "receiver", "sdr", "bundle"}
 
 
+def test_complete_test_defaults_to_installed_wsprrypi_runtime() -> None:
+    args = cli_module._parser().parse_args(
+        ["complete-test", "wspr4", "wspr5", "--sdr", SDR, "--enable-rf"]
+    )
+    assert args.wsprrypi_binary == "/usr/local/bin/wsprrypi"
+    assert args.wsprrypi_config == "/usr/local/etc/wsprrypi.ini"
+    assert args.wsprrypi_source is None
+
+
+def test_complete_test_source_build_is_explicit_and_mutually_exclusive(tmp_path: Path) -> None:
+    parser = cli_module._parser()
+    args = parser.parse_args(
+        [
+            "complete-test",
+            "wspr4",
+            "wspr5",
+            "--sdr",
+            SDR,
+            "--wsprrypi-source",
+            str(tmp_path),
+            "--enable-rf",
+        ]
+    )
+    assert args.wsprrypi_source == tmp_path
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "complete-test",
+                "wspr4",
+                "wspr5",
+                "--sdr",
+                SDR,
+                "--wsprrypi-binary",
+                "/opt/wsprrypi",
+                "--wsprrypi-source",
+                str(tmp_path),
+            ]
+        )
+
+
+@pytest.mark.parametrize(
+    ("runtime_arguments", "expected_binary", "expected_source"),
+    (
+        ((), "/usr/local/bin/wsprrypi", None),
+        (("--wsprrypi-source", "."), None, Path(".")),
+    ),
+)
+def test_remote_complete_test_forwards_explicit_runtime_selection(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+    runtime_arguments: tuple[str, ...],
+    expected_binary: str | None,
+    expected_source: Path | None,
+) -> None:
+    monkeypatch.setenv("WSPQ_PROGRESS_DIR", str(tmp_path / "progress"))
+    observed = {}
+
+    def delegated(*args, **kwargs):
+        observed.update(kwargs)
+        return {
+            "bundle": "/retained/campaign",
+            "result": {
+                "final_status": "qualified",
+                "transmitter_host": "wspr4",
+                "receiver_host": "wspr5",
+                "sdr_selector": SDR,
+            },
+        }
+
+    monkeypatch.setattr(cli_module, "receiver_is_local", lambda host: False)
+    monkeypatch.setattr(cli_module, "delegate_automatic_complete_test", delegated)
+    arguments = [
+        "complete-test",
+        "wspr4",
+        "wspr5",
+        "--sdr",
+        SDR,
+        "--enable-rf",
+        *runtime_arguments,
+    ]
+    assert main(arguments) == 0
+    assert observed["wsprrypi_binary"] == expected_binary
+    assert observed["wsprrypi_source"] == expected_source
+    assert observed["wsprrypi_configuration"] == "/usr/local/etc/wsprrypi.ini"
+    capsys.readouterr()
+
+
 def test_receiver_delegation_returns_full_machine_result(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
