@@ -49,7 +49,7 @@ def test_carrier_gate_pass_fail_full_span_and_determinism(tmp_path: Path) -> Non
     parameters = CarrierParameters(rate, center, center + 1000, fft_size=size, dc_exclusion_hz=100)
     first = analyze_carrier(off, on, parameters, tmp_path / "one.json")
     second = analyze_carrier(off, on, parameters, tmp_path / "two.json")
-    assert first["gate_outcome"] == "passed"
+    assert first["gate_outcome"] == "failed"
     assert first["metrics"] == second["metrics"]
     assert first["metrics"]["strongest_transmitter_added_frequency_hz"] == center + 500
     failed = analyze_carrier(
@@ -112,7 +112,7 @@ def test_target_contrast_straddles_maintained_ten_db_gate(
     assert result["gate_outcome"] == outcome
 
 
-def test_exact_target_window_boundary_passes_when_it_is_the_global_peak(tmp_path: Path) -> None:
+def test_exact_target_window_boundary_fails_default_offset_tolerance(tmp_path: Path) -> None:
     rate, size, center, requested = 4096, 1024, 10_000.0, 11_000.0
     off = write_cf32(tmp_path / "off-boundary.cf32", np.zeros(size))
     on = write_cf32(tmp_path / "on-boundary.cf32", tone(size, rate, 500))
@@ -122,8 +122,36 @@ def test_exact_target_window_boundary_passes_when_it_is_the_global_peak(tmp_path
         CarrierParameters(rate, center, requested, fft_size=size, dc_exclusion_hz=100),
         tmp_path / "boundary.json",
     )
-    assert result["gate_outcome"] == "passed"
+    assert result["gate_outcome"] == "failed"
     assert result["metrics"]["strongest_offset_hz"] == -500
+
+
+@pytest.mark.parametrize(
+    ("error_hz", "outcome"),
+    (
+        (-108, "failed"),
+        (-100, "passed"),
+        (-96, "passed"),
+        (96, "passed"),
+        (100, "passed"),
+        (108, "failed"),
+    ),
+)
+def test_configured_carrier_offset_gate_is_absolute_and_inclusive(
+    tmp_path: Path, error_hz: int, outcome: str
+) -> None:
+    rate, size, center, requested = 4096, 1024, 10_000.0, 11_000.0
+    off = write_cf32(tmp_path / f"off-{error_hz}.cf32", np.zeros(size))
+    on = write_cf32(tmp_path / f"on-{error_hz}.cf32", tone(size, rate, 1000 + error_hz))
+    result = analyze_carrier(
+        off,
+        on,
+        CarrierParameters(
+            rate, center, requested, fft_size=size, dc_exclusion_hz=100, offset_gate_hz=100
+        ),
+        tmp_path / f"gate-{error_hz}.json",
+    )
+    assert result["gate_outcome"] == outcome
 
 
 @pytest.mark.parametrize(
@@ -196,7 +224,7 @@ def test_carrier_plot_source_binding_rejects_contradictory_analysis(tmp_path: Pa
         inspect_carrier_plot(document)
 
 
-def test_relative_acquisition_accepts_plausible_uncalibrated_receiver_offset(
+def test_carrier_tolerance_rejects_large_uncalibrated_receiver_offset(
     tmp_path: Path,
 ) -> None:
     rate, size, center = 4096, 1024, 10_000.0
@@ -208,10 +236,10 @@ def test_relative_acquisition_accepts_plausible_uncalibrated_receiver_offset(
         CarrierParameters(rate, center, center + 1000, fft_size=size, dc_exclusion_hz=100),
         tmp_path / "result.json",
     )
-    assert result["gate_outcome"] == "passed"
+    assert result["gate_outcome"] == "failed"
     assert result["metrics"]["strongest_offset_hz"] == -332
     assert result["metrics"]["nominal_offset_gate_passed"] is False
-    assert result["metrics"]["relative_acquisition_passed"] is True
+    assert result["metrics"]["relative_acquisition_passed"] is False
     assert result["contract"]["gate_policy"] == "target_window_relative_carrier_acquisition_v2"
 
 

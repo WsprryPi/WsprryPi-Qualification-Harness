@@ -523,6 +523,19 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         "ssh_executable": artifacts["ssh"]["path"],
         "work_directory": str(facts["work_directory"]),
         "output_parent": str(facts["output_parent"]),
+        "transmitter_ppm_sources": facts.get(
+            "transmitter_ppm_sources",
+            [
+                {
+                    "source_type": "manual_host_ppm",
+                    "source_location": "automatic complete-test fixed manual containment",
+                    "value_ppm": 0.0,
+                    "host": tx_host,
+                    "backend": "gpio",
+                    "acquired_utc": None,
+                }
+            ],
+        ),
     }
     validate_document(configuration, "complete-test-configuration.schema.json")
     configuration_path = destination / "complete-test.json"

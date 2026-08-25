@@ -45,6 +45,9 @@ def test_tone_overall_has_no_inherited_fixed_sixty_second_cutoff() -> None:
     assert "def required_tone_overall_deadline(" in contracts
     assert "tone_analysis_deadline(plan)" in adapters
     assert "tone_publication_deadline(plan)" in adapters
+    assert 'outer_timeout_s = plan["deadlines"]["helper_s"]' in adapters
+    assert 'plan["deadlines"]["transmitter_s"], reserve_cleanup=True' in adapters
+    assert 'schedule["on_seconds"] + schedule["off_seconds"]' not in adapters
 
 
 def test_keyed_deadline_has_no_generic_five_second_reserve() -> None:
@@ -80,6 +83,14 @@ def test_repository_inspection_uses_its_bound_parent_envelope() -> None:
     assert "timeout=10" not in source
     helper = _source("src/wsprrypi_qualification/capability_helper.py")
     assert 'raw_guard.get("inspection_timeout_s")' in helper
+
+
+def test_guarded_service_response_contains_both_inspections_and_service_action() -> None:
+    contracts = _source("src/wsprrypi_qualification/real_session.py")
+    adapters = _source("src/wsprrypi_qualification/live_adapters.py")
+    assert "return 2 * helper_verification_deadline(plan)" in contracts
+    assert "guarded_service_operation_deadline(plan)  # guarded service preparation" in contracts
+    assert "set_response_timeout(guarded_service_operation_deadline(plan))" in adapters
 
 
 def test_remote_child_cleanup_splits_its_bound_envelope_between_escalations() -> None:

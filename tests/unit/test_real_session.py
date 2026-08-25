@@ -363,12 +363,20 @@ def test_tone_plan_rejects_obsolete_fixed_overall_deadline() -> None:
         validate_real_session_plan(document)
 
 
+def test_tone_plan_requires_transport_response_envelope_beyond_helper() -> None:
+    document = tone_plan_document()
+    document["deadlines"]["transmitter_s"] = document["deadlines"]["helper_s"]
+    document["deadlines"]["overall_s"] = required_tone_overall_deadline(document)
+    with pytest.raises(RealSessionError, match="must exceed the bounded Tone helper"):
+        validate_real_session_plan(document)
+
+
 def test_tone_overall_scales_only_with_named_work() -> None:
     document = tone_plan_document()
     baseline = required_tone_overall_deadline(document)
 
     document["deadlines"]["helper_s"] += 1
-    assert required_tone_overall_deadline(document) == baseline + 14
+    assert required_tone_overall_deadline(document) == baseline + 21
 
     document = tone_plan_document()
     document["deadlines"]["receiver_s"] += 1
@@ -376,7 +384,7 @@ def test_tone_overall_scales_only_with_named_work() -> None:
 
     document = tone_plan_document()
     document["deadlines"]["cleanup_s"] += 1
-    assert required_tone_overall_deadline(document) == baseline + 4
+    assert required_tone_overall_deadline(document) == baseline + 5
 
     document = tone_plan_document()
     document["carrier"]["rf_off_sample_count"] += 25_000_000

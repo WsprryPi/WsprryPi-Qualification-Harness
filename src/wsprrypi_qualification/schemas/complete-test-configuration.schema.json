@@ -77,6 +77,25 @@
     "output_parent": {
       "type": "string",
       "minLength": 1
+    },
+    "transmitter_ppm_sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_type", "source_location", "value_ppm", "host", "backend", "acquired_utc"],
+        "properties": {
+          "source_type": {"enum": ["tracked_host_ppm", "manual_host_ppm", "backend_native_ppm"]},
+          "source_location": {"type": "string", "minLength": 1},
+          "value_ppm": {"type": "number", "minimum": -200, "maximum": 200},
+          "host": {"type": "string", "minLength": 1},
+          "backend": {"enum": ["gpio", "si5351"]},
+          "acquired_utc": {"type": ["string", "null"], "format": "date-time"},
+          "maximum_age_s": {"type": "integer", "minimum": 1}
+        },
+        "allOf": [{"if": {"properties": {"source_type": {"const": "tracked_host_ppm"}}}, "then": {"required": ["maximum_age_s"], "properties": {"acquired_utc": {"type": "string", "format": "date-time"}}}}]
+      }
     }
   },
   "$defs": {

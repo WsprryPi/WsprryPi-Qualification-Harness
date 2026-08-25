@@ -22,6 +22,14 @@ makes a best-effort `tone_end` cleanup request before failing. The transaction
 reserves part of the hard outer deadline for that cleanup attempt; cleanup does
 not extend the authorized deadline.
 
+In production, the resolved `helper_s` deadline is the inner transaction
+deadline. It covers the requested RF-on duration, terminal response processing,
+and the helper's reserved cleanup attempt. The separately resolved
+`transmitter_s` deadline bounds transport, helper serialization, and return of
+the authenticated response while the overall-session cleanup reserve remains
+untouched. Tone on/off cadence controls absolute RF transition scheduling and
+must never be reused as either request deadline.
+
 Returned evidence is explicitly non-qualifying. It records the two product
 responses and the requested bounds but cannot establish RF timing, GPIO state,
 frequency, power, receiver behavior, or cleanup on a physical backend.

@@ -452,6 +452,21 @@ def _parser() -> argparse.ArgumentParser:
     complete.add_argument("--dfcw-dot-seconds", type=float, default=0.7)
     complete.add_argument("--fskcw-separation-hz", type=float, default=5.0)
     complete.add_argument("--dfcw-separation-hz", type=float, default=5.0)
+    complete.add_argument(
+        "--carrier-offset-max-hz",
+        type=float,
+        default=100.0,
+        help=(
+            "maximum absolute offset in Hz of the strongest acquired transmitter-added "
+            "frequency (default: 100; zero is valid)"
+        ),
+    )
+    complete.add_argument(
+        "--transmitter-ppm-offset",
+        type=float,
+        default=0.0,
+        help="additive harness residual correction in transmitter-backend ppm (default: 0)",
+    )
     validate_complete = subparsers.add_parser(
         "validate-complete-test",
         help="semantically validate an authenticated complete-test aggregate bundle",
@@ -582,6 +597,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                         str(args.fskcw_separation_hz),
                         "--dfcw-separation-hz",
                         str(args.dfcw_separation_hz),
+                        "--carrier-offset-max-hz",
+                        str(args.carrier_offset_max_hz),
+                        "--transmitter-ppm-offset",
+                        str(args.transmitter_ppm_offset),
                     )
                 )
                 if args.configuration is None:
@@ -633,6 +652,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 dfcw_dot_seconds=args.dfcw_dot_seconds,
                 fskcw_separation_hz=args.fskcw_separation_hz,
                 dfcw_separation_hz=args.dfcw_separation_hz,
+                carrier_offset_max_hz=args.carrier_offset_max_hz,
+                transmitter_ppm_offset=args.transmitter_ppm_offset,
             )
             complete_plan = compose_complete_test_plan(
                 args.transmitter_host,
