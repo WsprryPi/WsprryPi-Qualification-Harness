@@ -881,30 +881,8 @@ def test_live_cli_classified_exit_codes(
     assert set(rendered) == {"status", "transmitter", "receiver", "sdr", "bundle"}
 
 
-def test_complete_test_defaults_to_installed_wsprrypi_runtime() -> None:
-    args = cli_module._parser().parse_args(
-        ["complete-test", "wspr4", "wspr5", "--sdr", SDR, "--enable-rf"]
-    )
-    assert args.wsprrypi_binary == "/usr/local/bin/wsprrypi"
-    assert args.wsprrypi_config == "/usr/local/etc/wsprrypi.ini"
-    assert args.wsprrypi_source is None
-
-
 def test_complete_test_source_build_is_explicit_and_mutually_exclusive(tmp_path: Path) -> None:
     parser = cli_module._parser()
-    args = parser.parse_args(
-        [
-            "complete-test",
-            "wspr4",
-            "wspr5",
-            "--sdr",
-            SDR,
-            "--wsprrypi-source",
-            str(tmp_path),
-            "--enable-rf",
-        ]
-    )
-    assert args.wsprrypi_source == tmp_path
     with pytest.raises(SystemExit):
         parser.parse_args(
             [

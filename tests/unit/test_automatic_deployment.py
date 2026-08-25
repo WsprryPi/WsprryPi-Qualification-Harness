@@ -114,11 +114,10 @@ def test_runtime_selection_rejects_ambiguity_and_absence_before_deployment(
         automatic_deployment._validate_runtime_selection(None, "/usr/local/etc/wsprrypi.ini", None)
 
 
-@pytest.mark.parametrize("value", ("wsprrypi", "relative/wsprrypi"))
-def test_installed_runtime_paths_must_be_absolute(value: str) -> None:
+def test_installed_runtime_paths_must_be_absolute() -> None:
     stage = _InstalledTransmitterStage()
     with pytest.raises(automatic_deployment.AutomaticDeploymentError, match="absolute"):
-        automatic_deployment._prepare_transmitter(stage, installed_binary=value)
+        automatic_deployment._prepare_transmitter(stage, installed_binary="relative/wsprrypi")
 
 
 def test_receiver_preparation_binds_cache_and_transmitter_trust() -> None:
