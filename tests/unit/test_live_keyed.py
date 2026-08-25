@@ -336,6 +336,17 @@ def test_production_provider_builder_uses_exact_pinned_ssh_and_helper_argv(
     bindings["transmitter_helper"]["path"] = "/opt/wspq/helper"
     bindings["transmitter_helper_config"]["path"] = "/etc/wspq/helper.json"
     bindings["transmitter_process_privilege_wrapper"]["path"] = "/usr/bin/sudo"
+    source_root = tmp_path / "WsprryPi source"
+    runtime_root = tmp_path / "transmitter runtime"
+    source_root.mkdir()
+    runtime_root.mkdir()
+    resolved["transmitter"].update(
+        {
+            "protected_source_roots": [str(source_root.resolve())],
+            "git": artifact(Path("/usr/bin/git").resolve()),
+            "runtime_working_directory": str(runtime_root.resolve()),
+        }
+    )
     digest = resolved_keyed_plan_sha256(resolved)
     assert "plan_sha256" not in json.loads(
         local_paths["receiver_helper_config"].read_text(encoding="utf-8")

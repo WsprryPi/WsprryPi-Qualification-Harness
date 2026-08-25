@@ -53,6 +53,15 @@ remote to the controller; execution is delegated to the receiver host.
 `--enable-rf`. Same-host local production transport remains unsupported until
 Track D; it fails before production adapter construction.
 
+Target checkouts are immutable provenance inputs. The automatic source-build
+path copies the tracked WsprryPi INI byte-for-byte into the dedicated deployment
+runtime before composing the final plan; only that external staged copy may be
+passed through `-i`. The plan separately binds the source and runtime files,
+the external child working directory, and every protected Git root. The helper
+rechecks those facts immediately before spawn and compares the complete
+pre-existing repository baseline after stop. A mutation makes cleanup fail and
+is preserved for manual review; the Harness never resets or restores a checkout.
+
 Until Track E supplies provenance-bound transmitter PPM resolution, every GPIO
 child process in `complete-test` explicitly disables WsprryPi's system-clock
 frequency estimate and applies the fixed manual value in that child's resolved

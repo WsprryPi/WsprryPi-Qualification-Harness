@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "root", "outcome", "before", "after", "changed_fields",
+    "repair_attempted", "qualification_claim"
+  ],
+  "properties": {
+    "root": {"type": "string", "minLength": 1},
+    "outcome": {"enum": ["unchanged", "integrity_failure", "unavailable"]},
+    "before": {"$ref": "#/$defs/snapshot"},
+    "after": {"anyOf": [{"$ref": "#/$defs/snapshot"}, {"type": "null"}]},
+    "changed_fields": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["head", "branch", "upstream", "status_porcelain_v2", "cached_diff_sha256", "worktree_fingerprint_sha256", "snapshot"]
+      }
+    },
+    "repair_attempted": {"const": false},
+    "qualification_claim": {"const": false}
+  },
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root", "head", "branch", "upstream",
+        "status_porcelain_v2", "cached_diff_sha256", "worktree_fingerprint_sha256"
+      ],
+      "properties": {
+        "root": {"type": "string", "minLength": 1},
+        "head": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
+        "branch": {"type": ["string", "null"]},
+        "upstream": {"type": ["string", "null"]},
+        "status_porcelain_v2": {"type": "string"},
+        "cached_diff_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "worktree_fingerprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

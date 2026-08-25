@@ -10,6 +10,7 @@ import json
 import math
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,17 @@ from wsprrypi_qualification.bounded_tone_control import (
     run_bounded_tone_transaction,
 )
 from wsprrypi_qualification.offline import validate_document
+from wsprrypi_qualification.repository_protection import (
+    RepositoryProtectionError,
+    RepositorySnapshot,
+    RuntimeArtifactBinding,
+    SourceArtifactBinding,
+    bind_source,
+    capture_repository_snapshot,
+    compare_repository_snapshot,
+    discover_protected_roots,
+    validate_process_boundary,
+)
 
 PROTOCOL_VERSION = 1
 OPERATIONS = frozenset(
@@ -218,6 +230,13 @@ class CommandSi5351Backend:
 
 
 @dataclass
+class RepositoryGuardState:
+    git: Path
+    roots: tuple[Any, ...]
+    snapshots: tuple[RepositorySnapshot, ...]
+
+
+@dataclass
 class OwnedChild:
     process: subprocess.Popen[bytes] | None
     stdout: Any
@@ -225,6 +244,8 @@ class OwnedChild:
     deadline: float
     launch_arguments: list[str]
     environment: dict[str, str]
+    working_directory: Path | None = None
+    repository_guard: RepositoryGuardState | None = None
     scheduled_start_utc: str | None = None
     scheduled_monotonic: float | None = None
     actual_start_utc: str | None = None
@@ -297,6 +318,11 @@ class OwnedProcessRegistry:
             if not path.is_absolute() or not path.is_file() or _sha256(path) != raw_digest:
                 raise HelperProtocolError("pinned process argument identity changed")
         environment = _environment(payload.get("environment", {}))
+        working_directory, repository_guard = self._prepare_repository_guard(
+            payload.get("repository_guard"), arguments, pinned_arguments
+        )
+        if pinned_arguments and repository_guard is None:
+            raise HelperProtocolError("pinned process inputs require a repository mutation guard")
         scheduled_text = payload.get("scheduled_start_utc")
         minimum_margin = payload.get("minimum_arm_margin_s", 0.0)
         if not isinstance(minimum_margin, (int, float)) or isinstance(minimum_margin, bool):
@@ -336,6 +362,8 @@ class OwnedProcessRegistry:
             time.monotonic() + timeout,
             launch_arguments,
             environment,
+            working_directory,
+            repository_guard,
             scheduled_text if scheduled_utc is not None else None,
             scheduled_monotonic,
         )
@@ -390,6 +418,7 @@ class OwnedProcessRegistry:
                 child.launch_arguments,
                 shell=False,
                 env=child.environment,
+                cwd=child.working_directory,
                 stdout=child.stdout,
                 stderr=child.stderr,
             )
@@ -429,6 +458,7 @@ class OwnedProcessRegistry:
         except subprocess.TimeoutExpired:
             timed_out = True
             self._terminate(child)
+        timed_out = timed_out or child.deadline_enforced or time.monotonic() >= child.deadline
         return self._finish(handle, child, timed_out=timed_out)
 
     def stop(self, payload: dict[str, object]) -> dict[str, object]:
@@ -487,7 +517,16 @@ class OwnedProcessRegistry:
         child.stderr.close()
         with self._lock:
             self._children.pop(handle, None)
-        return {
+        repository_integrity: list[dict[str, object]] = []
+        if child.repository_guard is not None:
+            guard = child.repository_guard
+            for before, root in zip(guard.snapshots, guard.roots, strict=True):
+                integrity = compare_repository_snapshot(before, root, git_executable=guard.git)
+                integrity_document = integrity.document()
+                validate_document(integrity_document, "repository-integrity.schema.json")
+                repository_integrity.append(integrity_document)
+        integrity_clean = all(item["outcome"] == "unchanged" for item in repository_integrity)
+        result: dict[str, object] = {
             "handle_id": handle,
             "return_code": child.process.returncode if child.process is not None else None,
             "stdout": stdout,
@@ -495,12 +534,124 @@ class OwnedProcessRegistry:
             "timed_out": timed_out,
             "cancelled": cancelled,
             "disconnected": False,
-            "cleanup_verified": child.process is None or child.process.poll() is not None,
+            "cleanup_verified": (child.process is None or child.process.poll() is not None)
+            and integrity_clean,
             "scheduled_start_utc": child.scheduled_start_utc,
             "actual_start_utc": child.actual_start_utc,
             "schedule_error_ms": child.schedule_error_ms,
             "launch_error": child.launch_error,
         }
+        if child.repository_guard is not None:
+            result["repository_integrity"] = repository_integrity
+        return result
+
+    @staticmethod
+    def _prepare_repository_guard(
+        raw_guard: object,
+        arguments: list[str],
+        pinned_arguments: dict[object, object],
+        *,
+        require_pinned_runtime: bool = True,
+    ) -> tuple[Path | None, RepositoryGuardState | None]:
+        if raw_guard is None:
+            return None, None
+        if not isinstance(raw_guard, dict):
+            raise HelperProtocolError("repository guard must be an object")
+        try:
+            git = Path(_string(raw_guard, "git_path"))
+            if not git.is_absolute() or not git.is_file():
+                raise RepositoryProtectionError("Git executable is unavailable")
+            if _sha256(git) != _string(raw_guard, "git_sha256"):
+                raise RepositoryProtectionError("Git executable identity changed")
+            root_values = raw_guard.get("protected_source_roots")
+            mutable_values = raw_guard.get("mutable_inputs")
+            writable_values = raw_guard.get("writable_paths")
+            if (
+                not isinstance(root_values, list)
+                or not root_values
+                or not all(isinstance(value, str) for value in root_values)
+                or not isinstance(mutable_values, list)
+                or not isinstance(writable_values, list)
+                or not all(isinstance(value, str) for value in writable_values)
+            ):
+                raise RepositoryProtectionError("repository guard fields are incomplete")
+            roots = discover_protected_roots(
+                [Path(value) for value in root_values], git_executable=git
+            )
+            if not {str(Path(value).resolve(strict=True)) for value in root_values}.issubset(
+                {str(root.path) for root in roots}
+            ):
+                raise RepositoryProtectionError("protected source discovery is ambiguous")
+            runtime_bindings: list[RuntimeArtifactBinding] = []
+            for raw in mutable_values:
+                if not isinstance(raw, dict):
+                    raise RepositoryProtectionError("mutable runtime binding is invalid")
+                source_path = Path(_string(raw, "source_path"))
+                runtime_path = Path(_string(raw, "runtime_path"))
+                if any(
+                    source_path.resolve(strict=True).is_relative_to(root.path) for root in roots
+                ):
+                    source = bind_source(source_path, roots)
+                else:
+                    if source_path.is_symlink() or not source_path.is_file():
+                        raise RepositoryProtectionError("external source input is unsafe")
+                    metadata = source_path.stat()
+                    source = SourceArtifactBinding(
+                        source_path.parent.resolve(strict=True),
+                        source_path.name,
+                        source_path.resolve(strict=True),
+                        metadata.st_size,
+                        stat.S_IMODE(metadata.st_mode),
+                        _sha256(source_path),
+                    )
+                if source.sha256 != _string(raw, "source_sha256"):
+                    raise RepositoryProtectionError("protected source identity changed")
+                runtime_digest = _string(raw, "runtime_sha256")
+                if (
+                    not runtime_path.is_absolute()
+                    or not runtime_path.is_file()
+                    or runtime_path.is_symlink()
+                    or _sha256(runtime_path) != runtime_digest
+                    or (
+                        require_pinned_runtime
+                        and pinned_arguments.get(str(runtime_path)) != runtime_digest
+                    )
+                ):
+                    raise RepositoryProtectionError("staged mutable input identity changed")
+                metadata = runtime_path.stat()
+                runtime_bindings.append(
+                    RuntimeArtifactBinding(
+                        runtime_path.resolve(strict=True),
+                        runtime_path.parent.resolve(strict=True),
+                        "process-start",
+                        metadata.st_size,
+                        stat.S_IMODE(metadata.st_mode),
+                        runtime_digest,
+                        source,
+                    )
+                )
+            working_directory = Path(_string(raw_guard, "working_directory"))
+            validate_process_boundary(
+                arguments=(
+                    arguments
+                    if require_pinned_runtime
+                    else [*arguments, *(str(binding.path) for binding in runtime_bindings)]
+                ),
+                working_directory=working_directory,
+                mutable_inputs=runtime_bindings,
+                writable_paths=[Path(value) for value in writable_values],
+                roots=roots,
+            )
+            snapshots = tuple(
+                capture_repository_snapshot(root, git_executable=git) for root in roots
+            )
+            return working_directory.resolve(strict=True), RepositoryGuardState(
+                git, roots, snapshots
+            )
+        except (OSError, RepositoryProtectionError) as error:
+            raise HelperProtocolError(
+                f"repository guard rejected process start: {error}"
+            ) from error
 
     def _enforce_deadlines(self) -> None:
         while not self._closed.wait(0.01):
@@ -557,8 +708,28 @@ class CapabilityHelperServer:
             if operation == "service-inspect":
                 running = self.services.inspect(name, manager)
             else:
+                _working_directory, repository_guard = self.processes._prepare_repository_guard(
+                    payload.get("repository_guard"),
+                    ["/service-action"],
+                    {},
+                    require_pinned_runtime=False,
+                )
                 running = self.services.set_running(name, manager, _boolean(payload, "running"))
             result = {"name": name, "manager": manager, "running": running}
+            if operation == "service-set" and repository_guard is not None:
+                integrity_documents = []
+                for before, root in zip(
+                    repository_guard.snapshots, repository_guard.roots, strict=True
+                ):
+                    integrity = compare_repository_snapshot(
+                        before, root, git_executable=repository_guard.git
+                    ).document()
+                    validate_document(integrity, "repository-integrity.schema.json")
+                    integrity_documents.append(integrity)
+                result["repository_integrity"] = integrity_documents
+                result["cleanup_verified"] = all(
+                    item["outcome"] == "unchanged" for item in integrity_documents
+                )
         elif operation == "gpio-inspect":
             result = self.gpio.inspect(_integer(payload, "pin"))
         elif operation == "si5351-inspect":
@@ -618,11 +789,12 @@ def _validate_envelope(request: dict[str, object]) -> None:
             "pinned_arguments",
             "hard_timeout_s",
             "environment",
+            "repository_guard",
         },
         "process-wait": {"handle_id", "timeout_s"},
         "process-stop": {"handle_id"},
         "service-inspect": {"name", "manager"},
-        "service-set": {"name", "manager", "running"},
+        "service-set": {"name", "manager", "running", "repository_guard"},
         "gpio-inspect": {"pin"},
         "si5351-inspect": {"bus", "address"},
         "bounded-tone": {"frequency_hz", "duration_ms", "outer_timeout_s"},
@@ -632,10 +804,16 @@ def _validate_envelope(request: dict[str, object]) -> None:
     permitted = fields[operation]
     if operation == "process-start":
         scheduled_fields = {"scheduled_start_utc", "minimum_arm_margin_s"}
+        base_fields = permitted - {"repository_guard"}
         valid_fields = frozenset(payload) in {
+            frozenset(base_fields),
             frozenset(permitted),
+            frozenset(base_fields | scheduled_fields),
             frozenset(permitted | scheduled_fields),
         }
+    elif operation == "service-set":
+        base_fields = permitted - {"repository_guard"}
+        valid_fields = frozenset(payload) in {frozenset(base_fields), frozenset(permitted)}
     else:
         valid_fields = set(payload) == permitted
     if not valid_fields:

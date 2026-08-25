@@ -19,6 +19,7 @@ from wsprrypi_qualification.live_adapters import (
     _derive_rebound_expected_events,
     _intentional_carrier_stop_verified,
     _owned_process_released,
+    _reject_git_worktree_runtime,
     _retained_capture_has_margin,
     _stage_bound_artifact,
 )
@@ -474,10 +475,19 @@ def test_transmitter_execution_retains_complete_owned_process_result(tmp_path: P
         "cancelled": False,
         "disconnected": False,
         "cleanup_verified": False,
+        "repository_integrity": [],
         "stop_requested": False,
         "running_before_stop": None,
         "outcome": "failed",
     }
+
+
+def test_runtime_directory_inside_git_worktree_is_rejected(tmp_path: Path) -> None:
+    repository = tmp_path / "target checkout"
+    repository.mkdir()
+    subprocess.run(("git", "-C", str(repository), "init", "-q"), check=True)
+    with pytest.raises(RealSessionError, match="inside a Git worktree"):
+        _reject_git_worktree_runtime(repository / "runs/session")
 
 
 def test_capture_ready_requires_native_incomplete_output(tmp_path: Path) -> None:
@@ -774,12 +784,20 @@ def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, mo
             )
 
     class Launcher:
-        def __init__(self, client, hard_timeout_s, executable_sha256, pinned_arguments=None):
+        def __init__(
+            self,
+            client,
+            hard_timeout_s,
+            executable_sha256,
+            pinned_arguments=None,
+            repository_guard=None,
+        ):
             observed.update(
                 client=client,
                 hard_timeout_s=hard_timeout_s,
                 executable_sha256=executable_sha256,
                 pinned_arguments=pinned_arguments,
+                repository_guard=repository_guard,
             )
 
         def begin(self, arguments):
@@ -798,6 +816,21 @@ def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, mo
     )
     assert result == {"capture": "complete"}
     assert observed["arguments"] == tuple(plan["tone_server"]["arguments"])
+    assert observed["repository_guard"] == {
+        "protected_source_roots": plan["tone_server"]["protected_source_roots"],
+        "git_path": plan["source"]["git_path"],
+        "git_sha256": plan["source"]["git_sha256"],
+        "working_directory": plan["tone_server"]["working_directory"],
+        "mutable_inputs": [
+            {
+                "source_path": plan["tone_server"]["configuration_source"]["path"],
+                "source_sha256": plan["tone_server"]["configuration_source"]["sha256"],
+                "runtime_path": plan["tone_server"]["configuration"]["path"],
+                "runtime_sha256": plan["tone_server"]["configuration"]["sha256"],
+            }
+        ],
+        "writable_paths": [plan["tone_server"]["configuration"]["path"]],
+    }
     assert observed["pinned_arguments"] == {
         plan["tone_server"]["configuration"]["path"]: plan["tone_server"]["configuration"]["sha256"]
     }
@@ -973,12 +1006,20 @@ def test_each_live_tone_cycle_uses_its_resolved_remote_watchdog(
     observed = {}
 
     class Launcher:
-        def __init__(self, client, hard_timeout_s, executable_sha256, pinned_arguments=None):
+        def __init__(
+            self,
+            client,
+            hard_timeout_s,
+            executable_sha256,
+            pinned_arguments=None,
+            repository_guard=None,
+        ):
             observed.update(
                 client=client,
                 hard_timeout_s=hard_timeout_s,
                 executable_sha256=executable_sha256,
                 pinned_arguments=pinned_arguments,
+                repository_guard=repository_guard,
             )
 
         def begin(self, arguments):

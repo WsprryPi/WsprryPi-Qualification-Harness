@@ -214,13 +214,12 @@ def _prepare_transmitter(
             "config_source=pathlib.Path(sys.argv[5]);"
             "assert config_source.is_absolute() and config_source.is_file() "
             "and not config_source.is_symlink();"
-            "lines=config_source.read_text().splitlines(keepends=True);"
-            "unsupported=('22m =','22m Active High =');"
-            "filtered=''.join(line for line in lines "
-            "if not line.lstrip().startswith(unsupported));"
+            "config_data=config_source.read_bytes();"
             "config=deployment/'wsprrypi.ini';"
             "fd=os.open(config,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);"
-            "os.write(fd,filtered.encode());os.fsync(fd);os.close(fd);"
+            "os.write(fd,config_data);os.fsync(fd);os.close(fd);"
+            "assert hashlib.sha256(config.read_bytes()).hexdigest()=="
+            "hashlib.sha256(config_data).hexdigest();"
             "(pathlib.Path(sys.argv[1])/'gpio-inspect').chmod(0o700);print(str(binary))"
         )
         result = stage.run_python(
@@ -232,10 +231,11 @@ def _prepare_transmitter(
             timeout_s=120,
         )
         source_path = "/home/pi/WsprryPi"
+        tone_configuration_source = installed_configuration
         tone_configuration = f"{deployment}/wsprrypi.ini"
     else:
         program = (
-            "import hashlib,os,subprocess,zipfile;root=pathlib.Path(sys.argv[1]);"
+            "import hashlib,os,shutil,subprocess,zipfile;root=pathlib.Path(sys.argv[1]);"
             "deployment=pathlib.Path(sys.argv[2]);deployment.parent.mkdir(parents=True,exist_ok=True);"
             "assert deployment.parent.is_dir() and not deployment.parent.is_symlink();"
             "os.mkdir(deployment,0o700);"
@@ -246,21 +246,31 @@ def _prepare_transmitter(
             "assert r.returncode==0,r.stderr;"
             "r=subprocess.run(['/usr/bin/git','-C',str(src),'rev-parse','HEAD'],capture_output=True,text=True);"
             "assert r.returncode==0,r.stderr;"
-            "r=subprocess.run(['/usr/bin/make','-C',str(src/'src'),'-j2',"
+            "build_source=root/'build-source';"
+            "shutil.copytree(src,build_source,ignore=shutil.ignore_patterns('.git'));"
+            "r=subprocess.run(['/usr/bin/make','-C',str(build_source/'src'),'-j2',"
             "'BACKENDS=rpi-gpio'],capture_output=True,text=True,timeout=900)\n"
             "assert r.returncode==0,r.stdout+r.stderr\n"
-            "source_binary=src/'src/build/bin/wsprrypi';data=source_binary.read_bytes();"
+            "source_binary=build_source/'src/build/bin/wsprrypi';data=source_binary.read_bytes();"
             "binary=deployment/'wsprrypi';"
             "fd=os.open(binary,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o700);"
             "os.write(fd,data);os.fsync(fd);os.close(fd);"
             "assert binary.is_file() and not binary.is_symlink() and "
             "hashlib.sha256(binary.read_bytes()).hexdigest()==hashlib.sha256(data).hexdigest();"
+            "config_source=src/'config/wsprrypi.ini';"
+            "assert config_source.is_file() and not config_source.is_symlink();"
+            "config_data=config_source.read_bytes();config=deployment/'wsprrypi.ini';"
+            "fd=os.open(config,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);"
+            "os.write(fd,config_data);os.fsync(fd);os.close(fd);"
+            "assert config.is_file() and not config.is_symlink() and "
+            "hashlib.sha256(config.read_bytes()).hexdigest()==hashlib.sha256(config_data).hexdigest();"
             "(root/'gpio-inspect').chmod(0o700);"
             "print(str(binary))"
         )
         result = stage.run_python(program, deployment, stage.owner_token, timeout_s=1000)
         source_path = f"{stage.root}/source"
-        tone_configuration = f"{source_path}/config/wsprrypi.ini"
+        tone_configuration_source = f"{source_path}/config/wsprrypi.ini"
+        tone_configuration = f"{deployment}/wsprrypi.ini"
     binary = _require(result, "temporary WsprryPi build").strip().splitlines()[-1]
     launcher = f"{stage.root}/capability-helper"
     _write_remote(
@@ -278,6 +288,7 @@ def _prepare_transmitter(
         "binary": binary,
         "launcher": launcher,
         "source": source_path,
+        "tone_configuration_source": tone_configuration_source,
         "tone_configuration": tone_configuration,
         "deployment_root": deployment,
     }
@@ -531,6 +542,7 @@ def _delegate_automatic_complete_test(
                     "tx_gpio": f"{tx.root}/gpio-inspect",
                     "tx_wsprrypi": tx_paths["binary"],
                     "tx_git": "/usr/bin/git",
+                    "tone_ini_source": tx_paths["tone_configuration_source"],
                     "tone_ini": tx_paths["tone_configuration"],
                 },
             )

@@ -1,5 +1,7 @@
 import hashlib
 import json
+import shutil
+import subprocess
 import sys
 import time
 from datetime import UTC, datetime, timedelta
@@ -460,6 +462,217 @@ def test_process_start_rechecks_pinned_argument_identity(tmp_path: Path):
                 },
             )
         )
+
+
+def test_pinned_mutable_process_input_cannot_launch_without_repository_guard(
+    tmp_path: Path,
+) -> None:
+    executable = Path(sys.executable).resolve()
+    config = tmp_path / "tone.ini"
+    config.write_text("Transmit = False\n", encoding="utf-8")
+    config_digest = hashlib.sha256(config.read_bytes()).hexdigest()
+    payload = {
+        "arguments": [str(executable), str(config)],
+        "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+        "privilege_wrapper_path": None,
+        "privilege_wrapper_sha256": None,
+        "pinned_arguments": {str(config.resolve()): config_digest},
+        "hard_timeout_s": 1,
+        "environment": {},
+    }
+    with pytest.raises(HelperProtocolError, match="repository mutation guard"):
+        server().dispatch(request("process-start", payload))
+    pinned = tmp_path / "helper executable"
+    pinned.write_text("helper", encoding="utf-8")
+    client = JsonHelperClient(pinned.resolve(), InProcessLauncher(server()), 1, PLAN, "helper-1")
+    with pytest.raises(CapabilityError, match="repository protection"):
+        SshOwnedProcessLauncher(
+            client,
+            1,
+            hashlib.sha256(executable.read_bytes()).hexdigest(),
+            pinned_arguments={str(config.resolve()): config_digest},
+        )
+
+
+def _repository_guard_fixture(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, object]]:
+    git_name = shutil.which("git")
+    assert git_name is not None
+    git = Path(git_name).resolve()
+    root = tmp_path / "WsprryPi source"
+    root.mkdir()
+    subprocess.run((str(git), "-C", str(root), "init", "-q"), check=True)
+    subprocess.run(
+        (str(git), "-C", str(root), "config", "user.email", "fixture@example.invalid"),
+        check=True,
+    )
+    subprocess.run((str(git), "-C", str(root), "config", "user.name", "Fixture"), check=True)
+    (root / "config").mkdir()
+    source = root / "config/wsprrypi.ini"
+    source.write_text("original\n", encoding="utf-8")
+    subprocess.run((str(git), "-C", str(root), "add", "config/wsprrypi.ini"), check=True)
+    subprocess.run((str(git), "-C", str(root), "commit", "-qm", "fixture"), check=True)
+    runtime = tmp_path / "runtime/wsprrypi.ini"
+    runtime.parent.mkdir()
+    runtime.write_bytes(source.read_bytes())
+    runtime_digest = hashlib.sha256(runtime.read_bytes()).hexdigest()
+    guard: dict[str, object] = {
+        "protected_source_roots": [str(root.resolve())],
+        "git_path": str(git),
+        "git_sha256": hashlib.sha256(git.read_bytes()).hexdigest(),
+        "working_directory": str(runtime.parent.resolve()),
+        "mutable_inputs": [
+            {
+                "source_path": str(source.resolve()),
+                "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                "runtime_path": str(runtime.resolve()),
+                "runtime_sha256": runtime_digest,
+            }
+        ],
+        "writable_paths": [str(runtime.resolve())],
+    }
+    return root, source, runtime, guard
+
+
+def test_repository_guard_contains_mutating_child_and_retains_dirty_baseline(
+    tmp_path: Path,
+) -> None:
+    root, source, runtime, guard = _repository_guard_fixture(tmp_path)
+    operator_file = root / "operator-notes.txt"
+    operator_file.write_text("pre-existing dirty work", encoding="utf-8")
+    executable = Path(sys.executable).resolve()
+    executable_digest = hashlib.sha256(executable.read_bytes()).hexdigest()
+    code = "import pathlib,sys;pathlib.Path(sys.argv[1]).write_text('normalized')"
+    helper = server()
+    started = helper.dispatch(
+        request(
+            "process-start",
+            {
+                "arguments": [str(executable), "-c", code, str(runtime.resolve())],
+                "executable_sha256": executable_digest,
+                "privilege_wrapper_path": None,
+                "privilege_wrapper_sha256": None,
+                "pinned_arguments": {
+                    str(runtime.resolve()): hashlib.sha256(runtime.read_bytes()).hexdigest()
+                },
+                "hard_timeout_s": 2,
+                "environment": {},
+                "repository_guard": guard,
+            },
+        )
+    )["result"]
+    result = helper.dispatch(
+        request("process-wait", {"handle_id": started["handle_id"], "timeout_s": 2})
+    )["result"]
+    assert runtime.read_text(encoding="utf-8") == "normalized"
+    assert source.read_text(encoding="utf-8") == "original\n"
+    assert operator_file.read_text(encoding="utf-8") == "pre-existing dirty work"
+    assert result["cleanup_verified"] is True
+    assert result["repository_integrity"][0]["outcome"] == "unchanged"
+
+
+def test_repository_guard_reports_child_source_mutation_without_repair(tmp_path: Path) -> None:
+    _, source, runtime, guard = _repository_guard_fixture(tmp_path)
+    executable = Path(sys.executable).resolve()
+    code = f"import pathlib;pathlib.Path({str(source)!r}).write_text('malicious child')"
+    helper = server()
+    started = helper.dispatch(
+        request(
+            "process-start",
+            {
+                "arguments": [str(executable), "-c", code, str(runtime.resolve())],
+                "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+                "privilege_wrapper_path": None,
+                "privilege_wrapper_sha256": None,
+                "pinned_arguments": {
+                    str(runtime.resolve()): hashlib.sha256(runtime.read_bytes()).hexdigest()
+                },
+                "hard_timeout_s": 2,
+                "environment": {},
+                "repository_guard": guard,
+            },
+        )
+    )["result"]
+    result = helper.dispatch(
+        request("process-wait", {"handle_id": started["handle_id"], "timeout_s": 2})
+    )["result"]
+    assert result["cleanup_verified"] is False
+    assert result["repository_integrity"][0]["outcome"] == "integrity_failure"
+    assert result["repository_integrity"][0]["repair_attempted"] is False
+    assert source.read_text(encoding="utf-8") == "malicious child"
+
+
+def test_repository_guard_fails_cleanup_when_post_exit_discovery_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    root, _, runtime, guard = _repository_guard_fixture(tmp_path)
+    executable = Path(sys.executable).resolve()
+    code = (
+        "import pathlib;root=pathlib.Path(" + repr(str(root)) + ");"
+        "(root/'.git').rename(root/'.git-hidden')"
+    )
+    helper = server()
+    started = helper.dispatch(
+        request(
+            "process-start",
+            {
+                "arguments": [str(executable), "-c", code, str(runtime.resolve())],
+                "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+                "privilege_wrapper_path": None,
+                "privilege_wrapper_sha256": None,
+                "pinned_arguments": {
+                    str(runtime.resolve()): hashlib.sha256(runtime.read_bytes()).hexdigest()
+                },
+                "hard_timeout_s": 2,
+                "environment": {},
+                "repository_guard": guard,
+            },
+        )
+    )["result"]
+    result = helper.dispatch(
+        request("process-wait", {"handle_id": started["handle_id"], "timeout_s": 2})
+    )["result"]
+    assert result["cleanup_verified"] is False
+    assert result["repository_integrity"][0]["outcome"] == "unavailable"
+    assert (root / ".git-hidden").is_dir()
+
+
+@pytest.mark.parametrize("mutates", (False, True))
+def test_service_restoration_repository_integrity_is_independent_and_fail_closed(
+    tmp_path: Path, mutates: bool
+) -> None:
+    _, source, _, guard = _repository_guard_fixture(tmp_path)
+
+    class GuardedService:
+        running = False
+
+        def inspect(self, name: str, manager: str) -> bool:
+            del name, manager
+            return self.running
+
+        def set_running(self, name: str, manager: str, running: bool) -> bool:
+            del name, manager
+            self.running = running
+            if mutates:
+                source.write_text("service mutation", encoding="utf-8")
+            return running
+
+    helper = CapabilityHelperServer(
+        "helper-1", PLAN, frozenset({"wsprrypi"}), services=GuardedService()
+    )
+    pinned = tmp_path / "helper executable"
+    pinned.write_text("helper", encoding="utf-8")
+    provider = HelperServiceProvider(
+        JsonHelperClient(pinned.resolve(), InProcessLauncher(helper), 2, PLAN, "helper-1"),
+        "systemd",
+        guard,
+    )
+    if mutates:
+        with pytest.raises(CapabilityError, match="changed protected repository"):
+            provider.set_running("wsprrypi", True)
+        assert source.read_text(encoding="utf-8") == "service mutation"
+    else:
+        provider.set_running("wsprrypi", True)
+        assert provider.inspect("wsprrypi").running is True
 
 
 def test_nonfinite_and_forbidden_environment_are_rejected():

@@ -68,6 +68,31 @@ from wsprrypi_qualification.receiver_calibration import (
     validate_live_binding,
 )
 
+
+def _reject_git_worktree_runtime(path: Path) -> None:
+    """Reject a prospective runtime directory beneath any local Git worktree."""
+    candidate = path.resolve(strict=False)
+    ancestor = candidate
+    while not ancestor.exists() and ancestor != ancestor.parent:
+        ancestor = ancestor.parent
+    git = shutil.which("git")
+    if git is None or not ancestor.is_dir():
+        raise RealSessionError("runtime Git-boundary discovery is unavailable")
+    result = subprocess.run(
+        (git, "-C", str(ancestor), "rev-parse", "--show-toplevel"),
+        shell=False,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=5,
+    )
+    if result.returncode == 0:
+        root = Path(result.stdout.strip()).resolve(strict=True)
+        if candidate.is_relative_to(root):
+            raise RealSessionError("runtime directory resolves inside a Git worktree")
+
+
 _COHERENT_CAPTURE_STARTUP_GUARD_S = 2.0
 _T = TypeVar("_T")
 
@@ -247,6 +272,17 @@ class ProductionRealSessionAdapters:
             raise RealSessionError("production adapter session already began")
         self._session_deadline = time.monotonic() + plan["deadlines"]["overall_s"]
         self._cleanup_reserve_s = plan["deadlines"]["cleanup_s"]
+        repository_guard = {
+            "protected_source_roots": [plan["source"]["repository_path"]],
+            "git_path": plan["source"]["git_path"],
+            "git_sha256": plan["source"]["git_sha256"],
+            "working_directory": str(Path(plan["wsprrypi"]["path"]).parent),
+            "mutable_inputs": [],
+            "writable_paths": [],
+        }
+        self.tx_launcher.repository_guard = repository_guard
+        self.source_launcher.repository_guard = repository_guard
+        self.tx_services.set_repository_guard(repository_guard)
 
     def _remaining(self, requested: float, *, reserve_cleanup: bool = False) -> float:
         if self._session_deadline is None:
@@ -714,6 +750,14 @@ class ProductionRealSessionAdapters:
                 self.tx_client,
                 plan["tone_schedule"]["on_seconds"],
                 plan["wsprrypi"]["sha256"],
+                repository_guard={
+                    "protected_source_roots": [plan["source"]["repository_path"]],
+                    "git_path": plan["source"]["git_path"],
+                    "git_sha256": plan["source"]["git_sha256"],
+                    "working_directory": str(Path(plan["wsprrypi"]["path"]).parent),
+                    "mutable_inputs": [],
+                    "writable_paths": [],
+                },
             )
         process = launcher.begin(application.arguments)
         self._owned.append(process)
@@ -763,6 +807,7 @@ class ProductionRealSessionAdapters:
                 "cancelled": execution.cancelled,
                 "disconnected": execution.disconnected,
                 "cleanup_verified": execution.cleanup_verified,
+                "repository_integrity": list(execution.repository_integrity),
                 "stop_requested": execution.stop_requested,
                 "running_before_stop": execution.running_before_stop,
                 "outcome": (
@@ -850,6 +895,21 @@ class ProductionRealSessionAdapters:
             plan["wsprrypi"]["sha256"],
             pinned_arguments={
                 server_plan["configuration"]["path"]: server_plan["configuration"]["sha256"]
+            },
+            repository_guard={
+                "protected_source_roots": server_plan["protected_source_roots"],
+                "git_path": plan["source"]["git_path"],
+                "git_sha256": plan["source"]["git_sha256"],
+                "working_directory": server_plan["working_directory"],
+                "mutable_inputs": [
+                    {
+                        "source_path": server_plan["configuration_source"]["path"],
+                        "source_sha256": server_plan["configuration_source"]["sha256"],
+                        "runtime_path": server_plan["configuration"]["path"],
+                        "runtime_sha256": server_plan["configuration"]["sha256"],
+                    }
+                ],
+                "writable_paths": [server_plan["configuration"]["path"]],
             },
         )
         server = launcher.begin(tuple(server_plan["arguments"]))
@@ -1669,6 +1729,7 @@ def build_production_adapters(
     ):
         if not path.is_file():
             raise RealSessionError(f"required local live input is unavailable: {path}")
+    _reject_git_worktree_runtime(work_directory)
     work_directory.mkdir(parents=True, exist_ok=False)
     digest = helper_configuration_plan_sha256(plan)
     remote_command = (
@@ -1772,12 +1833,33 @@ class KeyedCapabilityProviders:
         self.plan = plan
         self.tx_transport, self.rx_transport = tx_transport, rx_transport
         self.tx_client, self.rx_client = tx_client, rx_client
-        self.tx_services = HelperServiceProvider(tx_client, "systemd")
+        transmitter = plan["transmitter"]
+        if (
+            not {
+                "protected_source_roots",
+                "git",
+                "runtime_working_directory",
+            }
+            <= transmitter.keys()
+        ):
+            raise RealSessionError(
+                "keyed production plan must be regenerated with repository protection"
+            )
+        repository_guard = {
+            "protected_source_roots": transmitter["protected_source_roots"],
+            "git_path": transmitter["git"]["path"],
+            "git_sha256": transmitter["git"]["sha256"],
+            "working_directory": transmitter["runtime_working_directory"],
+            "mutable_inputs": [],
+            "writable_paths": [],
+        }
+        self.tx_services = HelperServiceProvider(tx_client, "systemd", repository_guard)
         self.rx_services = HelperServiceProvider(rx_client, "systemd")
         self.launcher = SshOwnedProcessLauncher(
             tx_client,
             plan["deadlines"]["transaction_s"],
             plan["transmitter"]["executable"]["sha256"],
+            repository_guard=repository_guard,
             privilege_wrapper_path=plan["capability_bindings"][
                 "transmitter_process_privilege_wrapper"
             ]["path"],
@@ -2333,6 +2415,7 @@ def build_keyed_capability_providers(
         )
     ):
         raise RealSessionError("remote keyed helper or configuration path is unsafe")
+    _reject_git_worktree_runtime(work_directory)
     work_directory.mkdir(parents=True, exist_ok=False)
     digest = resolved_keyed_plan_sha256(plan)
     helper_arguments = (
