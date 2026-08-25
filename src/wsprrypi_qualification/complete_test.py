@@ -70,6 +70,7 @@ from wsprrypi_qualification.receiver_tuning import (
 )
 from wsprrypi_qualification.results import validate_result_document
 from wsprrypi_qualification.tool_discovery import discover_executable
+from wsprrypi_qualification.transmitter_ppm import TransmitterPpmError, resolve_transmitter_ppm
 from wsprrypi_qualification.transports import CommandPlan, LocalCommandTransport
 
 MODE_ORDER = ("TONE", "WSPR", "QRSS", "FSKCW", "DFCW")
@@ -87,6 +88,8 @@ DEFAULTS: dict[str, object] = {
     "dfcw_separation_hz": 5.0,
     "keyed_observations": 3,
     "wspr_observations": 3,
+    "carrier_offset_max_hz": 100.0,
+    "transmitter_ppm_offset": 0.0,
 }
 
 
@@ -400,6 +403,8 @@ class CompleteTestOverrides:
     dfcw_separation_hz: float = 5.0
     keyed_observations: int = 3
     wspr_observations: int = 3
+    carrier_offset_max_hz: float = 100.0
+    transmitter_ppm_offset: float = 0.0
 
     def validated(self) -> dict[str, object]:
         values = asdict(self)
@@ -440,8 +445,15 @@ class CompleteTestOverrides:
             self.fskcw_separation_hz,
             self.dfcw_separation_hz,
         )
-        if any(value <= 0 for value in numeric):
+        if any(not math.isfinite(value) or value <= 0 for value in numeric):
             raise CompleteTestError("dot durations and tone separations must be positive")
+        if not math.isfinite(self.carrier_offset_max_hz) or self.carrier_offset_max_hz < 0:
+            raise CompleteTestError("carrier-offset-max-hz must be finite and non-negative")
+        if (
+            not math.isfinite(self.transmitter_ppm_offset)
+            or not -200 <= self.transmitter_ppm_offset <= 200
+        ):
+            raise CompleteTestError("transmitter-ppm-offset must be finite and within +/-200")
         if self.keyed_observations != 3 or self.wspr_observations != 3:
             raise CompleteTestError("maintained qualification contracts require three observations")
         return values
@@ -617,6 +629,8 @@ def _resolve_real(
         "power_dbm": values["power_dbm"],
     }
     plan["mode"] = mode
+    plan["calibration"]["ppm"] = values["effective_transmitter_ppm"]
+    plan["carrier"]["offset_gate_hz"] = values["carrier_offset_max_hz"]
     plan["frame_count"] = 0 if mode == "TONE" else values["wspr_observations"]
     if mode == "TONE":
         plan["session_kind"] = "cw_live_tone"
@@ -678,7 +692,12 @@ def _resolve_keyed(
         raise CompleteTestError(f"unsupported backend for maintained application shim: {backend}")
     identity_doc = plan["application_plan"]["identity"]
     identity = ApplicationIdentity(**identity_doc)
-    backend_config = WsprryPiBackendConfig(**plan["application_plan"]["backend_contract"])
+    backend_config = WsprryPiBackendConfig(
+        **{
+            **plan["application_plan"]["backend_contract"],
+            "ppm": values["effective_transmitter_ppm"],
+        }
+    )
     application = (
         WsprryPiShim(identity, backend=backend, backend_config=backend_config)
         .resolve_plan(
@@ -859,7 +878,9 @@ def _materialize_cw_reference(
         )
 
 
-def _materialize_real_profiles(plan: dict[str, Any], destination: Path, *, now: datetime) -> None:
+def _materialize_real_profiles(
+    plan: dict[str, Any], destination: Path, *, now: datetime, ppm_resolution: dict[str, Any]
+) -> None:
     destination.mkdir(parents=True, exist_ok=False)
     receiver = plan["receiver"]
     rf_path = plan["rf_path"]
@@ -923,6 +944,7 @@ def _materialize_real_profiles(plan: dict[str, Any], destination: Path, *, now: 
         "receiver_center_hz": receiver["center_frequency_hz"],
         "receiver_gain_db": receiver["gain_db"],
         "ppm": plan["calibration"]["ppm"],
+        "transmitter_ppm_resolution": ppm_resolution,
         "identity": plan["identity"],
         "gates": {
             "carrier_offset_max_hz": plan["carrier"]["offset_gate_hz"],
@@ -993,6 +1015,7 @@ def _compose_complete_mode_plans(
     receiver_host: str,
     sdr_selector: str,
     selector_fields: dict[str, str],
+    ppm_resolution: dict[str, Any],
 ) -> list[dict[str, Any]]:
     bindings: list[dict[str, Any]] = []
     for mode in MODE_ORDER:
@@ -1014,7 +1037,10 @@ def _compose_complete_mode_plans(
             _materialize_cw_reference(plan, mode, input_path / mode.lower(), now=composed_at)
         if mode in {"TONE", "WSPR"}:
             _materialize_real_profiles(
-                plan, input_path / mode.lower() / "profiles", now=composed_at
+                plan,
+                input_path / mode.lower() / "profiles",
+                now=composed_at,
+                ppm_resolution=ppm_resolution,
             )
             _set_real_digest(plan)
             validate_real_session_plan(plan)
@@ -1074,6 +1100,34 @@ def compose_complete_test_plan(
     values = (overrides or CompleteTestOverrides()).validated()
     requested_frequency = float(cast(int, values["frequency_hz"]))
     composed_at = datetime.now(UTC) if now is None else now.astimezone(UTC)
+    real_template = _load(
+        _mode_plan_path(config_path, config["production_templates"]["real_session"])
+    )
+    backend = str(real_template["backend"])
+    sources = config.get("transmitter_ppm_sources") or [
+        {
+            "source_type": "manual_host_ppm",
+            "source_location": "legacy resolved real-session calibration.ppm",
+            "value_ppm": real_template["calibration"]["ppm"],
+            "host": transmitter_host,
+            "backend": backend,
+            "acquired_utc": None,
+        }
+    ]
+    try:
+        ppm_resolution = resolve_transmitter_ppm(
+            sources,
+            values["transmitter_ppm_offset"],
+            transmitter_host=transmitter_host,
+            backend=backend,
+            resolved_at=composed_at,
+        )
+    except TransmitterPpmError as error:
+        raise CompleteTestError(str(error)) from error
+    execution_values = {
+        **values,
+        "effective_transmitter_ppm": ppm_resolution["effective_correction_ppm"],
+    }
     campaign_id = validate_manifest_name(
         f"{composed_at.strftime('%Y%m%dT%H%M%S%fZ')}-{secrets.token_hex(4)}-{config['campaign_id']}"
     )
@@ -1089,7 +1143,7 @@ def compose_complete_test_plan(
         bindings = _compose_complete_mode_plans(
             config_path=config_path,
             config=config,
-            values=values,
+            values=execution_values,
             campaign_id=campaign_id,
             composed_at=composed_at,
             input_path=input_path,
@@ -1097,6 +1151,7 @@ def compose_complete_test_plan(
             receiver_host=receiver_host,
             sdr_selector=sdr_selector,
             selector_fields=selector_fields,
+            ppm_resolution=ppm_resolution,
         )
     except BaseException:
         shutil.rmtree(input_path, ignore_errors=True)
@@ -1115,6 +1170,7 @@ def compose_complete_test_plan(
         "configuration": {"artifact": artifact(config_path), "document": config},
         "defaults": DEFAULTS,
         "resolved_values": values,
+        "transmitter_ppm_resolution": ppm_resolution,
         "derived_frequencies": {
             "wspr_dial_frequency_hz": int(cast(int, values["frequency_hz"])) - 1_500,
             "wspr_audio_offset_hz": 1_500,
@@ -1172,6 +1228,13 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
         raise CompleteTestError("complete-test resolved values are invalid") from error
     if validated_values != values:
         raise CompleteTestError("complete-test resolved values are not canonical")
+    ppm = document["transmitter_ppm_resolution"]
+    if (
+        ppm["transmitter_host"] != document["transmitter_host"]
+        or ppm["harness_offset_ppm"] != values["transmitter_ppm_offset"]
+        or ppm["host_correction_ppm"] + ppm["harness_offset_ppm"] != ppm["effective_correction_ppm"]
+    ):
+        raise CompleteTestError("transmitter PPM provenance disagrees with the resolved plan")
     selector_fields = _parse_sdr_selector(document["sdr_selector"])
     if document["execution_policy"] == "live":
         discovered = document["sdr_discovery"]
@@ -1189,6 +1252,20 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
     }
     if document["derived_frequencies"] != expected_derived:
         raise CompleteTestError("derived frequency evidence contradicts resolved overrides")
+    for entry in document["mode_plans"]:
+        child = entry["plan"]
+        child_ppm = (
+            child["calibration"]["ppm"]
+            if entry["mode"] in {"TONE", "WSPR"}
+            else child["application_plan"]["backend_contract"]["ppm"]
+        )
+        if child_ppm != ppm["effective_correction_ppm"]:
+            raise CompleteTestError("subordinate plan transmitter PPM differs from provenance")
+        if (
+            entry["mode"] in {"TONE", "WSPR"}
+            and child["carrier"]["offset_gate_hz"] != values["carrier_offset_max_hz"]
+        ):
+            raise CompleteTestError("subordinate carrier tolerance differs from the CLI value")
     try:
         expected_tuning = ReceiverTuningGeometry(
             requested_frequency_hz=float(values["frequency_hz"]),
@@ -1452,6 +1529,7 @@ def validate_complete_test_bundle(bundle: Path) -> dict[str, Any]:
         or result["transmitter_host"] != plan["transmitter_host"]
         or result["receiver_host"] != plan["receiver_host"]
         or result["sdr_selector"] != plan["sdr_selector"]
+        or result["transmitter_ppm_resolution"] != plan["transmitter_ppm_resolution"]
         or result["delegation_receipt"] != plan["delegation_receipt"]
         or result["mode_order"] != list(MODE_ORDER)
         or [entry["mode"] for entry in result["modes"]] != list(MODE_ORDER)
@@ -1559,6 +1637,7 @@ def _publish(
         "transmitter_host": plan["transmitter_host"],
         "receiver_host": plan["receiver_host"],
         "sdr_selector": plan["sdr_selector"],
+        "transmitter_ppm_resolution": plan["transmitter_ppm_resolution"],
         "delegation_receipt": plan["delegation_receipt"],
         "authorization": plan["authorization"],
         "mode_order": list(MODE_ORDER),

@@ -10,6 +10,7 @@
     "transmitter_host",
     "receiver_host",
     "sdr_selector",
+    "transmitter_ppm_resolution",
     "delegation_receipt",
     "authorization",
     "mode_order",
@@ -47,6 +48,7 @@
       "type": "string",
       "minLength": 1
     },
+    "transmitter_ppm_resolution": {"type": "object"},
     "delegation_receipt": {
       "anyOf": [
         {

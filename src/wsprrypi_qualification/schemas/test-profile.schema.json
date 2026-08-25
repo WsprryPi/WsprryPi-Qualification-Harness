@@ -41,6 +41,7 @@
     "receiver_center_hz": {"type": "number", "exclusiveMinimum": 0},
     "receiver_gain_db": {"type": "number"},
     "ppm": {"type": "number"},
+    "transmitter_ppm_resolution": {"type": ["object", "null"]},
     "frame_count": {"type": "integer", "minimum": 0},
     "bounded_duration_s": {"type": "integer", "minimum": 1},
     "random_offset_enabled": {"const": false},

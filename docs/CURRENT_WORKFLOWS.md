@@ -99,14 +99,26 @@ rechecks those facts immediately before spawn and compares the complete
 pre-existing repository baseline after stop. A mutation makes cleanup fail and
 is preserved for manual review; the Harness never resets or restores a checkout.
 
-Until Track E supplies provenance-bound transmitter PPM resolution, every GPIO
-child process in `complete-test` explicitly disables WsprryPi's system-clock
-frequency estimate and applies the fixed manual value in that child's resolved
-plan. This includes the separately owned Tone server as well as WSPR, QRSS,
-FSKCW, and DFCW. A staged configuration file cannot re-enable Chrony-derived
-correction, and contradictory or mismatched process arguments fail during plan
-composition before host or RF access. This is containment, not a Track E
-provenance claim.
+`complete-test` resolves transmitter PPM once before child-plan composition. A
+fresh `tracked_host_ppm` absolute value supersedes `manual_host_ppm`, which in
+turn supersedes `backend_native_ppm`; two sources at the winning precedence are
+ambiguous and fail. `--transmitter-ppm-offset PPM` is then added once as a
+harness residual delta (default `0`). Values use the selected WsprryPi backend's
+sign convention and must be finite and keep the effective result within
+plus/minus 200 ppm. Tracked values require an acquisition time and maximum age;
+stale or host/backend-mismatched sources fail before host or RF access. The
+resolved plan, generated profiles, backend argument plans, and aggregate result
+bind the same provenance and effective value. Receiver calibration remains a
+separate receiver-frequency interpretation and never contributes to this sum.
+
+`--carrier-offset-max-hz HZ` controls the carrier gate (default `100`; finite,
+non-negative; zero is valid). The gate compares the absolute requested-frequency
+offset of the strongest acquired transmitter-added frequency with this inclusive
+threshold. For example, `--carrier-offset-max-hz 250` permanently selects the
+previously demonstrated 250 Hz policy without editing source. The selected value
+is emitted as `carrier_offset_max_hz` in generated test profiles and reaches
+`CarrierAnalysisParameters.offset_gate_hz` through the resolved real-session
+plan. It is analysis tolerance, not transmitter or receiver calibration.
 
 ## Offline WSPR analysis
 

@@ -896,7 +896,7 @@ def test_live_publication_refuses_to_hide_its_deadline_overrun(tmp_path: Path, m
         adapter._verify_publication_deadline()
 
 
-def _bounded_tone_envelope(plan: dict, cycle: int) -> dict:
+def _bounded_tone_envelope(plan: dict, cycle: int, outer_timeout_s: float) -> dict:
     return {
         "protocol_version": 1,
         "request_id": f"cycle-{cycle}",
@@ -910,7 +910,7 @@ def _bounded_tone_envelope(plan: dict, cycle: int) -> dict:
             "request_id": f"cycle-{cycle}",
             "frequency_hz": int(plan["frequency_hz"]),
             "duration_ms": 2000,
-            "outer_timeout_s": 3.0,
+            "outer_timeout_s": outer_timeout_s,
             "loopback_host": "::1",
             "port": 31416,
             "path": "/",
@@ -939,11 +939,11 @@ def test_tone_pattern_uses_absolute_deadlines_and_stops_every_cycle(
         clock["now"] += seconds
 
     class Client:
-        def request_evidence(self, operation, payload):
+        def request_evidence(self, operation, payload, *, response_timeout_s=None):
             assert operation == "bounded-tone"
-            requests.append(payload)
+            requests.append((payload, response_timeout_s))
             clock["now"] += payload["duration_ms"] / 1000
-            return _bounded_tone_envelope(plan, len(requests))
+            return _bounded_tone_envelope(plan, len(requests), payload["outer_timeout_s"])
 
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: clock["now"])
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.sleep", sleep)
@@ -967,6 +967,10 @@ def test_tone_pattern_uses_absolute_deadlines_and_stops_every_cycle(
     )
     assert result == captured[0]
     assert len(requests) == 3
+    assert all(
+        payload["outer_timeout_s"] == plan["deadlines"]["helper_s"] for payload, _ in requests
+    )
+    assert all(timeout == plan["deadlines"]["transmitter_s"] for _, timeout in requests)
     assert sum(sleeps) == 8.0
     assert len([path for path in adapter._artifacts if "bounded-tone" in path.name]) == 3
 
@@ -1082,10 +1086,10 @@ def test_tone_pattern_scheduler_overshoot_does_not_consume_extra_rf_budget(
     plan = tone_plan_document()
 
     class Client:
-        def request_evidence(self, operation, payload):
+        def request_evidence(self, operation, payload, *, response_timeout_s=None):
             requests.append(payload)
             clock["now"] += payload["duration_ms"] / 1000
-            return _bounded_tone_envelope(plan, len(requests))
+            return _bounded_tone_envelope(plan, len(requests), payload["outer_timeout_s"])
 
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.monotonic", lambda: clock["now"])
     monkeypatch.setattr("wsprrypi_qualification.live_adapters.time.sleep", sleep)
@@ -1127,10 +1131,10 @@ def test_tone_pattern_rejects_over_budget_cycle_before_launch(tmp_path: Path, mo
     plan = tone_plan_document()
 
     class Client:
-        def request_evidence(self, operation, payload):
+        def request_evidence(self, operation, payload, *, response_timeout_s=None):
             requests.append(payload)
             clock["now"] += payload["duration_ms"] / 1000
-            return _bounded_tone_envelope(plan, len(requests))
+            return _bounded_tone_envelope(plan, len(requests), payload["outer_timeout_s"])
 
     adapter.tx_client = Client()
     plan["tone_schedule"]["maximum_rf_on_seconds"] = 3
@@ -1153,7 +1157,7 @@ def test_tone_pattern_retains_helper_rejection_before_failing(tmp_path: Path, mo
     )
 
     class Client:
-        def request_evidence(self, operation, payload):
+        def request_evidence(self, operation, payload, *, response_timeout_s=None):
             raise RuntimeError('rejected frame: {"command":"log"}')
 
     class Worker:

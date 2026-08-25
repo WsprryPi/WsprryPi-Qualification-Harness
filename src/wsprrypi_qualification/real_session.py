@@ -142,7 +142,7 @@ def required_tone_overall_deadline(plan: dict[str, Any]) -> int:
     required_s += helper_s  # initial backend quiescence
     required_s += cleanup_s  # cleanup registration and receiver service preparation
     required_s += receiver_s  # RF-off capture
-    required_s += helper_s  # transmitter service preparation
+    required_s += guarded_service_operation_deadline(plan)  # guarded service preparation
     required_s += helper_s + repository_inspection_s  # guarded TONE server start
     required_s += receiver_s  # exact TONE cadence and RF-on capture
     required_s += cleanup_s  # owned TONE server stop
@@ -204,6 +204,11 @@ def helper_verification_contract(plan: dict[str, Any]) -> dict[str, object]:
         "per_operation_deadline_s": aggregate,
         "aggregate_deadline_s": aggregate,
     }
+
+
+def guarded_service_operation_deadline(plan: dict[str, Any]) -> float:
+    """Bound before/after repository inspection plus the service action."""
+    return 2 * helper_verification_deadline(plan) + cast(float, plan["deadlines"]["cleanup_s"])
 
 
 class RealPhase(StrEnum):
@@ -885,6 +890,10 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         )
         if document["deadlines"]["helper_s"] <= transaction_s:
             raise RealSessionError("helper deadline must exceed the bounded Tone transaction")
+        if document["deadlines"]["transmitter_s"] <= document["deadlines"]["helper_s"]:
+            raise RealSessionError(
+                "transmitter deadline must exceed the bounded Tone helper deadline"
+            )
         tone_server = document.get("tone_server")
         if not isinstance(tone_server, dict):
             raise RealSessionError("CW live Tone requires a pinned loopback server process")

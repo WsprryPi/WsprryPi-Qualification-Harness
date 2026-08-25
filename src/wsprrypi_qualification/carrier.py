@@ -209,6 +209,11 @@ def analyze_carrier(
             else "failed"
         )
     strongest_hz = float(frequencies[strongest_index])
+    if (
+        gate == "passed"
+        and abs(strongest_hz - parameters.requested_frequency_hz) > parameters.offset_gate_hz
+    ):
+        gate = "failed"
     requested_index = int(np.argmin(np.abs(frequencies - parameters.requested_frequency_hz)))
     tiny = np.finfo(np.float64).tiny
 

@@ -63,6 +63,7 @@ from wsprrypi_qualification.real_capabilities import (
 from wsprrypi_qualification.real_session import (
     HELPER_VERIFICATION_OPERATIONS,
     RealSessionError,
+    guarded_service_operation_deadline,
     helper_configuration_plan_sha256,
     helper_verification_contract,
     helper_verification_deadline,
@@ -366,6 +367,10 @@ class ProductionRealSessionAdapters:
         self.tx_launcher.repository_guard = repository_guard
         self.source_launcher.repository_guard = repository_guard
         self.tx_services.set_repository_guard(repository_guard)
+        self.tx_services.set_response_timeout(guarded_service_operation_deadline(plan))
+        self.rx_services.set_response_timeout(
+            max(plan["deadlines"]["receiver_s"], plan["deadlines"]["cleanup_s"])
+        )
 
     def _remaining(self, requested: float, *, reserve_cleanup: bool = False) -> float:
         if self._session_deadline is None:
@@ -1063,12 +1068,14 @@ class ProductionRealSessionAdapters:
                 if next_reserved_rf_on > schedule["maximum_rf_on_seconds"]:
                     raise RealSessionError("tone pattern exceeds its cumulative RF-on bound")
                 reserved_rf_on = next_reserved_rf_on
-                # The complete on/off cadence supplies the transaction envelope:
-                # the requested RF-on interval followed by its protocol-defined
-                # quiet interval for terminal evidence and cleanup.
-                outer_timeout_s = min(
-                    plan["deadlines"]["transmitter_s"],
-                    schedule["on_seconds"] + schedule["off_seconds"],
+                # The plan's helper deadline bounds the product-owned tone
+                # transaction, including its terminal response and cleanup.
+                # The larger transmitter deadline separately bounds transport,
+                # helper serialization, and the returned evidence.  Cadence
+                # controls RF scheduling; it is not a request timeout.
+                outer_timeout_s = plan["deadlines"]["helper_s"]
+                response_timeout_s = self._remaining(
+                    plan["deadlines"]["transmitter_s"], reserve_cleanup=True
                 )
                 try:
                     evidence = self.tx_client.request_evidence(
@@ -1078,6 +1085,7 @@ class ProductionRealSessionAdapters:
                             "duration_ms": int(schedule["on_seconds"] * 1000),
                             "outer_timeout_s": outer_timeout_s,
                         },
+                        response_timeout_s=response_timeout_s,
                     )
                 except Exception as exc:
                     failure_path = (

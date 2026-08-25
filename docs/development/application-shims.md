@@ -56,3 +56,15 @@ The command spellings are derived from the maintained WsprryPi argument parser:
 WSPR positional identity/frequency with `--terminate`, and the mode-specific
 `--qrss-*`, `--fskcw-*`, and `--dfcw-*` transient options. This document does not
 modify or constrain WsprryPi itself.
+
+## Transmitter PPM boundary
+
+The complete-test resolver treats host and backend values as alternative
+absolute corrections, not additive values. Its precedence is tracked host,
+manual host, then backend-native. The separately named harness residual offset
+is the only additive contributor. The final correction is frozen and supplied
+exactly once as `--gpio-manual-ppm` or `--si5351-ppm`; GPIO also disables the
+application's dynamic system-clock estimate so it cannot be applied again.
+Provenance records raw and normalized values, units, sign convention, source
+location, decision, identity, time, derivation, and final value. Receiver SDR
+calibration is never a transmitter PPM source.
