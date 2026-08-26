@@ -51,6 +51,7 @@ OPERATIONS = frozenset(
         "service-set",
         "gpio-inspect",
         "si5351-inspect",
+        "rp1-inspect",
         "bounded-tone",
     }
 )
@@ -71,6 +72,10 @@ class GpioBackend(Protocol):
 
 class Si5351Backend(Protocol):
     def inspect(self, bus: int, address: str) -> dict[str, object]: ...
+
+
+class Rp1Backend(Protocol):
+    def inspect(self, route: str) -> dict[str, object]: ...
 
 
 class BoundedToneBackend(Protocol):
@@ -762,6 +767,7 @@ class CapabilityHelperServer:
         services: ServiceBackend | None = None,
         gpio: GpioBackend | None = None,
         si5351: Si5351Backend | None = None,
+        rp1: Rp1Backend | None = None,
         bounded_tone: BoundedToneBackend | None = None,
     ) -> None:
         self.identity, self.plan_sha256 = helper_identity, plan_sha256
@@ -770,6 +776,7 @@ class CapabilityHelperServer:
         self.services = services or cast(ServiceBackend, UnsupportedBackend())
         self.gpio = gpio or cast(GpioBackend, UnsupportedBackend())
         self.si5351 = si5351 or cast(Si5351Backend, UnsupportedBackend())
+        self.rp1 = rp1 or cast(Rp1Backend, UnsupportedBackend())
         self.bounded_tone = bounded_tone or cast(BoundedToneBackend, UnsupportedBackend())
 
     def dispatch(self, request: dict[str, object]) -> dict[str, object]:
@@ -828,6 +835,10 @@ class CapabilityHelperServer:
             result = self.gpio.inspect(_integer(payload, "pin"))
         elif operation == "si5351-inspect":
             result = self.si5351.inspect(_integer(payload, "bus"), _string(payload, "address"))
+        elif operation == "rp1-inspect":
+            if payload.get("read_only") is not True or payload.get("acquire_endpoint") is not False:
+                raise HelperProtocolError("RP1 inspection must remain passive")
+            result = self.rp1.inspect(_string(payload, "route"))
         else:
             result = self.bounded_tone.run(
                 cast(str, request["request_id"]),
@@ -845,6 +856,7 @@ class CapabilityHelperServer:
             "service-set": "service-helper-result.schema.json",
             "gpio-inspect": "gpio-helper-result.schema.json",
             "si5351-inspect": "si5351-helper-result.schema.json",
+            "rp1-inspect": "rp1-preflight-evidence.schema.json",
             "bounded-tone": "bounded-tone-helper-result.schema.json",
         }
         validate_document(result, result_schemas[operation])
@@ -906,6 +918,7 @@ def _validate_envelope(request: dict[str, object]) -> None:
         "service-set": {"name", "manager", "running", "repository_guard"},
         "gpio-inspect": {"pin"},
         "si5351-inspect": {"bus", "address"},
+        "rp1-inspect": {"route", "read_only", "acquire_endpoint"},
         "bounded-tone": {"frequency_hz", "duration_ms", "outer_timeout_s"},
     }
     operation = request["operation"]

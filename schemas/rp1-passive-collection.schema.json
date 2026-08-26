@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rp1-passive-collection.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_type", "plan_sha256", "route", "host", "topology", "transmitter_role", "receiver_role", "helper_operation", "helper_identity", "helper_response_sha256", "helper_response", "preflight", "read_only", "endpoint_acquired", "qualification_claim"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "rp1_passive_collection"},
+    "plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "route": {"enum": ["gpio4", "gpio20"]},
+    "host": {"type": "string", "minLength": 1},
+    "topology": {"const": "same_host_roles"},
+    "transmitter_role": {"$ref": "#/$defs/role"},
+    "receiver_role": {"$ref": "#/$defs/role"},
+    "helper_operation": {"const": "rp1-inspect"},
+    "helper_identity": {"type": "string", "minLength": 1},
+    "helper_response_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "helper_response": {"$ref": "helper-response.schema.json"},
+    "preflight": {"$ref": "rp1-preflight-evidence.schema.json"},
+    "read_only": {"const": true},
+    "endpoint_acquired": {"const": false},
+    "qualification_claim": {"const": false}
+  },
+  "$defs": {
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "host", "channel_id", "helper_identity", "helper_sha256", "config_sha256", "trust_path", "agent_forwarding", "self_ssh"],
+      "properties": {
+        "role": {"enum": ["transmitter", "receiver"]},
+        "host": {"type": "string", "minLength": 1},
+        "channel_id": {"type": "string", "minLength": 1},
+        "helper_identity": {"type": "string", "minLength": 1},
+        "helper_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "config_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "trust_path": {"const": "controller_to_host_pinned"},
+        "agent_forwarding": {"const": false},
+        "self_ssh": {"const": false}
+      }
+    }
+  }
+}

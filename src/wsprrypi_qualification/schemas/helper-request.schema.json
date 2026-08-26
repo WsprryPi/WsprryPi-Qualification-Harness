@@ -1,7 +1,7 @@
 {
   "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,
   "required":["protocol_version","request_id","operation","plan_sha256","payload"],
-  "properties":{"protocol_version":{"const":1},"request_id":{"type":"string","minLength":1},"operation":{"enum":["process-start","process-prepare","process-arm","process-wait","process-stop","service-inspect","service-set","gpio-inspect","si5351-inspect","bounded-tone"]},"plan_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"payload":{"type":"object"}},
+  "properties":{"protocol_version":{"const":1},"request_id":{"type":"string","minLength":1},"operation":{"enum":["process-start","process-prepare","process-arm","process-wait","process-stop","service-inspect","service-set","gpio-inspect","si5351-inspect","rp1-inspect","bounded-tone"]},"plan_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"payload":{"type":"object"}},
   "allOf":[
     {"if":{"properties":{"operation":{"const":"process-start"}}},"then":{"properties":{"payload":{"$ref":"#/$defs/process_start"}}}},
     {"if":{"properties":{"operation":{"const":"process-prepare"}}},"then":{"properties":{"payload":{"$ref":"#/$defs/process_prepare"}}}},
@@ -12,6 +12,7 @@
     {"if":{"properties":{"operation":{"const":"service-set"}}},"then":{"properties":{"payload":{"$ref":"#/$defs/service_set"}}}},
     {"if":{"properties":{"operation":{"const":"gpio-inspect"}}},"then":{"properties":{"payload":{"$ref":"#/$defs/gpio"}}}},
     {"if":{"properties":{"operation":{"const":"si5351-inspect"}}},"then":{"properties":{"payload":{"$ref":"#/$defs/si5351"}}}},
+    {"if":{"properties":{"operation":{"const":"rp1-inspect"}}},"then":{"properties":{"payload":{"$ref":"#/$defs/rp1"}}}},
     {"if":{"properties":{"operation":{"const":"bounded-tone"}}},"then":{"properties":{"payload":{"$ref":"#/$defs/bounded_tone"}}}}
   ],
   "$defs":{
@@ -25,6 +26,7 @@
     "service_set":{"type":"object","additionalProperties":false,"required":["name","manager","running"],"properties":{"name":{"type":"string","minLength":1},"manager":{"type":"string","minLength":1},"running":{"type":"boolean"},"repository_guard":{"$ref":"#/$defs/repository_guard"}}},
     "gpio":{"type":"object","additionalProperties":false,"required":["pin"],"properties":{"pin":{"type":"integer","minimum":0}}},
     "si5351":{"type":"object","additionalProperties":false,"required":["bus","address"],"properties":{"bus":{"type":"integer","minimum":0},"address":{"type":"string","minLength":1}}},
+    "rp1":{"type":"object","additionalProperties":false,"required":["route","read_only","acquire_endpoint"],"properties":{"route":{"enum":["gpio4","gpio20"]},"read_only":{"const":true},"acquire_endpoint":{"const":false}}},
     "bounded_tone":{"type":"object","additionalProperties":false,"required":["frequency_hz","duration_ms","outer_timeout_s"],"properties":{"frequency_hz":{"type":"integer","minimum":1},"duration_ms":{"type":"integer","minimum":1,"maximum":60000},"outer_timeout_s":{"type":"number","exclusiveMinimum":0}}}
   }
 }

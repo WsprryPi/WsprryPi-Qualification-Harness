@@ -79,6 +79,10 @@ The harness provides:
     that bind route-specific identity, process/lease/generation state, bounded
     drain, endpoint closure, cleanup, GPIO/clock/DMA quiescence, terminal
     silence, and fail-closed result precedence without contacting a host.
+22. a plan-bound passive RP1 inspection protocol and same-host role collector
+    that retain distinct transmitter/receiver helper, configuration, channel,
+    and trust identities, forbid endpoint acquisition and RF authorization,
+    and remain unavailable until a production provider is explicitly deployed.
 
 The keyed schema/validator layer is validation-only: it exposes no process,
 transport, receiver, transmitter, service, or RF operation. Its three

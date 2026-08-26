@@ -143,6 +143,11 @@ The packaged RP1 preflight and operation-lifecycle schemas and semantic
 validators are also hardware-free input boundaries. They reject incomplete,
 unknown, stale, contradictory, or wrong-route evidence and enforce cleanup
 precedence without collecting target evidence or enabling a live adapter.
+The helper protocol also defines a fixed passive `rp1-inspect` envelope and a
+same-host logical-role collector. It requires exact external-access
+authorization while rejecting RF authorization and endpoint acquisition. No
+production RP1 inspection provider is deployed or enabled by this repository
+slice, so live RP1 execution remains unavailable.
 
 Nothing in the repository, an example profile, or a prior evidence bundle
 authorizes RF transmission, GPIO/I2C activity, SDR access, service changes, or

@@ -964,12 +964,14 @@ class JsonHelperClient:
         plan_sha256: str,
         helper_identity: str,
         executable_sha256: str | None = None,
+        configuration_sha256: str | None = None,
     ) -> None:
         if not executable.is_absolute() or not executable.is_file() or timeout_s <= 0:
             raise CapabilityError("helper client requires a pinned executable and deadline")
         self.executable, self.transport, self.timeout_s = executable, transport, timeout_s
         self.plan_sha256, self.helper_identity = plan_sha256, helper_identity
         self.executable_sha256 = executable_sha256 or artifact(executable)["sha256"]
+        self.configuration_sha256 = configuration_sha256
 
     def request(
         self,
@@ -1051,6 +1053,7 @@ class JsonHelperClient:
             "service-set": "service-helper-result.schema.json",
             "gpio-inspect": "gpio-helper-result.schema.json",
             "si5351-inspect": "si5351-helper-result.schema.json",
+            "rp1-inspect": "rp1-preflight-evidence.schema.json",
             "bounded-tone": "bounded-tone-helper-result.schema.json",
         }[operation]
         validate_document(result, result_schema)

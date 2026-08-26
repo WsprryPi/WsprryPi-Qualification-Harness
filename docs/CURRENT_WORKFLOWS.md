@@ -63,6 +63,14 @@ valid unsuccessful evidence only when classified `cleanup_failed`; receiver
 blockage after authenticated launch remains `fixture_blocked`. No production
 collector or adapter is provided by this validation-only capability.
 
+The versioned helper protocol now reserves one fixed `rp1-inspect` request with
+an allowlisted route, `read_only=true`, and `acquire_endpoint=false`. The
+same-host collector binds that response to the exact plan, transmitter helper,
+helper binary, role configuration, and a separate receiver channel. It forbids
+RF authorization, agent forwarding, and self-SSH. This is still prerequisite
+plumbing: no deployed RP1 provider or `complete-test` production routing is
+configured, so invoking live RP1 remains `missing_capability`.
+
 Every invocation creates an exclusive JSON Lines progress log and prints its
 absolute path to stderr before long-running work begins. By default it is kept
 in the invoking host's durable user-state directory, not temporary or remote
