@@ -183,7 +183,18 @@ def _remote_python_path(host: str, *, ssh: Path, known_hosts: Path) -> str:
 
 
 def _selected_host_keys(known_hosts: Path, host: str, *, ssh_keygen: Path) -> tuple[str, str]:
-    selected = _run([str(ssh_keygen), "-F", host, "-f", str(known_hosts)])
+    discovered_ssh = shutil.which("ssh")
+    if discovered_ssh is None:
+        raise AutomaticDeploymentError("OpenSSH is required for configured host trust")
+    effective = _run([str(Path(discovered_ssh).resolve()), "-G", host])
+    effective_names = [
+        line.split(maxsplit=1)[1]
+        for line in _require(effective, "configured SSH hostname discovery").splitlines()
+        if line.startswith("hostname ")
+    ]
+    if len(effective_names) != 1 or re.fullmatch(r"[A-Za-z0-9._:-]+", effective_names[0]) is None:
+        raise AutomaticDeploymentError("configured SSH hostname is invalid")
+    selected = _run([str(ssh_keygen), "-F", effective_names[0], "-f", str(known_hosts)])
     lines = [
         line
         for line in _require(selected, "transmitter trust discovery").splitlines()
