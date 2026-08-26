@@ -54,6 +54,14 @@ same-host transmitter and receiver roles, ABI-v2 finite TONE, exact PPM
 provenance, and receiver/RF-path identity. It constructs no production adapter,
 makes no external call, and rejects live/RF execution before configuration is
 loaded. It is not deployment, target, GPIO, SDR, or qualification evidence.
+The maintained `rp1_contracts` validators additionally define the strict input
+boundary for future passive preflight and operation-scoped lifecycle evidence.
+They validate review-facing schemas, exact route identity, authenticated
+process/lease/generation state, terminal timing, cancellation, endpoint
+closure, cleanup and GPIO/clock/DMA quiescence. A complete cleanup failure is
+valid unsuccessful evidence only when classified `cleanup_failed`; receiver
+blockage after authenticated launch remains `fixture_blocked`. No production
+collector or adapter is provided by this validation-only capability.
 
 Every invocation creates an exclusive JSON Lines progress log and prints its
 absolute path to stderr before long-running work begins. By default it is kept

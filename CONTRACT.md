@@ -75,6 +75,10 @@ The harness provides:
     explicit GPIO4 or GPIO20 administrative route, composes five independently
     authenticated mode plans for distinct same-host logical roles, and rejects
     live execution before production adapters are constructed.
+21. schema-backed RP1 preflight and operation-lifecycle evidence validators
+    that bind route-specific identity, process/lease/generation state, bounded
+    drain, endpoint closure, cleanup, GPIO/clock/DMA quiescence, terminal
+    silence, and fail-closed result precedence without contacting a host.
 
 The keyed schema/validator layer is validation-only: it exposes no process,
 transport, receiver, transmitter, service, or RF operation. Its three

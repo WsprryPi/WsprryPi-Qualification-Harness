@@ -6,10 +6,24 @@ from wsprrypi_qualification.rp1_contracts import (
     Rp1ContractError,
     effective_ppm,
     route_contract,
-    validate_operation_lifecycle,
     validate_preflight,
     validate_role_bindings,
 )
+from wsprrypi_qualification.rp1_contracts import (
+    validate_operation_lifecycle as _validate_operation_lifecycle,
+)
+
+
+def validate_operation_lifecycle(
+    document: dict[str, object], *, route: str, prior_generation: int, expected_plan_sha256: str
+) -> dict[str, object]:
+    return _validate_operation_lifecycle(
+        document,
+        route=route,
+        prior_generation=prior_generation,
+        expected_plan_sha256=expected_plan_sha256,
+        expected_endpoint_device_identity="major:minor",
+    )
 
 
 def preflight(route: str = "gpio4") -> dict[str, object]:
@@ -75,13 +89,25 @@ def lifecycle(route: str = "gpio4") -> dict[str, object]:
     contract = route_contract(route)
     return {
         "plan_sha256": "d" * 64,
+        "process": {
+            "pid": 123,
+            "executable_sha256": "e" * 64,
+            "started": True,
+            "exited": True,
+            "exit_code": 0,
+        },
         "endpoint": contract["endpoint"],
+        "endpoint_device_identity": "major:minor",
         "route": route,
         "compatibility_id": contract["compatibility_id"],
         "lease": 19,
         "generation": 8,
         "transitions": ["RUNNING", "DRAINING", "COMPLETE"],
         "terminal_reason": "COMPLETE",
+        "current_event": "NONE",
+        "elapsed_ns": 1_000_000_000,
+        "remaining_ns": 0,
+        "cancellation_outcome": "not_requested",
         "bounded_drain": True,
         "lease_released": True,
         "endpoint_closed": True,
@@ -93,12 +119,17 @@ def lifecycle(route: str = "gpio4") -> dict[str, object]:
         "terminal_silence_verified": True,
         "duration_ns": 1_000_000_000,
         "tone_operation": "FINITE",
+        "capture_outcome": "completed",
+        "measurement_outcome": "passed",
+        "final_status": "passed",
     }
 
 
 def test_rp1_preflight_and_finite_lifecycle_accept_complete_evidence() -> None:
     validate_preflight(preflight(), route="gpio4")
-    validate_operation_lifecycle(lifecycle(), route="gpio4", prior_generation=7)
+    validate_operation_lifecycle(
+        lifecycle(), route="gpio4", prior_generation=7, expected_plan_sha256="d" * 64
+    )
 
 
 @pytest.mark.parametrize(
@@ -123,14 +154,21 @@ def test_rp1_preflight_fails_closed(field: str) -> None:
 
 def test_rp1_route_and_generation_evidence_cannot_transfer() -> None:
     with pytest.raises(Rp1ContractError, match="wrong-route"):
-        validate_operation_lifecycle(lifecycle("gpio4"), route="gpio20", prior_generation=7)
+        validate_operation_lifecycle(
+            lifecycle("gpio4"),
+            route="gpio20",
+            prior_generation=7,
+            expected_plan_sha256="d" * 64,
+        )
     stale = lifecycle()
     stale["generation"] = 7
     with pytest.raises(Rp1ContractError, match="strictly increasing"):
-        validate_operation_lifecycle(stale, route="gpio4", prior_generation=7)
+        validate_operation_lifecycle(
+            stale, route="gpio4", prior_generation=7, expected_plan_sha256="d" * 64
+        )
 
 
-def test_cleanup_and_terminal_silence_are_mandatory_and_continuous_tone_is_rejected() -> None:
+def test_cleanup_failure_must_override_measurement_success() -> None:
     for field in (
         "lease_released",
         "endpoint_closed",
@@ -139,12 +177,147 @@ def test_cleanup_and_terminal_silence_are_mandatory_and_continuous_tone_is_rejec
     ):
         evidence = lifecycle()
         evidence[field] = False
-        with pytest.raises(Rp1ContractError):
-            validate_operation_lifecycle(evidence, route="gpio4", prior_generation=7)
+        with pytest.raises(Rp1ContractError, match="override"):
+            validate_operation_lifecycle(
+                evidence,
+                route="gpio4",
+                prior_generation=7,
+                expected_plan_sha256="d" * 64,
+            )
+        evidence["final_status"] = "cleanup_failed"
+        validate_operation_lifecycle(
+            evidence, route="gpio4", prior_generation=7, expected_plan_sha256="d" * 64
+        )
+    contradictory = lifecycle()
+    contradictory["capture_outcome"] = "fixture_blocked"
+    contradictory["measurement_outcome"] = "passed"
+    contradictory["lease_released"] = False
+    contradictory["final_status"] = "cleanup_failed"
+    with pytest.raises(Rp1ContractError, match="capture and measurement"):
+        validate_operation_lifecycle(
+            contradictory,
+            route="gpio4",
+            prior_generation=7,
+            expected_plan_sha256="d" * 64,
+        )
+
+
+def test_continuous_tone_and_unknown_fields_are_rejected_by_schema() -> None:
     continuous = lifecycle()
     continuous["tone_operation"] = "CONTINUOUS"
-    with pytest.raises(Rp1ContractError, match="continuous"):
-        validate_operation_lifecycle(continuous, route="gpio4", prior_generation=7)
+    with pytest.raises(Rp1ContractError, match="schema"):
+        validate_operation_lifecycle(
+            continuous,
+            route="gpio4",
+            prior_generation=7,
+            expected_plan_sha256="d" * 64,
+        )
+    unknown = lifecycle()
+    unknown["untrusted"] = True
+    with pytest.raises(Rp1ContractError, match="Additional properties"):
+        validate_operation_lifecycle(
+            unknown, route="gpio4", prior_generation=7, expected_plan_sha256="d" * 64
+        )
+
+
+def test_plan_process_terminal_and_cancellation_bindings_fail_closed() -> None:
+    with pytest.raises(Rp1ContractError, match="digest"):
+        validate_operation_lifecycle(
+            lifecycle(), route="gpio4", prior_generation=7, expected_plan_sha256="f" * 64
+        )
+    process = lifecycle()
+    process["process"]["started"] = False
+    with pytest.raises(Rp1ContractError, match="process"):
+        validate_operation_lifecycle(
+            process, route="gpio4", prior_generation=7, expected_plan_sha256="d" * 64
+        )
+    cancelled = lifecycle()
+    cancelled["transitions"] = ["RUNNING", "DRAINING", "CANCELLED"]
+    cancelled["terminal_reason"] = "CANCELLED"
+    cancelled["cancellation_outcome"] = "completed"
+    cancelled["final_status"] = "inconclusive"
+    validate_operation_lifecycle(
+        cancelled, route="gpio4", prior_generation=7, expected_plan_sha256="d" * 64
+    )
+    cancelled["cancellation_outcome"] = "not_requested"
+    with pytest.raises(Rp1ContractError, match="cancellation"):
+        validate_operation_lifecycle(
+            cancelled, route="gpio4", prior_generation=7, expected_plan_sha256="d" * 64
+        )
+    contradictory = lifecycle()
+    contradictory["transitions"] = ["RUNNING", "COMPLETE", "CANCELLED"]
+    contradictory["terminal_reason"] = "CANCELLED"
+    contradictory["cancellation_outcome"] = "completed"
+    contradictory["final_status"] = "inconclusive"
+    with pytest.raises(Rp1ContractError, match="transition order"):
+        validate_operation_lifecycle(
+            contradictory,
+            route="gpio4",
+            prior_generation=7,
+            expected_plan_sha256="d" * 64,
+        )
+
+
+def test_receiver_blockage_after_authenticated_launch_is_not_transmitter_failure() -> None:
+    blocked = lifecycle()
+    blocked["capture_outcome"] = "fixture_blocked"
+    blocked["measurement_outcome"] = "inconclusive"
+    blocked["final_status"] = "fixture_blocked"
+    validate_operation_lifecycle(
+        blocked, route="gpio4", prior_generation=7, expected_plan_sha256="d" * 64
+    )
+    blocked["final_status"] = "transmitter_failed"
+    with pytest.raises(Rp1ContractError, match="receiver blockage"):
+        validate_operation_lifecycle(
+            blocked, route="gpio4", prior_generation=7, expected_plan_sha256="d" * 64
+        )
+    failed_process = lifecycle()
+    failed_process["process"]["exit_code"] = 1
+    failed_process["capture_outcome"] = "fixture_blocked"
+    failed_process["measurement_outcome"] = "inconclusive"
+    failed_process["final_status"] = "fixture_blocked"
+    with pytest.raises(Rp1ContractError, match="process failure"):
+        validate_operation_lifecycle(
+            failed_process,
+            route="gpio4",
+            prior_generation=7,
+            expected_plan_sha256="d" * 64,
+        )
+    failed_process["final_status"] = "transmitter_failed"
+    validate_operation_lifecycle(
+        failed_process, route="gpio4", prior_generation=7, expected_plan_sha256="d" * 64
+    )
+
+
+def test_endpoint_identity_and_measurement_failure_classification_are_bound() -> None:
+    substituted = lifecycle()
+    substituted["endpoint_device_identity"] = "different-device"
+    with pytest.raises(Rp1ContractError, match="device identity"):
+        validate_operation_lifecycle(
+            substituted, route="gpio4", prior_generation=7, expected_plan_sha256="d" * 64
+        )
+    failed = lifecycle()
+    failed["measurement_outcome"] = "failed"
+    failed["final_status"] = "measurement_failed"
+    validate_operation_lifecycle(
+        failed, route="gpio4", prior_generation=7, expected_plan_sha256="d" * 64
+    )
+    failed["final_status"] = "transmitter_failed"
+    with pytest.raises(Rp1ContractError, match="final status"):
+        validate_operation_lifecycle(
+            failed, route="gpio4", prior_generation=7, expected_plan_sha256="d" * 64
+        )
+
+
+def test_preflight_rejects_unknown_fields_and_wrong_route_state() -> None:
+    unknown = preflight()
+    unknown["repair_command"] = "never"
+    with pytest.raises(Rp1ContractError, match="Additional properties"):
+        validate_preflight(unknown, route="gpio4")
+    wrong_route = preflight()
+    wrong_route["route_state"]["active_overlay"] = "gpio20"
+    with pytest.raises(Rp1ContractError, match="do not agree"):
+        validate_preflight(wrong_route, route="gpio4")
 
 
 def test_same_host_roles_are_distinct_and_ppm_is_route_bound() -> None:

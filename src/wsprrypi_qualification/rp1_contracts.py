@@ -7,6 +7,8 @@ import json
 import math
 from typing import Any, cast
 
+from wsprrypi_qualification.offline import OfflineAnalysisError, validate_document
+
 
 class Rp1ContractError(ValueError):
     """RP1 identity or lifecycle evidence is incomplete or contradictory."""
@@ -28,6 +30,13 @@ RP1_ROUTES = {
         "compatibility_id": "v1.1.2-pi5-gpio20-6.18.34-development-candidate-r2",
     },
 }
+
+
+def _validate_schema(document: dict[str, Any], schema_name: str) -> None:
+    try:
+        validate_document(document, schema_name)
+    except OfflineAnalysisError as error:
+        raise Rp1ContractError(str(error)) from error
 
 
 def canonical_sha256(value: object) -> str:
@@ -77,6 +86,7 @@ def validate_role_bindings(document: dict[str, Any]) -> None:
 
 
 def validate_preflight(document: dict[str, Any], *, route: str) -> dict[str, Any]:
+    _validate_schema(document, "rp1-preflight-evidence.schema.json")
     expected = route_contract(route)
     required_text = (
         "host",
@@ -148,15 +158,26 @@ def validate_preflight(document: dict[str, Any], *, route: str) -> dict[str, Any
 
 
 def validate_operation_lifecycle(
-    document: dict[str, Any], *, route: str, prior_generation: int
+    document: dict[str, Any],
+    *,
+    route: str,
+    prior_generation: int,
+    expected_plan_sha256: str,
+    expected_endpoint_device_identity: str,
 ) -> dict[str, Any]:
+    _validate_schema(document, "rp1-operation-lifecycle.schema.json")
     expected = route_contract(route)
     if document.get("endpoint") != RP1_ENDPOINT or document.get("route") != route:
         raise Rp1ContractError("RP1 lifecycle endpoint or wrong-route substitution detected")
     if document.get("compatibility_id") != expected["compatibility_id"]:
         raise Rp1ContractError("RP1 lifecycle compatibility identity is wrong-route")
-    if not isinstance(document.get("plan_sha256"), str) or len(document["plan_sha256"]) != 64:
-        raise Rp1ContractError("RP1 lifecycle plan digest is missing")
+    if document["plan_sha256"] != expected_plan_sha256:
+        raise Rp1ContractError("RP1 lifecycle plan digest is missing or mismatched")
+    if document["endpoint_device_identity"] != expected_endpoint_device_identity:
+        raise Rp1ContractError("RP1 lifecycle endpoint device identity changed")
+    process = document["process"]
+    if process["started"] is not True or process["exited"] is not True:
+        raise Rp1ContractError("RP1 lifecycle process identity or exit is unproven")
     lease = document.get("lease")
     generation = document.get("generation")
     if not isinstance(lease, int) or lease <= 0:
@@ -168,12 +189,29 @@ def validate_operation_lifecycle(
         raise Rp1ContractError("RP1 lifecycle is missing RUNNING")
     if transitions[-1] not in {"COMPLETE", "CANCELLED"}:
         raise Rp1ContractError("RP1 lifecycle lacks a stable terminal state")
-    if "DRAINING" in transitions and transitions.index("DRAINING") < transitions.index("RUNNING"):
+    terminal_states = [state for state in transitions if state in {"COMPLETE", "CANCELLED"}]
+    if len(terminal_states) != 1 or transitions not in (
+        ["RUNNING", terminal_states[0]],
+        ["RUNNING", "DRAINING", terminal_states[0]],
+    ):
         raise Rp1ContractError("RP1 lifecycle transition order is contradictory")
     terminal = "COMPLETE" if transitions[-1] == "COMPLETE" else "CANCELLED"
     if document.get("terminal_reason") != terminal:
         raise Rp1ContractError("RP1 terminal reason contradicts terminal state")
-    required_true = (
+    if document["remaining_ns"] != 0 or document["elapsed_ns"] > document["duration_ns"]:
+        raise Rp1ContractError("RP1 terminal timing is incomplete or contradictory")
+    expected_cancellation = "completed" if terminal == "CANCELLED" else "not_requested"
+    if document["cancellation_outcome"] != expected_cancellation:
+        raise Rp1ContractError("RP1 cancellation outcome contradicts terminal state")
+    capture = document["capture_outcome"]
+    measurement = document["measurement_outcome"]
+    if (
+        (capture == "fixture_blocked" and measurement not in {"inconclusive", "not_run"})
+        or (capture == "not_run" and measurement != "not_run")
+        or (capture == "completed" and measurement == "not_run")
+    ):
+        raise Rp1ContractError("RP1 capture and measurement outcomes contradict")
+    cleanup_fields = (
         "bounded_drain",
         "lease_released",
         "endpoint_closed",
@@ -183,15 +221,31 @@ def validate_operation_lifecycle(
         "dma_quiescent",
         "terminal_silence_verified",
     )
-    if any(document.get(name) is not True for name in required_true):
-        raise Rp1ContractError("RP1 cleanup, closure, quiescence, or silence is unverified")
-    if document.get("cleanup_fault") is not False:
-        raise Rp1ContractError("RP1 cleanup-fault latch is set or unknown")
-    duration = document.get("duration_ns")
-    if not isinstance(duration, int) or not 1_000_000 <= duration <= 120_000_000_000:
-        raise Rp1ContractError("RP1 finite duration is outside ABI-v2 bounds")
-    if document.get("tone_operation") == "CONTINUOUS":
-        raise Rp1ContractError("continuous RP1 TONE cannot satisfy the campaign entry gate")
+    cleanup_ok = (
+        all(document[name] is True for name in cleanup_fields) and not document["cleanup_fault"]
+    )
+    if not cleanup_ok:
+        if document["final_status"] != "cleanup_failed":
+            raise Rp1ContractError("RP1 cleanup failure must override measurement outcome")
+        return document
+    if document["final_status"] == "cleanup_failed":
+        raise Rp1ContractError("RP1 cleanup status contradicts verified quiescence")
+    if process["exit_code"] != 0:
+        if document["final_status"] != "transmitter_failed":
+            raise Rp1ContractError("RP1 process failure is misclassified")
+        return document
+    if capture == "fixture_blocked":
+        if document["final_status"] != "fixture_blocked":
+            raise Rp1ContractError("receiver blockage is misclassified as transmitter evidence")
+        return document
+    if capture == "completed" and measurement == "passed" and terminal == "COMPLETE":
+        expected_status = "passed" if process["exit_code"] == 0 else "transmitter_failed"
+    elif measurement == "failed":
+        expected_status = "measurement_failed"
+    else:
+        expected_status = "inconclusive"
+    if document["final_status"] != expected_status:
+        raise Rp1ContractError("RP1 final status contradicts operation evidence")
     return document
 
 

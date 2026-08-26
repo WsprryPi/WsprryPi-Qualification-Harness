@@ -102,6 +102,17 @@ while the Harness retains `rp1_gpclk` as the authenticated backend identity.
 The complete route contract prevents legacy fallback. Any RP1 invocation
 without `--rehearse` fails before configuration loading or adapter construction.
 
+`rp1_contracts.validate_preflight` and
+`rp1_contracts.validate_operation_lifecycle` are the maintained semantic
+boundaries for the future RP1 collector. Both require their packaged schemas
+and reject extra or incomplete fields. The lifecycle validator additionally
+requires the expected plan digest and prior generation from the caller. It
+accepts cleanup failure only as `cleanup_failed`, never as a passing
+measurement, and preserves authenticated post-launch receiver blockage as
+`fixture_blocked`. These functions validate supplied documents only; they do
+not open the endpoint, run diagnostics, construct SSH commands, or authorize
+live execution.
+
 ```text
 wsprrypi-qualification complete-test wspr4 wspr5 \
   --sdr driver=sdrplay,serial=2404058C60 \
