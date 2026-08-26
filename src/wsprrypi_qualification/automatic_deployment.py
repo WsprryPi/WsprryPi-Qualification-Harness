@@ -525,6 +525,10 @@ def delegate_automatic_complete_test(
         )
 
 
+def _receiver_allowed_services(transmitter_host: str, receiver_host: str) -> list[str]:
+    return ["wsprrypi.service"] if transmitter_host == receiver_host else ["ssh.service"]
+
+
 def _delegate_automatic_complete_test(
     transmitter_host: str,
     receiver_host: str,
@@ -744,7 +748,7 @@ def _delegate_automatic_complete_test(
             rx_config = {
                 "protocol_version": 1,
                 "helper_identity": "complete-test-receiver",
-                "allowed_services": ["ssh.service"],
+                "allowed_services": _receiver_allowed_services(transmitter_host, receiver_host),
                 "systemctl_path": "/usr/bin/systemctl",
                 "systemctl_sha256": rx_records["rx_systemctl"]["sha256"],
                 "gpio_helper_path": f"{rx.root}/gpio-inspect",

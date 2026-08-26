@@ -203,3 +203,18 @@ def test_transmitter_address_discovery_uses_strict_selected_transport(
         "wspr4",
         "hostname -I",
     ]
+
+
+@pytest.mark.parametrize(
+    ("transmitter_host", "receiver_host", "expected"),
+    [
+        ("wspr4", "wspr5", ["ssh.service"]),
+        ("wspr5", "wspr5", ["wsprrypi.service"]),
+    ],
+)
+def test_receiver_helper_service_allowlist_tracks_physical_topology(
+    transmitter_host: str, receiver_host: str, expected: list[str]
+) -> None:
+    assert (
+        automatic_deployment._receiver_allowed_services(transmitter_host, receiver_host) == expected
+    )
