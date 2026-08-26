@@ -312,6 +312,7 @@ def _prepare_transmitter(
             "hashlib.sha256(config.read_bytes()).hexdigest()==hashlib.sha256(config_data).hexdigest();"
             "(root/'gpio-inspect').chmod(0o700);"
             "(root/'si5351-inspect').chmod(0o700);"
+            "(root/'rp1-inspect').chmod(0o700);"
             "print(str(binary))"
         )
         build_backend = "si5351" if transmitter_backend == "si5351" else "rpi-gpio"

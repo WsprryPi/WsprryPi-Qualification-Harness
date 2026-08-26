@@ -10,6 +10,8 @@ import lzma
 import os
 import pathlib
 import platform
+import grp
+import pwd
 import stat
 import subprocess
 import sys
@@ -75,7 +77,11 @@ def main() -> int:
             return fail()
         enrollment = json.loads(enrollment_paths[0].read_text(encoding="utf-8"))
         manifest_digest = enrollment["sourceManifestSha256"]
-        manifest_paths = sorted(pathlib.Path("/var/lib/rp1-gpclk-dkms/development").rglob("*.json"))
+        manifest_paths = sorted(
+            path
+            for root in (pathlib.Path("/home/pi"), pathlib.Path("/var/tmp"))
+            for path in root.rglob("DEVELOPMENT_MANIFEST.json")
+        )
         manifests = [p for p in manifest_paths if sha256(p) == manifest_digest]
         if len(manifests) != 1:
             return fail()
@@ -103,8 +109,8 @@ def main() -> int:
             "host": platform.node(),
             "endpoint": str(ENDPOINT),
             "endpoint_type": "character",
-            "endpoint_owner": str(endpoint_stat.st_uid),
-            "endpoint_group": str(endpoint_stat.st_gid),
+            "endpoint_owner": pwd.getpwuid(endpoint_stat.st_uid).pw_name,
+            "endpoint_group": grp.getgrgid(endpoint_stat.st_gid).gr_name,
             "endpoint_mode": f"{stat.S_IMODE(endpoint_stat.st_mode):04o}",
             "endpoint_device_identity": (
                 f"{os.major(endpoint_stat.st_rdev)}:{os.minor(endpoint_stat.st_rdev)}"
