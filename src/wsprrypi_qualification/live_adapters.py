@@ -511,6 +511,14 @@ class ProductionRealSessionAdapters:
                 raise RealSessionError("helper verification aggregate deadline expired")
             return self._remaining(remaining)
 
+        receiver_services = plan["services"]["receiver"]
+        if not receiver_services and plan.get("topology") == "same_host_roles":
+            # Both logical role channels terminate on one physical host. The receiver
+            # owns no service, so verify its independently authenticated channel by
+            # inspecting the physical host's transmitter service without claiming
+            # receiver ownership of that service.
+            receiver_services = plan["services"]["transmitter"]
+
         # A signed, plan-bound response proves both persistent helper sessions.
         for operation_name, provider, services in (
             (
@@ -521,7 +529,7 @@ class ProductionRealSessionAdapters:
             (
                 HELPER_VERIFICATION_OPERATIONS[1],
                 self.rx_services,
-                plan["services"]["receiver"],
+                receiver_services,
             ),
         ):
             if not services:

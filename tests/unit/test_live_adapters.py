@@ -508,6 +508,68 @@ def test_helper_revision_mismatch_reports_expected_and_observed(tmp_path: Path) 
         adapter.verify_helper(plan)
 
 
+def test_same_host_receiver_channel_inspects_shared_physical_service(tmp_path: Path) -> None:
+    adapter = bare_adapter(tmp_path)
+    plan = plan_document()
+    plan["topology"] = "same_host_roles"
+    plan["transport"] = "local_role_channels"
+    plan["receiver"]["host"] = plan["host"]
+    plan["services"]["receiver"] = []
+    inspected: list[tuple[str, str]] = []
+
+    class ServiceProvider:
+        def __init__(self, role: str) -> None:
+            self.role = role
+
+        def inspect(self, service: str) -> object:
+            inspected.append((self.role, service))
+            return object()
+
+    class Process:
+        def __init__(self, revision: str) -> None:
+            self.revision = revision
+
+        def wait(self, deadline_s: float, cancellation: object) -> LaunchResult:
+            return LaunchResult(0, self.revision + "\n", "", cleanup_verified=True)
+
+    revisions = iter((plan["source"]["parent_revision"], plan["source"]["submodule_revision"]))
+
+    class Launcher:
+        def begin(self, arguments: tuple[str, ...]) -> Process:
+            return Process(next(revisions))
+
+    adapter.tx_services = ServiceProvider("transmitter")
+    adapter.rx_services = ServiceProvider("receiver")
+    adapter.source_launcher = Launcher()
+
+    evidence = adapter.verify_helper(plan)
+
+    assert evidence["outcome"] == "passed"
+    assert inspected == [
+        ("transmitter", plan["services"]["transmitter"][0]),
+        ("receiver", plan["services"]["transmitter"][0]),
+    ]
+    assert plan["services"]["receiver"] == []
+
+
+def test_split_host_receiver_channel_requires_own_service(tmp_path: Path) -> None:
+    adapter = bare_adapter(tmp_path)
+    plan = plan_document()
+    plan["services"]["receiver"] = []
+
+    class ServiceProvider:
+        def inspect(self, service: str) -> object:
+            return object()
+
+    adapter.tx_services = ServiceProvider()
+    adapter.rx_services = ServiceProvider()
+
+    with pytest.raises(
+        RealSessionError, match="each live host requires an inspectable service binding"
+    ):
+        adapter.verify_helper(plan)
+
+
 def test_helper_suboperations_share_the_aggregate_verification_envelope(tmp_path: Path) -> None:
     adapter = bare_adapter(tmp_path)
     plan = plan_document()
