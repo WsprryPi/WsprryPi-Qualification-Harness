@@ -441,6 +441,12 @@ def _parser() -> argparse.ArgumentParser:
         help="append-only JSON Lines progress log (default: a new durable user-state file)",
     )
     complete.add_argument("--progress-stream", action="store_true", help=argparse.SUPPRESS)
+    complete.add_argument(
+        "--transmitter-backend",
+        choices=("gpio", "si5351"),
+        default="gpio",
+        help="transmitter backend for automatically composed plans (default: gpio)",
+    )
     complete.add_argument("--band", default="20m")
     complete.add_argument("--frequency-hz", type=int, default=14_097_100)
     complete.add_argument("--callsign", default="Q0QQQ")
@@ -575,6 +581,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     forwarded.extend(("--configuration", str(args.configuration)))
                 forwarded.extend(
                     (
+                        "--transmitter-backend",
+                        args.transmitter_backend,
                         "--band",
                         args.band,
                         "--frequency-hz",
@@ -614,6 +622,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         ),
                         wsprrypi_configuration=args.wsprrypi_config,
                         wsprrypi_source=args.wsprrypi_source,
+                        transmitter_backend=args.transmitter_backend,
                         progress=reporter,
                     )
                 else:

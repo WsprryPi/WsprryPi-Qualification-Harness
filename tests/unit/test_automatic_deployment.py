@@ -60,7 +60,7 @@ def test_transmitter_binary_is_exclusively_installed_per_campaign() -> None:
     assert paths["deployment_root"] == deployment
     assert paths["tone_configuration"] == f"{deployment}/wsprrypi.ini"
     assert paths["tone_configuration_source"] == (f"{stage.root}/source/config/wsprrypi.ini")
-    assert stage.calls[0][1] == (deployment, stage.owner_token)
+    assert stage.calls[0][1] == (deployment, stage.owner_token, "rpi-gpio")
     compile(stage.calls[0][0], "<transmitter-build-program>", "exec")
     assert "os.O_EXCL" in stage.calls[0][0]
     assert "os.fsync" in stage.calls[0][0]

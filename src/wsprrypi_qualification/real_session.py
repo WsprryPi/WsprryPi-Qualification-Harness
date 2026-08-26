@@ -926,6 +926,7 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
             str(endpoint["port"]),
             "--socket-loopback-only",
         ]
+        accepted_arguments = [expected_arguments]
         if document["backend"] == "gpio":
             expected_arguments = [
                 document["wsprrypi"]["path"],
@@ -934,7 +935,32 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
                 "--gpio-manual-ppm",
                 format(float(document["calibration"]["ppm"]), ".15g"),
             ]
-        if endpoint["host"] != "::1" or tone_server["arguments"] != expected_arguments:
+            accepted_arguments = [expected_arguments]
+        elif document["backend"] == "si5351":
+            contract = document["backend_contract"]
+            explicit_arguments = [
+                document["wsprrypi"]["path"],
+                "--backend",
+                "si5351",
+                "--si5351-i2c-bus",
+                str(contract["i2c_bus"]),
+                "--si5351-i2c-address",
+                contract["i2c_address"],
+                "--si5351-reference-frequency",
+                str(contract["reference_frequency_hz"]),
+                "--si5351-tx-output",
+                document["output"],
+                "--si5351-power-level",
+                str(contract["drive_or_power_level"]),
+                "--si5351-ppm",
+                format(float(document["calibration"]["ppm"]), ".15g"),
+                *expected_arguments[1:],
+            ]
+            # Advanced plans may bind a byte-identical INI which already selects
+            # Si5351. Automatic complete-test plans instead bind every transient
+            # Si5351 value explicitly so an installed GPIO default cannot leak in.
+            accepted_arguments.append(explicit_arguments)
+        if endpoint["host"] != "::1" or tone_server["arguments"] not in accepted_arguments:
             raise RealSessionError("bounded Tone server arguments differ from its endpoint")
         if tone_server["startup_seconds"] != document["tone_schedule"]["off_seconds"]:
             raise RealSessionError(

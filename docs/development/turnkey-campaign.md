@@ -68,6 +68,9 @@ receiver. `--configuration PATH` remains an advanced development override:
 wsprrypi-qualification complete-test wspr4 wspr5 \
   --sdr driver=sdrplay,serial=2404058C60 --enable-rf \
   --progress-log /absolute/path/complete-test-progress.jsonl
+wsprrypi-qualification complete-test wspr2 wspr5 \
+  --sdr driver=sdrplay,serial=2404058C60 --transmitter-backend si5351 \
+  --enable-rf
 wsprrypi-qualification complete-test wspr4 wspr5 \
   --sdr driver=sdrplay,serial=2404058C60 --rehearse --configuration PATH
 wsprrypi-qualification validate-complete-test CAMPAIGN-BUNDLE
@@ -79,6 +82,14 @@ The normal path copies `/usr/local/bin/wsprrypi` and
 explicit nonstandard installation. Missing installed inputs fail rather than
 falling back to a checkout. Building current WsprryPi work is deliberately
 opt-in:
+
+The automatic composer defaults to `--transmitter-backend gpio`. An explicit
+`--transmitter-backend si5351` selects the existing Si5351 production
+coordinators for all five modes and binds the canonical transient settings:
+I2C bus 1, address `0x60`, 27 MHz reference, CLK0, and drive strength 1. The
+deployment includes a hash-bound read-only register-3 inspector and requires
+all selected outputs to be disabled at preflight and cleanup. The backend never
+falls back to GPIO or to the installed INI backend default.
 
 ```text
 wsprrypi-qualification complete-test wspr4 wspr5 \

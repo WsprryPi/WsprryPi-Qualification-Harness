@@ -601,6 +601,26 @@ def _fixed_gpio_ppm_arguments(arguments: list[str], ppm: object) -> list[str]:
     return arguments
 
 
+def _fixed_si5351_ppm_arguments(arguments: list[str], ppm: object) -> list[str]:
+    """Return a Si5351 argv with one explicit correction value."""
+    try:
+        value = float(cast(Any, ppm))
+    except (TypeError, ValueError) as error:
+        raise CompleteTestError("resolved Si5351 PPM must be numeric") from error
+    if not math.isfinite(value) or not -200 <= value <= 200:
+        raise CompleteTestError("resolved Si5351 PPM must be finite and within +/-200")
+    if any(argument.startswith("--si5351-ppm=") for argument in arguments):
+        raise CompleteTestError("Si5351 launch uses an unsupported inline PPM argument")
+    positions = [index for index, argument in enumerate(arguments) if argument == "--si5351-ppm"]
+    if len(positions) != 1:
+        raise CompleteTestError("Si5351 launch must contain one explicit PPM argument")
+    position = positions[0]
+    if position + 1 >= len(arguments):
+        raise CompleteTestError("Si5351 launch has a malformed PPM argument")
+    arguments[position + 1] = format(value, ".15g")
+    return arguments
+
+
 def _resolve_real(
     template: dict[str, Any],
     mode: str,
@@ -639,6 +659,10 @@ def _resolve_real(
             raise CompleteTestError("TONE server must use loopback-only control")
         if plan["backend"] == "gpio":
             plan["tone_server"]["arguments"] = _fixed_gpio_ppm_arguments(
+                arguments, plan["calibration"]["ppm"]
+            )
+        elif plan["backend"] == "si5351":
+            plan["tone_server"]["arguments"] = _fixed_si5351_ppm_arguments(
                 arguments, plan["calibration"]["ppm"]
             )
         plan["deadlines"]["overall_s"] = required_tone_overall_deadline(plan)
@@ -932,6 +956,15 @@ def _materialize_real_profiles(
                 "gpio_pin": plan["backend_contract"]["gpio_pin"],
                 "power_level": plan["backend_contract"]["drive_or_power_level"],
                 "pacing_clocks": 1,
+            }
+        )
+    elif plan["backend"] == "si5351":
+        transmitter.update(
+            {
+                "i2c_bus": plan["backend_contract"]["i2c_bus"],
+                "i2c_address": plan["backend_contract"]["i2c_address"],
+                "reference_frequency_hz": plan["backend_contract"]["reference_frequency_hz"],
+                "power_level": plan["backend_contract"]["drive_or_power_level"],
             }
         )
     test = {
