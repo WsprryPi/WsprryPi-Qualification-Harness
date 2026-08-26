@@ -154,6 +154,11 @@ def test_real_session_quiescence_stage_retains_typed_rp1_preflight() -> None:
     with pytest.raises(OfflineAnalysisError):
         validate_document(evidence, "real-session-stage-evidence.schema.json")
 
+    evidence["outcome"] = "failed"
+    evidence["details"]["verified"] = False
+    evidence["details"]["failure"] = "final quiescence unavailable"
+    validate_document(evidence, "real-session-stage-evidence.schema.json")
+
 
 @pytest.mark.parametrize(
     "field",

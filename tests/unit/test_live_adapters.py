@@ -32,7 +32,12 @@ from wsprrypi_qualification.live_adapters import (
 )
 from wsprrypi_qualification.manifests import build_manifest, render_manifest, write_manifest
 from wsprrypi_qualification.offline import artifact
-from wsprrypi_qualification.real_capabilities import LaunchResult, ServiceState
+from wsprrypi_qualification.real_capabilities import (
+    LaunchResult,
+    RuntimeAuthorization,
+    ServiceState,
+    capability_plan_sha256,
+)
 from wsprrypi_qualification.real_session import RealSessionError, resolved_real_plan_sha256
 
 
@@ -938,6 +943,41 @@ def test_cleanup_restores_required_receiver_service_after_downstream_failure(
 
     assert cleanup["outcome"] == "verified"
     assert adapter.rx_services.running is False
+
+
+def test_cleanup_uses_passive_route_contract_for_rp1(tmp_path: Path, monkeypatch) -> None:
+    class Client:
+        timeout_s = 1.0
+        transport = object()
+
+    adapter = bare_adapter(tmp_path)
+    adapter.tx_client = Client()
+    adapter.rx_client = Client()
+    adapter._initial_services = {}
+    adapter._changed_services = []
+    adapter._owned = []
+    adapter._capture_tasks = []
+    adapter._session_deadline = None
+    observed_authorizations: list[RuntimeAuthorization] = []
+    plan = plan_document()
+    plan["backend"] = "rp1_gpclk"
+    plan["output"] = "GPIO4"
+    plan["backend_contract"] = {"rp1_route": "gpio4"}
+
+    def quiescence(plan: dict[str, object], authorization: RuntimeAuthorization) -> bool:
+        observed_authorizations.append(authorization)
+        return True
+
+    monkeypatch.setattr(adapter, "_quiescence", quiescence)
+    monkeypatch.setattr(adapter, "close", lambda deadline_s=None: True)
+
+    cleanup = adapter.cleanup(plan)
+
+    assert cleanup["outcome"] == "verified"
+    assert len(observed_authorizations) == 1
+    assert observed_authorizations[0].plan_sha256 == capability_plan_sha256(
+        {"route": "gpio4", "read_only": True, "acquire_endpoint": False}
+    )
 
 
 def test_overall_deadline_is_cumulative_and_reserves_cleanup(tmp_path: Path, monkeypatch) -> None:

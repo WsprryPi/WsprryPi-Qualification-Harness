@@ -1691,20 +1691,25 @@ class ProductionRealSessionAdapters:
             except Exception as exc:
                 ok = False
                 failures.append(f"service restoration {side}:{name}: {type(exc).__name__}: {exc}")
-        inspection = (
-            {
+        if plan["backend"] == "gpio":
+            inspection = {
                 "pin": plan["backend_contract"]["gpio_pin"],
                 "expected_direction": "input",
                 "read_only": True,
             }
-            if plan["backend"] == "gpio"
-            else {
+        elif plan["backend"] == "si5351":
+            inspection = {
                 "bus": plan["backend_contract"]["i2c_bus"],
                 "address": plan["backend_contract"]["i2c_address"],
                 "required_outputs": [plan["output"]],
                 "read_only": True,
             }
-        )
+        else:
+            inspection = {
+                "route": plan["backend_contract"]["rp1_route"],
+                "read_only": True,
+                "acquire_endpoint": False,
+            }
         auth = RuntimeAuthorization(
             capability_plan_sha256(inspection),
             "real-session",
