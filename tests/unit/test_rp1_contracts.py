@@ -2,6 +2,7 @@ from copy import deepcopy
 
 import pytest
 
+from wsprrypi_qualification.offline import OfflineAnalysisError, validate_document
 from wsprrypi_qualification.rp1_contracts import (
     Rp1ContractError,
     effective_ppm,
@@ -130,6 +131,28 @@ def test_rp1_preflight_and_finite_lifecycle_accept_complete_evidence() -> None:
     validate_operation_lifecycle(
         lifecycle(), route="gpio4", prior_generation=7, expected_plan_sha256="d" * 64
     )
+
+
+def test_real_session_quiescence_stage_retains_typed_rp1_preflight() -> None:
+    evidence = {
+        "schema_version": 1,
+        "evidence_type": "rf_idle",
+        "plan_sha256": "d" * 64,
+        "outcome": "verified",
+        "elapsed_s": 0.1,
+        "deadline_s": 5,
+        "details": {
+            "backend": "rp1_gpclk",
+            "output": "GPIO4",
+            "verified": True,
+            "rp1_preflight": preflight(),
+        },
+    }
+    validate_document(evidence, "real-session-stage-evidence.schema.json")
+
+    del evidence["details"]["rp1_preflight"]
+    with pytest.raises(OfflineAnalysisError):
+        validate_document(evidence, "real-session-stage-evidence.schema.json")
 
 
 @pytest.mark.parametrize(
