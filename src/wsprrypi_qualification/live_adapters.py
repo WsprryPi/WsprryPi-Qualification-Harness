@@ -2173,16 +2173,26 @@ class KeyedCapabilityProviders:
             Path(self.plan["reference"]["plan"]["path"]), "cw-mode-plan.schema.json"
         )
         pre_quiet = float(mode_plan["protocol"]["pre_quiet_seconds"])
-        # The helper selects the absolute start only after it has authenticated
-        # the process and repository state.  Transport and validation latency
-        # therefore cannot consume the protocol-defined arming interval.
+        # Authenticate the process and repository state without arming it.
+        # Capture readiness is then the causal RF-arm barrier, so neither
+        # receiver setup nor helper inspection can consume the quiet interval.
         minimum_margin = pre_quiet / 2.0
         request_sent = datetime.now(UTC)
-        process = self.launcher.begin_scheduled(
-            arguments,
-            schedule_after_arm_s=pre_quiet,
-            minimum_arm_margin_s=minimum_margin,
-        )
+        try:
+            process = self.launcher.prepare(arguments)
+        except Exception as error:
+            self._retain_process_start_failure(number, "prepare", error=error)
+            return None
+        if not self._start_capture(number):
+            process.stop()
+            self._retain_process_start_failure(number, "capture_ready")
+            return None
+        try:
+            process.arm(pre_quiet, minimum_margin)
+        except Exception as error:
+            process.stop()
+            self._retain_process_start_failure(number, "arm", error=error)
+            return None
         response_received = datetime.now(UTC)
         acknowledgement = cast(Any, process).arming_acknowledgement
         scheduled_text = acknowledgement.get("scheduled_start_utc")
@@ -2212,16 +2222,33 @@ class KeyedCapabilityProviders:
             or clock_uncertainty_s > 1.0
         ):
             process.stop()
+            self._retain_process_start_failure(
+                number,
+                "arm_acknowledgement",
+                details={
+                    "acknowledgement": acknowledgement,
+                    "clock_uncertainty_s": clock_uncertainty_s,
+                    "minimum_margin_s": minimum_margin,
+                },
+            )
             return None
         if process.handle_id in {owned.handle_id for owned in self.owned.values()}:
             process.stop()
-            return None
-        if not self._start_capture(number):
-            process.stop()
+            self._retain_process_start_failure(number, "duplicate_handle")
             return None
         capture_ready = datetime.now(UTC)
         if (scheduled - capture_ready).total_seconds() < minimum_margin:
             process.stop()
+            self._retain_process_start_failure(
+                number,
+                "remaining_arm_margin",
+                details={
+                    "scheduled_start_utc": scheduled_text,
+                    "capture_ready_utc": capture_ready.isoformat().replace("+00:00", "Z"),
+                    "remaining_margin_s": (scheduled - capture_ready).total_seconds(),
+                    "minimum_margin_s": minimum_margin,
+                },
+            )
             return None
         self.owned[number] = process
         directory = self.work_directory / f"transaction-{number}"
@@ -2265,6 +2292,32 @@ class KeyedCapabilityProviders:
                 return None
             time.sleep(min(0.01, max(0.0, monitor_deadline - time.monotonic())))
         return process.handle_id
+
+    def _retain_process_start_failure(
+        self,
+        number: int,
+        stage: str,
+        *,
+        error: BaseException | None = None,
+        details: dict[str, object] | None = None,
+    ) -> None:
+        directory = self.work_directory / f"transaction-{number}"
+        directory.mkdir(exist_ok=True)
+        path = directory / "process-start-failure.json"
+        document: dict[str, object] = {
+            "schema_version": 1,
+            "evidence_type": "keyed_process_start_failure",
+            "stage": stage,
+        }
+        if error is not None:
+            document["exception_type"] = type(error).__name__
+            document["message"] = str(error)
+        if details is not None:
+            document["details"] = details
+        write_json_new(path, document)
+        if not hasattr(self, "process_start_diagnostics"):
+            self.process_start_diagnostics = {}
+        self.process_start_diagnostics[number] = path
 
     def _start_capture(self, number: int) -> bool:
         plan = self.plan
@@ -2603,6 +2656,7 @@ class KeyedCapabilityProviders:
             "acquisition": self.capture_metadata.get(number) if capture_validated else None,
             "analysis": self.analysis_evidence.get(number),
             "capture_diagnostic": getattr(self, "capture_diagnostics", {}).get(number),
+            "process_start_diagnostic": getattr(self, "process_start_diagnostics", {}).get(number),
         }
         native_failure = self.capture_metadata.get(number)
         if native_failure is not None:

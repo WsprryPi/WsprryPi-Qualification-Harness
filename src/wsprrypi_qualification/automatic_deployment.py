@@ -221,7 +221,10 @@ def _prepare_transmitter(
     *,
     installed_binary: str | None = None,
     installed_configuration: str = DEFAULT_WSPRRRYPI_CONFIGURATION,
+    transmitter_backend: str = "gpio",
 ) -> dict[str, Any]:
+    if transmitter_backend not in {"gpio", "si5351"}:
+        raise AutomaticDeploymentError("transmitter backend must be gpio or si5351")
     token = stage.root.rsplit("-", 1)[-1]
     deployment = f"/home/pi/wsprrypi-qualification-runs/complete-test-deployment-{token}"
     if installed_binary is not None:
@@ -252,7 +255,8 @@ def _prepare_transmitter(
             "os.write(fd,config_data);os.fsync(fd);os.close(fd);"
             "assert hashlib.sha256(config.read_bytes()).hexdigest()=="
             "hashlib.sha256(config_data).hexdigest();"
-            "(pathlib.Path(sys.argv[1])/'gpio-inspect').chmod(0o700);print(str(binary))"
+            "(pathlib.Path(sys.argv[1])/'gpio-inspect').chmod(0o700);"
+            "(pathlib.Path(sys.argv[1])/'si5351-inspect').chmod(0o700);print(str(binary))"
         )
         result = stage.run_python(
             program,
@@ -280,7 +284,7 @@ def _prepare_transmitter(
             "build_source=root/'build-source';"
             "shutil.copytree(src,build_source,ignore=shutil.ignore_patterns('.git'));"
             "r=subprocess.run(['/usr/bin/make','-C',str(build_source/'src'),'-j2',"
-            "'BACKENDS=rpi-gpio'],capture_output=True,text=True)\n"
+            "'BACKENDS='+sys.argv[4]],capture_output=True,text=True)\n"
             "assert r.returncode==0,r.stdout+r.stderr\n"
             "source_binary=build_source/'src/build/bin/wsprrypi';data=source_binary.read_bytes();"
             "binary=deployment/'wsprrypi';"
@@ -296,9 +300,13 @@ def _prepare_transmitter(
             "assert config.is_file() and not config.is_symlink() and "
             "hashlib.sha256(config.read_bytes()).hexdigest()==hashlib.sha256(config_data).hexdigest();"
             "(root/'gpio-inspect').chmod(0o700);"
+            "(root/'si5351-inspect').chmod(0o700);"
             "print(str(binary))"
         )
-        result = stage.run_python_to_completion(program, deployment, stage.owner_token)
+        build_backend = "si5351" if transmitter_backend == "si5351" else "rpi-gpio"
+        result = stage.run_python_to_completion(
+            program, deployment, stage.owner_token, build_backend
+        )
         source_path = f"{stage.root}/source"
         tone_configuration_source = f"{source_path}/config/wsprrypi.ini"
         tone_configuration = f"{deployment}/wsprrypi.ini"
@@ -448,6 +456,7 @@ def delegate_automatic_complete_test(
     wsprrypi_binary: str | None = DEFAULT_WSPRRRYPI_BINARY,
     wsprrypi_configuration: str = DEFAULT_WSPRRRYPI_CONFIGURATION,
     wsprrypi_source: Path | None = None,
+    transmitter_backend: str = "gpio",
     timeout_s: float | None = None,
     progress: Any | None = None,
 ) -> dict[str, Any]:
@@ -470,6 +479,7 @@ def delegate_automatic_complete_test(
             wsprrypi_binary=wsprrypi_binary,
             wsprrypi_configuration=wsprrypi_configuration,
             wsprrypi_source=selected_source,
+            transmitter_backend=transmitter_backend,
             timeout_s=timeout_s,
             progress=progress,
         )
@@ -485,9 +495,12 @@ def _delegate_automatic_complete_test(
     wsprrypi_binary: str | None = DEFAULT_WSPRRRYPI_BINARY,
     wsprrypi_configuration: str = DEFAULT_WSPRRRYPI_CONFIGURATION,
     wsprrypi_source: Path | None = None,
+    transmitter_backend: str,
     timeout_s: float | None,
     progress: Any | None = None,
 ) -> dict[str, Any]:
+    if transmitter_backend not in {"gpio", "si5351"}:
+        raise AutomaticDeploymentError("automatic deployment backend must be gpio or si5351")
     source = _validate_runtime_selection(wsprrypi_binary, wsprrypi_configuration, wsprrypi_source)
     root = Path(__file__).resolve().parents[1]
     discovered_ssh = shutil.which("ssh")
@@ -527,6 +540,14 @@ def _delegate_automatic_complete_test(
                 / "raspberry-pi-os"
                 / "wspq-gpio-inspect"
             )
+        si5351 = root.parent / "deployment" / "raspberry-pi-os" / "wspq-si5351-inspect"
+        if not si5351.is_file():
+            si5351 = (
+                Path(__file__).resolve().parents[2]
+                / "deployment"
+                / "raspberry-pi-os"
+                / "wspq-si5351-inspect"
+            )
         native = _zip_tree(
             Path(__file__).resolve().parents[2],
             temporary / "native.zip",
@@ -539,7 +560,11 @@ def _delegate_automatic_complete_test(
                 _run([str(git), "-C", str(source), "bundle", "create", str(bundle), "HEAD"]),
                 "WsprryPi source packaging",
             )
-        tx_files = [StagedFile(runtime, "runtime.zip"), StagedFile(gpio, "gpio-inspect")]
+        tx_files = [
+            StagedFile(runtime, "runtime.zip"),
+            StagedFile(gpio, "gpio-inspect"),
+            StagedFile(si5351, "si5351-inspect"),
+        ]
         if source is not None:
             tx_files.append(StagedFile(bundle, "wsprrypi.bundle"))
         tx_stage = RemoteStage(
@@ -571,6 +596,7 @@ def _delegate_automatic_complete_test(
                 tx,
                 installed_binary=wsprrypi_binary,
                 installed_configuration=wsprrypi_configuration,
+                transmitter_backend=transmitter_backend,
             )
             rx_paths = _prepare_receiver(
                 rx,
@@ -587,6 +613,7 @@ def _delegate_automatic_complete_test(
                     "tx_sudo": "/usr/bin/sudo",
                     "tx_systemctl": "/usr/bin/systemctl",
                     "tx_gpio": f"{tx.root}/gpio-inspect",
+                    "tx_si5351": f"{tx.root}/si5351-inspect",
                     "tx_wsprrypi": tx_paths["binary"],
                     "tx_git": "/usr/bin/git",
                     "tone_ini_source": tx_paths["tone_configuration_source"],
@@ -640,6 +667,8 @@ def _delegate_automatic_complete_test(
                 "service_privilege_wrapper_sha256": tx_records["tx_sudo"]["sha256"],
                 "gpio_helper_path": f"{tx.root}/gpio-inspect",
                 "gpio_helper_sha256": tx_records["tx_gpio"]["sha256"],
+                "si5351_helper_path": f"{tx.root}/si5351-inspect",
+                "si5351_helper_sha256": tx_records["tx_si5351"]["sha256"],
                 "bounded_tone_endpoint": {
                     "host": "::1",
                     "port": 31416,
@@ -736,6 +765,7 @@ def _delegate_automatic_complete_test(
                     ),
                     "authorization_scope": "single_run",
                 },
+                "transmitter_backend": transmitter_backend,
                 "receiver_delegation": {
                     "ssh": delegation_receipt["ssh"],
                     "known_hosts": delegation_receipt["known_hosts"],

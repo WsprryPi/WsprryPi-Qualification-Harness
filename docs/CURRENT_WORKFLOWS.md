@@ -41,6 +41,12 @@ wsprrypi-qualification complete-test TRANSMITTER_HOST RECEIVER_HOST \
   --sdr driver=sdrplay,serial=2404058C60 --enable-rf
 ```
 
+Automatic composition uses the GPIO backend by default. Select the maintained
+Si5351 production path explicitly with `--transmitter-backend si5351`; this
+binds bus 1, address `0x60`, reference frequency 27 MHz, output CLK0, drive
+strength 1, and the deployed read-only Si5351 quiescence inspector into every
+subordinate plan. No backend fallback is permitted.
+
 Every invocation creates an exclusive JSON Lines progress log and prints its
 absolute path to stderr before long-running work begins. By default it is kept
 in the invoking host's durable user-state directory, not temporary or remote
@@ -200,8 +206,9 @@ Each of the three transactions sends one keyed message. Plans bind receiver
 services that must run for capture separately from the complete service
 allowlist; they start only after cleanup installation, and all listed services
 return to their observed initial state during transaction cleanup.
-The production adapter establishes the exact-count capture, then arms WsprryPi
-on the transmitter for a future UTC start. The transmitter helper converts the
+The production adapter first authenticates and owns a prepared WsprryPi process
+without scheduling or launching it, establishes the exact-count capture, and
+only then sends a separate arm event for a future UTC start. The transmitter helper converts the
 accepted wall-clock interval to a local monotonic deadline, so SSH latency does
 not select the RF start instant. The coordinator monitors capture through the
 resolved RF-off preamble and cancels the armed process before RF if capture

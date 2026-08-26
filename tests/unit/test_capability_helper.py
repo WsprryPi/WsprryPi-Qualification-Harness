@@ -116,6 +116,16 @@ def test_persistent_response_timeout_uses_one_absolute_budget(tmp_path: Path):
         transport._process.wait(timeout=1)
 
 
+def test_persistent_startup_failure_retains_bounded_stderr() -> None:
+    executable = Path(sys.executable).resolve()
+    transport = PersistentHelperTransport(
+        (str(executable), "-c", "import sys;sys.stderr.write('invalid config');sys.exit(7)")
+    )
+    transport._process.wait(timeout=2)
+    with pytest.raises(CapabilityError, match="exit 7: invalid config"):
+        transport.exchange("request", 1)
+
+
 class Services:
     def __init__(self):
         self.running = True
@@ -166,7 +176,7 @@ class BoundedTone:
 
 def request(operation, payload, **changes):
     payload = dict(payload)
-    if operation == "process-start":
+    if operation in {"process-start", "process-prepare"}:
         payload.setdefault("cleanup_timeout_s", payload.get("hard_timeout_s", 1))
     value = {
         "protocol_version": 1,
@@ -336,6 +346,45 @@ def test_relative_scheduled_process_selects_start_after_helper_preparation():
         request("process-wait", {"handle_id": started["handle_id"], "timeout_s": 2})
     )["result"]
     assert result["stdout"].strip() == "relative"
+
+
+def test_prepared_process_cannot_launch_until_separate_arm_event():
+    executable = Path(sys.executable).resolve()
+    digest = hashlib.sha256(executable.read_bytes()).hexdigest()
+    helper = server()
+    prepared = helper.dispatch(
+        request(
+            "process-prepare",
+            {
+                "arguments": [str(executable), "-c", "print('two-phase')"],
+                "executable_sha256": digest,
+                "privilege_wrapper_path": None,
+                "privilege_wrapper_sha256": None,
+                "pinned_arguments": {},
+                "hard_timeout_s": 2,
+                "environment": {},
+            },
+        )
+    )["result"]
+    assert prepared["child_identity"] == "armed"
+    assert prepared["scheduled_start_utc"] is None
+    handle = prepared["handle_id"]
+    armed = helper.dispatch(
+        request(
+            "process-arm",
+            {
+                "handle_id": handle,
+                "schedule_after_arm_s": 0.15,
+                "minimum_arm_margin_s": 0.1,
+            },
+        )
+    )["result"]
+    assert armed["handle_id"] == handle
+    assert armed["scheduled_start_utc"] is not None
+    result = helper.dispatch(request("process-wait", {"handle_id": handle, "timeout_s": 2}))[
+        "result"
+    ]
+    assert result["stdout"].strip() == "two-phase"
 
 
 @pytest.mark.parametrize(
@@ -756,7 +805,15 @@ def test_production_clients_round_trip_against_server(tmp_path: Path):
     result = process.wait(2, None)
     assert result.stdout.strip() == "owned remote output"
     assert result.cleanup_verified is True
-    assert transport.timeouts[-2:] == [2, 4]
+    prepared = SshOwnedProcessLauncher(client, 2, digest).prepare(
+        (str(executable), "-c", "print('prepared then armed')")
+    )
+    assert prepared.arming_acknowledgement["scheduled_start_utc"] is None
+    prepared.arm(0.15, 0.1)
+    assert prepared.arming_acknowledgement["scheduled_start_utc"] is not None
+    armed_result = prepared.wait(2, None)
+    assert armed_result.stdout.strip() == "prepared then armed"
+    assert armed_result.cleanup_verified is True
 
 
 def test_process_start_response_contains_repository_inspection_envelope(tmp_path: Path):

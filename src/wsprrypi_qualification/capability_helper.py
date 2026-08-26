@@ -43,6 +43,8 @@ PROTOCOL_VERSION = 1
 OPERATIONS = frozenset(
     {
         "process-start",
+        "process-prepare",
+        "process-arm",
         "process-wait",
         "process-stop",
         "service-inspect",
@@ -283,7 +285,7 @@ class OwnedProcessRegistry:
         self._watchdog = threading.Thread(target=self._enforce_deadlines, daemon=True)
         self._watchdog.start()
 
-    def start(self, payload: dict[str, object]) -> dict[str, object]:
+    def start(self, payload: dict[str, object], *, deferred: bool = False) -> dict[str, object]:
         arguments = _string_list(payload, "arguments")
         expected_wrapper_path = payload["privilege_wrapper_path"]
         expected_wrapper_hash = payload["privilege_wrapper_sha256"]
@@ -342,6 +344,8 @@ class OwnedProcessRegistry:
         scheduled_utc: datetime | None = None
         scheduled_monotonic: float | None = None
         arm_margin_s: float | None = None
+        if deferred and (scheduled_text is not None or schedule_after_arm is not None):
+            raise HelperProtocolError("prepared process cannot also specify a schedule")
         if scheduled_text is not None and schedule_after_arm is not None:
             raise HelperProtocolError("scheduled process start has conflicting time bases")
         if schedule_after_arm is not None:
@@ -395,7 +399,9 @@ class OwnedProcessRegistry:
         )
         with self._lock:
             self._children[handle] = child
-        if scheduled_utc is None:
+        if deferred:
+            pass
+        elif scheduled_utc is None:
             self._launch(child)
             if child.process is None:
                 with self._lock:
@@ -413,6 +419,39 @@ class OwnedProcessRegistry:
         return {
             "handle_id": handle,
             "child_identity": str(child.process.pid) if child.process is not None else "armed",
+            "cleanup_verified": False,
+            "scheduled_start_utc": scheduled_text,
+            "helper_observed_utc": observed_utc.isoformat().replace("+00:00", "Z"),
+            "arm_margin_s": arm_margin_s,
+        }
+
+    def arm(self, payload: dict[str, object]) -> dict[str, object]:
+        handle = _string(payload, "handle_id")
+        arm_margin_s = _positive_number(payload, "schedule_after_arm_s")
+        minimum_margin_s = _positive_number(payload, "minimum_arm_margin_s")
+        if arm_margin_s < minimum_margin_s:
+            raise HelperProtocolError("scheduled process start has insufficient arm margin")
+        child = self._owned(handle)
+        with child.state_changed:
+            if child.process is not None or child.scheduled_monotonic is not None:
+                raise HelperProtocolError("process is already launched or armed")
+            remaining = child.deadline - time.monotonic()
+            if arm_margin_s > remaining:
+                raise HelperProtocolError("scheduled process start exceeds the hard deadline")
+            observed_utc = datetime.now(UTC)
+            scheduled_utc = observed_utc + timedelta(seconds=arm_margin_s)
+            scheduled_text = scheduled_utc.isoformat().replace("+00:00", "Z")
+            child.scheduled_start_utc = scheduled_text
+            child.scheduled_monotonic = time.monotonic() + arm_margin_s
+            threading.Thread(
+                target=self._wait_and_launch,
+                args=(child,),
+                name=f"wspq-scheduled-{handle}",
+                daemon=True,
+            ).start()
+        return {
+            "handle_id": handle,
+            "child_identity": "armed",
             "cleanup_verified": False,
             "scheduled_start_utc": scheduled_text,
             "helper_observed_utc": observed_utc.isoformat().replace("+00:00", "Z"),
@@ -745,6 +784,10 @@ class CapabilityHelperServer:
         payload = cast(dict[str, object], request["payload"])
         if operation == "process-start":
             result = self.processes.start(payload)
+        elif operation == "process-prepare":
+            result = self.processes.start(payload, deferred=True)
+        elif operation == "process-arm":
+            result = self.processes.arm(payload)
         elif operation == "process-wait":
             result = self.processes.wait(payload)
         elif operation == "process-stop":
@@ -794,6 +837,8 @@ class CapabilityHelperServer:
             )
         result_schemas = {
             "process-start": "process-start-result.schema.json",
+            "process-prepare": "process-start-result.schema.json",
+            "process-arm": "process-start-result.schema.json",
             "process-wait": "process-wait-result.schema.json",
             "process-stop": "process-stop-result.schema.json",
             "service-inspect": "service-helper-result.schema.json",
@@ -843,6 +888,18 @@ def _validate_envelope(request: dict[str, object]) -> None:
             "environment",
             "repository_guard",
         },
+        "process-prepare": {
+            "arguments",
+            "executable_sha256",
+            "privilege_wrapper_path",
+            "privilege_wrapper_sha256",
+            "pinned_arguments",
+            "hard_timeout_s",
+            "cleanup_timeout_s",
+            "environment",
+            "repository_guard",
+        },
+        "process-arm": {"handle_id", "schedule_after_arm_s", "minimum_arm_margin_s"},
         "process-wait": {"handle_id", "timeout_s"},
         "process-stop": {"handle_id"},
         "service-inspect": {"name", "manager"},
@@ -854,18 +911,21 @@ def _validate_envelope(request: dict[str, object]) -> None:
     operation = request["operation"]
     assert isinstance(operation, str)
     permitted = fields[operation]
-    if operation == "process-start":
+    if operation in {"process-start", "process-prepare"}:
         absolute_scheduled_fields = {"scheduled_start_utc", "minimum_arm_margin_s"}
         relative_scheduled_fields = {"schedule_after_arm_s", "minimum_arm_margin_s"}
         base_fields = permitted - {"repository_guard"}
-        valid_fields = frozenset(payload) in {
-            frozenset(base_fields),
-            frozenset(permitted),
-            frozenset(base_fields | absolute_scheduled_fields),
-            frozenset(permitted | absolute_scheduled_fields),
-            frozenset(base_fields | relative_scheduled_fields),
-            frozenset(permitted | relative_scheduled_fields),
-        }
+        if operation == "process-prepare":
+            valid_fields = frozenset(payload) in {frozenset(base_fields), frozenset(permitted)}
+        else:
+            valid_fields = frozenset(payload) in {
+                frozenset(base_fields),
+                frozenset(permitted),
+                frozenset(base_fields | absolute_scheduled_fields),
+                frozenset(permitted | absolute_scheduled_fields),
+                frozenset(base_fields | relative_scheduled_fields),
+                frozenset(permitted | relative_scheduled_fields),
+            }
     elif operation == "service-set":
         base_fields = permitted - {"repository_guard"}
         valid_fields = frozenset(payload) in {frozenset(base_fields), frozenset(permitted)}

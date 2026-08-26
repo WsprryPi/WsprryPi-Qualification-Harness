@@ -501,7 +501,7 @@ def test_required_receiver_service_restoration_failure_fails_cleanup() -> None:
     assert rx.running is True
 
 
-def test_keyed_process_is_armed_before_capture_and_rf_waits_for_readiness(
+def test_keyed_capture_is_ready_before_process_is_armed(
     tmp_path: Path,
 ) -> None:
     from tests.unit.test_cw_contracts import _chain
@@ -526,8 +526,8 @@ def test_keyed_process_is_armed_before_capture_and_rf_waits_for_readiness(
         def execute(self, capture_plan, authorization, cancellation):
             del authorization
             incomplete = Path(str(capture_plan.output_path) + ".incomplete")
-            incomplete.write_bytes(b"")
             calls.append("capture_ready")
+            incomplete.write_bytes(b"")
             while not release.wait(0.001):
                 if cancellation.is_set():
                     raise RuntimeError("cancelled")
@@ -541,6 +541,32 @@ def test_keyed_process_is_armed_before_capture_and_rf_waits_for_readiness(
 
     class FakeProcess:
         handle_id = "process-1"
+
+        def __init__(self):
+            self.arming_acknowledgement = {
+                "handle_id": self.handle_id,
+                "child_identity": "prepared",
+                "cleanup_verified": False,
+                "scheduled_start_utc": None,
+                "helper_observed_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                "arm_margin_s": None,
+            }
+
+        def arm(self, schedule_after_arm_s, minimum_arm_margin_s):
+            assert calls == ["process_prepared", "capture_ready"]
+            assert minimum_arm_margin_s > 0
+            assert schedule_after_arm_s == pytest.approx(0.2)
+            calls.append("process_armed")
+            helper_observed_utc = datetime.now(UTC)
+            scheduled_start_utc = datetime.now(UTC) + timedelta(seconds=schedule_after_arm_s)
+            self.arming_acknowledgement = {
+                "handle_id": self.handle_id,
+                "child_identity": "armed",
+                "cleanup_verified": False,
+                "scheduled_start_utc": scheduled_start_utc.isoformat().replace("+00:00", "Z"),
+                "helper_observed_utc": helper_observed_utc.isoformat().replace("+00:00", "Z"),
+                "arm_margin_s": schedule_after_arm_s,
+            }
 
         def wait(self, deadline, cancellation):
             del deadline, cancellation
@@ -561,25 +587,11 @@ def test_keyed_process_is_armed_before_capture_and_rf_waits_for_readiness(
             return self.wait(0, None)
 
     class FakeLauncher:
-        def begin_scheduled(self, arguments, *, schedule_after_arm_s, minimum_arm_margin_s):
+        def prepare(self, arguments):
             assert arguments
             assert calls == []
-            assert minimum_arm_margin_s > 0
-            assert schedule_after_arm_s == pytest.approx(0.2)
-            calls.append("process_armed")
-            process = FakeProcess()
-            helper_observed_utc = datetime.now(UTC)
-            scheduled_start_utc = datetime.now(UTC) + timedelta(seconds=schedule_after_arm_s)
-            scheduled_start_utc = scheduled_start_utc.isoformat().replace("+00:00", "Z")
-            process.arming_acknowledgement = {
-                "handle_id": process.handle_id,
-                "child_identity": "armed",
-                "cleanup_verified": False,
-                "scheduled_start_utc": scheduled_start_utc,
-                "helper_observed_utc": helper_observed_utc.isoformat().replace("+00:00", "Z"),
-                "arm_margin_s": schedule_after_arm_s,
-            }
-            return process
+            calls.append("process_prepared")
+            return FakeProcess()
 
     providers = object.__new__(live_adapters_module.KeyedCapabilityProviders)
     providers.plan = resolved
@@ -598,7 +610,7 @@ def test_keyed_process_is_armed_before_capture_and_rf_waits_for_readiness(
     started = time.monotonic()
     assert providers.start_process(("wsprrypi",), 1) == "process-1"
     assert time.monotonic() - started < 0.5
-    assert calls == ["process_armed", "capture_ready"]
+    assert calls == ["process_prepared", "capture_ready", "process_armed"]
     release.set()
     assert providers.capture(resolved, 1) is not None
 
@@ -814,11 +826,8 @@ def test_keyed_capture_failure_prevents_process_launch(
     armed_stopped: list[bool] = []
 
     class ForbiddenLauncher:
-        def begin_scheduled(self, arguments, *, schedule_after_arm_s, minimum_arm_margin_s):
+        def prepare(self, arguments):
             assert arguments
-            armed_started.append(True)
-            scheduled_start_utc = datetime.now(UTC) + timedelta(seconds=schedule_after_arm_s)
-            scheduled_start_utc = scheduled_start_utc.isoformat().replace("+00:00", "Z")
 
             class ArmedProcess:
                 handle_id = "armed-only"
@@ -826,10 +835,23 @@ def test_keyed_capture_failure_prevents_process_launch(
                 def __init__(self):
                     self.arming_acknowledgement = {
                         "handle_id": self.handle_id,
+                        "child_identity": "prepared",
+                        "cleanup_verified": False,
+                        "scheduled_start_utc": None,
+                        "helper_observed_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                        "arm_margin_s": None,
+                    }
+
+                def arm(self, schedule_after_arm_s, minimum_arm_margin_s):
+                    armed_started.append(True)
+                    helper_observed = datetime.now(UTC)
+                    scheduled = helper_observed + timedelta(seconds=schedule_after_arm_s)
+                    self.arming_acknowledgement = {
+                        "handle_id": self.handle_id,
                         "child_identity": "armed",
                         "cleanup_verified": False,
-                        "scheduled_start_utc": scheduled_start_utc,
-                        "helper_observed_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                        "scheduled_start_utc": scheduled.isoformat().replace("+00:00", "Z"),
+                        "helper_observed_utc": helper_observed.isoformat().replace("+00:00", "Z"),
                         "arm_margin_s": minimum_arm_margin_s,
                     }
 
@@ -856,8 +878,11 @@ def test_keyed_capture_failure_prevents_process_launch(
     providers.capture_tasks = {}
     providers.initial_services = {}
     assert providers.start_process(("wsprrypi",), 1) is None
-    if armed_started:
-        assert armed_stopped == [True]
+    if fail_after_ready:
+        assert armed_started in ([], [True])
+    else:
+        assert armed_started == []
+    assert armed_stopped == [True]
     diagnostic = providers.evidence_paths(1)["capture_diagnostic"]
     failure = json.loads(diagnostic.read_text(encoding="utf-8"))
     assert failure["evidence_type"] == "capture_background_failure"

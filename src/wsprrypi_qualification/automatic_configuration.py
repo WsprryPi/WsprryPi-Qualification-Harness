@@ -80,6 +80,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "tx_sudo",
             "tx_systemctl",
             "tx_gpio",
+            "tx_si5351",
             "tx_wsprrypi",
             "tx_git",
             "rx_helper",
@@ -98,6 +99,38 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         for name in ("parent_revision", "submodule_revision")
     ):
         raise AutomaticConfigurationError("WsprryPi source identity is invalid")
+    backend = facts.get("transmitter_backend", "gpio")
+    if backend not in {"gpio", "si5351"}:
+        raise AutomaticConfigurationError("transmitter backend must be gpio or si5351")
+    si5351 = backend == "si5351"
+    output = "CLK0" if si5351 else "GPIO4"
+    drive = 1 if si5351 else 0
+    quiescence = artifacts["tx_si5351"] if si5351 else artifacts["tx_gpio"]
+    backend_contract = (
+        {
+            "backend": "si5351",
+            "output": output,
+            "i2c_bus": 1,
+            "i2c_address": "0x60",
+            "reference_frequency_hz": 27_000_000,
+            "drive_or_power_level": drive,
+            "quiescence_provider_sha256": quiescence["sha256"],
+        }
+        if si5351
+        else {
+            "backend": "gpio",
+            "output": output,
+            "gpio_pin": 4,
+            "drive_or_power_level": drive,
+            "quiescence_provider_sha256": quiescence["sha256"],
+        }
+    )
+    application_backend_contract = {
+        key: value
+        for key, value in backend_contract.items()
+        if key not in {"backend", "quiescence_provider_sha256"}
+    }
+    application_backend_contract["ppm"] = 0
     receiver = {
         "host": rx_host,
         "observed_local_hostname": str(facts["receiver_hostname"]),
@@ -188,15 +221,9 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "git_path": artifacts["tx_git"]["path"],
             "git_sha256": artifacts["tx_git"]["sha256"],
         },
-        "backend": "gpio",
-        "output": "GPIO4",
-        "backend_contract": {
-            "backend": "gpio",
-            "output": "GPIO4",
-            "gpio_pin": 4,
-            "drive_or_power_level": 0,
-            "quiescence_provider_sha256": artifacts["tx_gpio"]["sha256"],
-        },
+        "backend": backend,
+        "output": output,
+        "backend_contract": backend_contract,
         "services": {
             "transmitter": ["wsprrypi.service"],
             "receiver": ["ssh.service"],
@@ -209,7 +236,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         "band": "20m",
         "identity": {"callsign": "Q0QQQ", "grid": "JJ00", "power_dbm": 0},
         "calibration": {"ppm": 0.0},
-        "drive": {"value": 0, "unit": "power_level"},
+        "drive": {"value": drive, "unit": "drive_strength" if si5351 else "power_level"},
         "mode": "TONE",
         "frame_count": 0,
         "random_offset_enabled": False,
@@ -249,7 +276,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "wsprrypi": artifacts["tx_wsprrypi"]["sha256"],
             "transmitter_service": artifacts["tx_systemctl"]["sha256"],
             "receiver_service": artifacts["rx_systemctl"]["sha256"],
-            "quiescence": artifacts["tx_gpio"]["sha256"],
+            "quiescence": quiescence["sha256"],
             "decoder": artifacts["wsprd"]["sha256"],
         },
         "external_access_enabled": True,
@@ -273,6 +300,26 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "configuration": artifacts["tone_ini"],
             "arguments": [
                 artifacts["tx_wsprrypi"]["path"],
+                *(
+                    [
+                        "--backend",
+                        "si5351",
+                        "--si5351-i2c-bus",
+                        "1",
+                        "--si5351-i2c-address",
+                        "0x60",
+                        "--si5351-reference-frequency",
+                        "27000000",
+                        "--si5351-tx-output",
+                        "CLK0",
+                        "--si5351-power-level",
+                        "1",
+                        "--si5351-ppm",
+                        "0",
+                    ]
+                    if si5351
+                    else []
+                ),
                 "-i",
                 artifacts["tone_ini"]["path"],
                 "--socket-port",
@@ -299,13 +346,8 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "source_revision": revisions["parent_revision"],
             "submodule_revision": revisions["submodule_revision"],
         },
-        "backend": "gpio",
-        "backend_contract": {
-            "output": "GPIO4",
-            "ppm": 0,
-            "drive_or_power_level": 0,
-            "gpio_pin": 4,
-        },
+        "backend": backend,
+        "backend_contract": application_backend_contract,
         "protocol": "qrss",
         "protocol_contract": {
             "message": CANONICAL_KEYED_TEST_MESSAGE,
@@ -316,13 +358,32 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         "arguments": [
             artifacts["tx_wsprrypi"]["path"],
             "--backend",
-            "gpio",
-            "--transmit-gpio",
-            "4",
-            "--gpio-power-level",
-            "0",
-            "--gpio-manual-ppm",
-            "0",
+            backend,
+            *(
+                [
+                    "--si5351-i2c-bus",
+                    "1",
+                    "--si5351-i2c-address",
+                    "0x60",
+                    "--si5351-reference-frequency",
+                    "27000000",
+                    "--si5351-tx-output",
+                    "CLK0",
+                    "--si5351-power-level",
+                    "1",
+                    "--si5351-ppm",
+                    "0",
+                ]
+                if si5351
+                else [
+                    "--transmit-gpio",
+                    "4",
+                    "--gpio-power-level",
+                    "0",
+                    "--gpio-manual-ppm",
+                    "0",
+                ]
+            ),
             "--no-offset",
             "--qrss-message",
             CANONICAL_KEYED_TEST_MESSAGE,
@@ -343,16 +404,16 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         "evidence_type": "resolved_cw_mode_plan",
         "run_id": "20260823T000000Z-complete-test-keyed-seed",
         "mode": "qrss",
-        "backend": "gpio",
+        "backend": backend,
         "hardware_profile": "complete-test-keyed-seed",
         "band": "20m",
         "source": revisions,
         "transmitter": {
             "host": tx_host,
-            "output": "GPIO4",
+            "output": output,
             "model": "configured WsprryPi host",
-            "drive_value": 0,
-            "drive_unit": "power_level",
+            "drive_value": drive,
+            "drive_unit": "drive_strength" if si5351 else "power_level",
             "clock_reference": "configured transmitter clock",
         },
         "receiver": {
@@ -437,10 +498,10 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         "mode": "QRSS",
         "transmitter": {
             "host": tx_host,
-            "backend": "gpio",
-            "output": "GPIO4",
+            "backend": backend,
+            "output": output,
             "frequency_hz": 14_097_100,
-            "drive": 0,
+            "drive": drive,
             "executable": artifacts["tx_wsprrypi"],
             "protected_source_roots": [str(facts["transmitter_source_path"])],
             "git": artifacts["tx_git"],
@@ -497,10 +558,10 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "capture_helper": artifacts["capture_helper"],
             "services": ["tx:wsprrypi.service", "rx:ssh.service"],
             "required_receiver_services": ["rx:ssh.service"],
-            "quiescence": "gpio",
+            "quiescence": backend,
         },
         "deadlines": {"transaction_s": 120, "cleanup_s": 10, "overall_s": 390},
-        "stopping_procedure": "owned stop and verified GPIO quiescence",
+        "stopping_procedure": f"owned stop and verified {backend} quiescence",
         "transaction_count": 3,
     }
     real_path = templates / "real.json"
@@ -523,6 +584,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         "ssh_executable": artifacts["ssh"]["path"],
         "work_directory": str(facts["work_directory"]),
         "output_parent": str(facts["output_parent"]),
+        "transmitter_backend": backend,
         "transmitter_ppm_sources": facts.get(
             "transmitter_ppm_sources",
             [
@@ -531,7 +593,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
                     "source_location": "automatic complete-test fixed manual containment",
                     "value_ppm": 0.0,
                     "host": tx_host,
-                    "backend": "gpio",
+                    "backend": backend,
                     "acquired_utc": None,
                 }
             ],

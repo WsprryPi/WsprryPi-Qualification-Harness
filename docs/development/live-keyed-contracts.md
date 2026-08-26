@@ -135,18 +135,17 @@ independent trusted path, and bind a dedicated immutable known-hosts file into
 the plan. A hostname, username, host key, or known-hosts change requires a new
 resolved plan and digest; do not repair trust with `StrictHostKeyChecking=no`.
 
-Within the process-start boundary, the production adapter asks the authenticated
-transmitter helper to arm WsprryPi after the protocol-defined pre-quiet interval.
-The helper first
-completes executable, argument, privilege, and repository authentication, then
-selects and acknowledges the absolute UTC start. It converts that interval once
-to a local monotonic deadline and waits cancellably on the transmitter; SSH and
-repository-inspection latency therefore cannot consume the required arm margin,
-and SSH arms the operation but does not trigger RF. During that guaranteed RF-off
-interval, the coordinator starts the exact-count capture worker and waits for its
-retained `.incomplete` output. It proceeds only if capture is established with
-the required arm margin still remaining. Otherwise it cancels the armed process
-before RF. The coordinator verifies the acknowledged time and clock interval,
+The production adapter first sends `process-prepare`, which completes executable,
+argument, privilege, and repository authentication and returns an owned handle
+without scheduling or launching WsprryPi. It then starts the exact-count capture
+worker and waits for its retained `.incomplete` output. Only that readiness event
+permits a separate authenticated `process-arm` request. The helper selects and
+acknowledges the absolute UTC start after the protocol-defined pre-quiet interval,
+converts it once to a local monotonic deadline, and waits cancellably. Receiver
+setup, SSH transport, and repository-inspection latency therefore cannot consume
+the capture-relative quiet interval. A capture failure before arming cancels the
+prepared handle; a failure after arming cancels it before RF. The coordinator
+verifies the acknowledged time and clock interval,
 monitors capture through the remainder of the preamble, and cancels the armed
 process if the capture worker exits before the scheduled instant. A verified
 cancellation of that pre-RF capture is successful cleanup, not a cleanup failure.
