@@ -46,10 +46,17 @@ new result directories for operator review and transfer; keep target-specific
 records with the target project or another approved evidence store. `runs/` is
 ignored temporary output, not a repository archive.
 
+A working conducted test rig can run the default five-mode campaign against
+Si5351 and against the GPIO backend used by Broadcom/DMA WsprryPi versions.
+That statement records rig capability, not portable qualification evidence.
+
 ## Start here
 
 - [Current workflows](docs/CURRENT_WORKFLOWS.md) — supported commands and the
   correct guide for each task.
+- [Operator security](docs/OPERATOR_SECURITY.md) — required SSH trust paths,
+  key handling, host verification, and privilege boundaries.
+- [Future roadmap](docs/ROADMAP.md) — the five remaining phases only.
 - [Turnkey campaign guide](docs/development/turnkey-campaign.md) — one thin
   multi-mode routing workflow.
 - [Agent operating guide](docs/AGENT_OPERATIONS.md) — required orientation,
@@ -60,6 +67,23 @@ ignored temporary output, not a repository archive.
   semantics.
 - [Contributing](CONTRIBUTING.md) — development workflow.
 - [Security](SECURITY.md) — safety and security reporting.
+
+## Agentic testing control
+
+An agent begins with [AGENTS.md](AGENTS.md), then follows the
+[agent operating guide](docs/AGENT_OPERATIONS.md),
+[operator security guide](docs/OPERATOR_SECURITY.md), and
+[current workflow router](docs/CURRENT_WORKFLOWS.md). The
+[capability matrix](docs/CAPABILITY_MATRIX.md) maps each route to its production
+module, schemas, and tests. Exact invocation syntax comes from the checked-out
+CLI `--help`, never from retained logs.
+
+The normal bounded campaign entrypoint is `complete-test`, which composes and
+runs TONE, WSPR, QRSS, FSKCW, and DFCW. It prints the durable progress JSONL
+path and an exact log-viewer command before long-running work begins. An agent
+may perform read-only orientation and hardware-free validation within the
+current task, but it must have explicit authority before host access, SDR or
+transmitter access, privilege use, service changes, or RF transmission.
 
 ## Install
 
