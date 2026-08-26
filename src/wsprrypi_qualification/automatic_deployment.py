@@ -313,7 +313,7 @@ def _prepare_transmitter(
             "probe_source=build_source/'src/build/bin/rp1_gpclk_admin_probe';"
             "probe=deployment/'rp1-admin-probe';"
             "probe_data=probe_source.read_bytes() if probe_source.is_file() else b'';"
-            "assert sys.argv[4]!='rpi-gpio' or probe_data;"
+            "assert sys.argv[4]!='rp1-gpclk' or probe_data;"
             "fd=os.open(probe,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o700);"
             "os.write(fd,probe_data);os.fsync(fd);os.close(fd);"
             "config_source=src/'config/wsprrypi.ini';"
@@ -328,7 +328,11 @@ def _prepare_transmitter(
             "(root/'rp1-inspect').chmod(0o700);"
             "print(str(binary))"
         )
-        build_backend = "si5351" if transmitter_backend == "si5351" else "rpi-gpio"
+        build_backend = {
+            "gpio": "rpi-gpio",
+            "rp1_gpclk": "rp1-gpclk",
+            "si5351": "si5351",
+        }[transmitter_backend]
         result = stage.run_python_to_completion(
             program, deployment, stage.owner_token, build_backend
         )

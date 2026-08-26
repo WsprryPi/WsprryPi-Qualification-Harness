@@ -71,6 +71,18 @@ def test_transmitter_binary_is_exclusively_installed_per_campaign() -> None:
     assert "timeout=900" not in stage.calls[0][0]
 
 
+def test_rp1_source_build_selects_the_rp1_provider_profile() -> None:
+    stage = _TransmitterStage()
+
+    automatic_deployment._prepare_transmitter(
+        stage, transmitter_backend="rp1_gpclk", transmit_gpio=4
+    )
+
+    deployment = "/home/pi/wsprrypi-qualification-runs/complete-test-deployment-stage"
+    assert stage.calls[0][1] == (deployment, stage.owner_token, "rp1-gpclk")
+    assert "sys.argv[4]!='rp1-gpclk' or probe_data" in stage.calls[0][0]
+
+
 def test_installed_configuration_is_staged_byte_for_byte_without_normalization() -> None:
     stage = _InstalledTransmitterStage()
     paths = automatic_deployment._prepare_transmitter(
