@@ -206,8 +206,9 @@ Each of the three transactions sends one keyed message. Plans bind receiver
 services that must run for capture separately from the complete service
 allowlist; they start only after cleanup installation, and all listed services
 return to their observed initial state during transaction cleanup.
-The production adapter establishes the exact-count capture, then arms WsprryPi
-on the transmitter for a future UTC start. The transmitter helper converts the
+The production adapter first authenticates and owns a prepared WsprryPi process
+without scheduling or launching it, establishes the exact-count capture, and
+only then sends a separate arm event for a future UTC start. The transmitter helper converts the
 accepted wall-clock interval to a local monotonic deadline, so SSH latency does
 not select the RF start instant. The coordinator monitors capture through the
 resolved RF-off preamble and cancels the armed process before RF if capture

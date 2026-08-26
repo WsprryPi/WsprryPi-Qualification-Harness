@@ -409,6 +409,20 @@ class _SshOwnedProcess:
         )
         return _launch_result_from_helper(response, self.handle_id)
 
+    def arm(self, schedule_after_arm_s: float, minimum_arm_margin_s: float) -> None:
+        response = self.client.request(
+            "process-arm",
+            {
+                "handle_id": self.handle_id,
+                "schedule_after_arm_s": schedule_after_arm_s,
+                "minimum_arm_margin_s": minimum_arm_margin_s,
+            },
+            response_timeout_s=self.cleanup_timeout_s,
+        )
+        if response.get("handle_id") != self.handle_id:
+            raise CapabilityError("remote process arm response has wrong ownership handle")
+        self.arming_acknowledgement = response
+
     def stop(self) -> LaunchResult:
         response = self.client.request(
             "process-stop",
@@ -459,14 +473,20 @@ class SshOwnedProcessLauncher:
     def begin(self, arguments: tuple[str, ...]) -> OwnedProcess:
         return self.begin_scheduled(arguments)
 
-    def begin_scheduled(
-        self,
-        arguments: tuple[str, ...],
-        *,
-        scheduled_start_utc: str | None = None,
-        schedule_after_arm_s: float | None = None,
-        minimum_arm_margin_s: float = 0.0,
-    ) -> OwnedProcess:
+    def prepare(self, arguments: tuple[str, ...]) -> _SshOwnedProcess:
+        payload = self._start_payload(arguments)
+        inspection_timeout_s = self._inspection_timeout_s()
+        response = self.client.request(
+            "process-prepare",
+            payload,
+            response_timeout_s=self.client.timeout_s + inspection_timeout_s,
+        )
+        handle = response.get("handle_id")
+        if not isinstance(handle, str) or not handle:
+            raise CapabilityError("remote process helper omitted ownership handle")
+        return _SshOwnedProcess(self.client, handle, response, self.cleanup_timeout_s)
+
+    def _start_payload(self, arguments: tuple[str, ...]) -> dict[str, object]:
         payload: dict[str, object] = {
             "arguments": list(arguments),
             "executable_sha256": self.executable_sha256,
@@ -479,14 +499,9 @@ class SshOwnedProcessLauncher:
         }
         if self.repository_guard is not None:
             payload["repository_guard"] = self.repository_guard
-        if scheduled_start_utc is not None and schedule_after_arm_s is not None:
-            raise CapabilityError("remote process schedule must use exactly one time basis")
-        if scheduled_start_utc is not None:
-            payload["scheduled_start_utc"] = scheduled_start_utc
-            payload["minimum_arm_margin_s"] = minimum_arm_margin_s
-        elif schedule_after_arm_s is not None:
-            payload["schedule_after_arm_s"] = schedule_after_arm_s
-            payload["minimum_arm_margin_s"] = minimum_arm_margin_s
+        return payload
+
+    def _inspection_timeout_s(self) -> float:
         inspection_timeout_s = 0.0
         if self.repository_guard is not None:
             raw_timeout = self.repository_guard.get("inspection_timeout_s")
@@ -498,6 +513,26 @@ class SshOwnedProcessLauncher:
             ):
                 raise CapabilityError("repository inspection deadline is invalid")
             inspection_timeout_s = float(raw_timeout)
+        return inspection_timeout_s
+
+    def begin_scheduled(
+        self,
+        arguments: tuple[str, ...],
+        *,
+        scheduled_start_utc: str | None = None,
+        schedule_after_arm_s: float | None = None,
+        minimum_arm_margin_s: float = 0.0,
+    ) -> OwnedProcess:
+        payload = self._start_payload(arguments)
+        if scheduled_start_utc is not None and schedule_after_arm_s is not None:
+            raise CapabilityError("remote process schedule must use exactly one time basis")
+        if scheduled_start_utc is not None:
+            payload["scheduled_start_utc"] = scheduled_start_utc
+            payload["minimum_arm_margin_s"] = minimum_arm_margin_s
+        elif schedule_after_arm_s is not None:
+            payload["schedule_after_arm_s"] = schedule_after_arm_s
+            payload["minimum_arm_margin_s"] = minimum_arm_margin_s
+        inspection_timeout_s = self._inspection_timeout_s()
         response = self.client.request(
             "process-start",
             payload,
@@ -1008,6 +1043,8 @@ class JsonHelperClient:
         result = cast(dict[str, object], document["result"])
         result_schema = {
             "process-start": "process-start-result.schema.json",
+            "process-prepare": "process-start-result.schema.json",
+            "process-arm": "process-start-result.schema.json",
             "process-wait": "process-wait-result.schema.json",
             "process-stop": "process-stop-result.schema.json",
             "service-inspect": "service-helper-result.schema.json",
@@ -1045,8 +1082,17 @@ class PersistentHelperTransport:
         self._lock = threading.Lock()
 
     def exchange(self, encoded_request: str, timeout_s: float) -> str:
-        if timeout_s <= 0 or self._process.poll() is not None:
+        if timeout_s <= 0:
             raise CapabilityError("persistent helper session is unavailable")
+        return_code = self._process.poll()
+        if return_code is not None:
+            detail = ""
+            if self._process.stderr is not None:
+                detail = (
+                    self._process.stderr.read(2048).strip().replace("\r", " ").replace("\n", " ")
+                )
+            suffix = f" (exit {return_code}{f': {detail}' if detail else ''})"
+            raise CapabilityError(f"persistent helper session is unavailable{suffix}")
         deadline = time.monotonic() + timeout_s
         assert self._process.stdin is not None and self._process.stdout is not None
         stdout_stream = self._process.stdout
