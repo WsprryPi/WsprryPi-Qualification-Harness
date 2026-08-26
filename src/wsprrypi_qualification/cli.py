@@ -97,6 +97,12 @@ from wsprrypi_qualification.receiver_calibration import (
 from wsprrypi_qualification.receiver_calibration import (
     disabled_binding as disabled_receiver_calibration,
 )
+from wsprrypi_qualification.rp1_campaign import (
+    Rp1CampaignError,
+    compose_rp1_rehearsal,
+    configured_output_parent,
+    write_rp1_rehearsal,
+)
 from wsprrypi_qualification.turnkey_campaign import (
     TurnkeyCampaignError,
     compose_resolved_campaign_plan,
@@ -443,9 +449,14 @@ def _parser() -> argparse.ArgumentParser:
     complete.add_argument("--progress-stream", action="store_true", help=argparse.SUPPRESS)
     complete.add_argument(
         "--transmitter-backend",
-        choices=("gpio", "si5351"),
+        choices=("gpio", "si5351", "rp1_gpclk"),
         default="gpio",
         help="transmitter backend for automatically composed plans (default: gpio)",
+    )
+    complete.add_argument(
+        "--rp1-route",
+        choices=("gpio4", "gpio20"),
+        help="required administrative route for hardware-free rp1_gpclk rehearsal",
     )
     complete.add_argument("--band", default="20m")
     complete.add_argument("--frequency-hz", type=int, default=14_097_100)
@@ -537,6 +548,49 @@ def main(argv: Sequence[str] | None = None) -> int:
             reporter.emit("command", "started", "complete-test command accepted")
             if args.rehearse and args.enable_rf:
                 raise CompleteTestError("--rehearse conflicts with --enable-rf")
+            if (args.transmitter_backend == "rp1_gpclk") != (args.rp1_route is not None):
+                raise CompleteTestError(
+                    "--rp1-route is required exactly for --transmitter-backend rp1_gpclk"
+                )
+            if args.transmitter_backend == "rp1_gpclk":
+                if not args.rehearse:
+                    raise CompleteTestError(
+                        "missing_capability: rp1_gpclk production execution is unavailable"
+                    )
+                if args.configuration is None:
+                    raise CompleteTestError("RP1 rehearsal requires --configuration")
+                if args.transmitter_host != args.receiver_host:
+                    raise CompleteTestError("RP1 same-host rehearsal requires identical host names")
+                rehearsal = compose_rp1_rehearsal(
+                    args.configuration.absolute(),
+                    args.rp1_route,
+                    residual_ppm=args.transmitter_ppm_offset,
+                    carrier_offset_max_hz=args.carrier_offset_max_hz,
+                )
+                if rehearsal["host"] != args.transmitter_host:
+                    raise CompleteTestError("RP1 rehearsal host differs from command host")
+                destination = (
+                    configured_output_parent(args.configuration.absolute())
+                    / rehearsal["campaign_id"]
+                )
+                write_rp1_rehearsal(rehearsal, destination)
+                reporter.emit("command", "completed", "RP1 hardware-free rehearsal composed")
+                print(
+                    json.dumps(
+                        {
+                            "bundle": str(destination),
+                            "campaign_id": rehearsal["campaign_id"],
+                            "backend": "rp1_gpclk",
+                            "route": rehearsal["route"],
+                            "mode_count": 5,
+                            "qualification_claim": False,
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+                )
+                reporter.close()
+                return 0
             if (
                 args.wsprrypi_source is not None
                 and args.wsprrypi_config != "/usr/local/etc/wsprrypi.ini"
@@ -689,6 +743,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         except (
             AutomaticDeploymentError,
             CompleteTestError,
+            Rp1CampaignError,
             RealSessionError,
             LiveKeyedError,
             OfflineAnalysisError,

@@ -47,6 +47,14 @@ binds bus 1, address `0x60`, reference frequency 27 MHz, output CLK0, drive
 strength 1, and the deployed read-only Si5351 quiescence inspector into every
 subordinate plan. No backend fallback is permitted.
 
+RP1 development campaigns have a separate hardware-free form:
+`--transmitter-backend rp1_gpclk --rp1-route gpio4|gpio20 --rehearse
+--configuration CONFIG`. It composes five route-bound plans with distinct
+same-host transmitter and receiver roles, ABI-v2 finite TONE, exact PPM
+provenance, and receiver/RF-path identity. It constructs no production adapter,
+makes no external call, and rejects live/RF execution before configuration is
+loaded. It is not deployment, target, GPIO, SDR, or qualification evidence.
+
 Every invocation creates an exclusive JSON Lines progress log and prints its
 absolute path to stderr before long-running work begins. By default it is kept
 in the invoking host's durable user-state directory, not temporary or remote

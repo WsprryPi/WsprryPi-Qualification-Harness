@@ -218,11 +218,12 @@ def test_rp1_backend_is_route_bound_and_applies_ppm_once(
         finite_tone_required=True,
         development_enrollment="Experimental",
         live_output_required=True,
+        rp1_drive_ma=2,
     )
     plan = WsprryPiShim(identity(), backend="rp1_gpclk", backend_config=config).resolve_plan(
         f"rp1-{route}", WsprProtocol("Q0QQQ", "JJ00", 0, 10_140_200, 3, 1500)
     )
-    assert plan.arguments[:11] == (
+    assert plan.arguments[:13] == (
         "/opt/Wsprry Pi/wsprrypi",
         "--backend",
         "gpio",
@@ -230,6 +231,8 @@ def test_rp1_backend_is_route_bound_and_applies_ppm_once(
         str(pin),
         "--gpio-power-level",
         "0",
+        "--rp1-gpio-drive-ma",
+        "2",
         "--no-system-clock-frequency-estimate",
         "--gpio-manual-ppm",
         "-3.56",
@@ -261,6 +264,7 @@ def test_rp1_backend_rejects_missing_or_cross_route_identity() -> None:
                 finite_tone_required=True,
                 development_enrollment="Experimental",
                 live_output_required=True,
+                rp1_drive_ma=2,
             ),
         ).resolve_plan("wrong-route", ToneProtocol(14_097_100))
 

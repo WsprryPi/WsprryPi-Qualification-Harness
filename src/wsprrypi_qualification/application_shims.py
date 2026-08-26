@@ -76,6 +76,7 @@ class WsprryPiBackendConfig:
     finite_tone_required: bool | None = None
     development_enrollment: str | None = None
     live_output_required: bool | None = None
+    rp1_drive_ma: int | None = None
 
 
 @dataclass(frozen=True)
@@ -173,6 +174,7 @@ class WsprryPiShim:
                 or config.finite_tone_required is not True
                 or config.development_enrollment != "Experimental"
                 or config.live_output_required is not True
+                or config.rp1_drive_ma not in {2, 4, 8, 12}
             ):
                 raise ApplicationPlanError(
                     "RP1 backend identity contract is incomplete or mismatched"
@@ -184,6 +186,8 @@ class WsprryPiShim:
                 str(pin),
                 "--gpio-power-level",
                 str(config.drive_or_power_level),
+                "--rp1-gpio-drive-ma",
+                str(config.rp1_drive_ma),
                 "--no-system-clock-frequency-estimate",
                 "--gpio-manual-ppm",
                 self._number(config.ppm) if config.ppm > 0 else str(config.ppm),

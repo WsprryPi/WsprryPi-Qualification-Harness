@@ -133,6 +133,12 @@ schema changes.
 
 ## Safety boundary
 
+RP1-GPCLK development plans can be composed hardware-free with
+`complete-test --transmitter-backend rp1_gpclk --rp1-route gpio4|gpio20
+--rehearse --configuration CONFIG`. This validates five route-bound plans and
+does not contact a host, construct a production adapter, operate hardware, or
+authorize RF. Live RP1 complete-test execution remains unavailable.
+
 Nothing in the repository, an example profile, or a prior evidence bundle
 authorizes RF transmission, GPIO/I2C activity, SDR access, service changes, or
 software installation. Live commands require their explicit enable flags,

@@ -91,6 +91,17 @@ deployment includes a hash-bound read-only register-3 inspector and requires
 all selected outputs to be disabled at preflight and cleanup. The backend never
 falls back to GPIO or to the installed INI backend default.
 
+An explicit `--transmitter-backend rp1_gpclk --rp1-route gpio4|gpio20
+--rehearse --configuration CONFIG` selects the sealed RP1 hardware-free
+composer. It binds two distinct logical roles on the named host, the canonical
+endpoint/module, ABI v2, finite TONE, route-specific r2 compatibility identity,
+`Experimental` enrollment, `live_output=1`, exact WsprryPi/component revisions,
+receiver/RF-path identity, and one provenance-bound PPM source. The WsprryPi
+argv uses its reviewed Pi-5 `--backend gpio --transmit-gpio 4|20` interface,
+while the Harness retains `rp1_gpclk` as the authenticated backend identity.
+The complete route contract prevents legacy fallback. Any RP1 invocation
+without `--rehearse` fails before configuration loading or adapter construction.
+
 ```text
 wsprrypi-qualification complete-test wspr4 wspr5 \
   --sdr driver=sdrplay,serial=2404058C60 \
@@ -212,8 +223,7 @@ roots, and external process working directory. The helper verifies the boundary
 at spawn and compares the post-process repository state with its exact original
 baseline, including pre-existing dirty work. Mutation fails cleanup and is
 reported without automatic repair.
-The current `main` production application/quiescence contracts support GPIO and
-Si5351, not `rp1_gpclk`; selecting RP1 therefore returns `missing_capability`
-before adapter construction. GPIO4/2 mA RP1 defaults will apply only after that
-backend is present in the maintained production contracts and cannot leak into
-GPIO or Si5351 plans.
+The current production application/quiescence contracts support GPIO and
+Si5351, not RP1. RP1 is available only for the sealed hardware-free rehearsal
+above and returns `missing_capability` for live execution before adapter
+construction. No RP1 value can leak into GPIO or Si5351 plans.
