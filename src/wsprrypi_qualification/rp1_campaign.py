@@ -44,9 +44,19 @@ def _load_configuration(path: Path) -> dict[str, Any]:
 
 
 def _ppm(
-    configuration: dict[str, Any], route: str, residual_ppm: float
+    configuration: dict[str, Any],
+    route: str,
+    residual_ppm: float,
+    manual_ppm: float | None,
 ) -> tuple[float, dict[str, Any]]:
-    source = configuration["transmitter_ppm_source"]
+    source = dict(configuration["transmitter_ppm_source"])
+    if manual_ppm is not None:
+        source.update(
+            {
+                "value_ppm": manual_ppm,
+                "provenance": "operator-supplied measured RP1 source via --gpio-manual-ppm",
+            }
+        )
     expected = route_contract(route)
     if (
         source["host"] != configuration["host"]
@@ -88,7 +98,7 @@ def _application_config(
         rp1_route=route,
         endpoint=str(expected["endpoint"]),
         compatibility_id=str(expected["compatibility_id"]),
-        abi_version=2,
+        abi_version=3,
         finite_tone_required=True,
         development_enrollment="Experimental",
         live_output_required=True,
@@ -125,6 +135,7 @@ def compose_rp1_rehearsal(
     route: str,
     *,
     residual_ppm: float = 0.0,
+    manual_ppm: float | None = None,
     carrier_offset_max_hz: float = 100.0,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -148,7 +159,7 @@ def compose_rp1_rehearsal(
         or configuration["receiver"]["host"] != configuration["host"]
     ):
         raise Rp1CampaignError("RP1 same-host role or receiver identity differs from host")
-    effective_ppm, ppm_resolution = _ppm(configuration, route, residual_ppm)
+    effective_ppm, ppm_resolution = _ppm(configuration, route, residual_ppm, manual_ppm)
     identity = ApplicationIdentity(
         "wsprrypi",
         configuration["wsprrypi"]["executable"],
@@ -172,7 +183,7 @@ def compose_rp1_rehearsal(
             "endpoint": expected["endpoint"],
             "route": route,
             "compatibility_id": expected["compatibility_id"],
-            "abi_version": 2,
+            "abi_version": 3,
             "finite_tone_required": True,
             "tone_operation": "FINITE" if mode == "TONE" else "NOT_APPLICABLE",
             "tone_duration_ns": 1_000_000_000 if mode == "TONE" else None,
@@ -240,7 +251,7 @@ def validate_rp1_rehearsal(document: dict[str, Any]) -> dict[str, Any]:
             "rp1_route": document["route"],
             "endpoint": expected["endpoint"],
             "compatibility_id": expected["compatibility_id"],
-            "abi_version": 2,
+            "abi_version": 3,
             "finite_tone_required": True,
             "development_enrollment": "Experimental",
             "live_output_required": True,
@@ -264,7 +275,7 @@ def validate_rp1_rehearsal(document: dict[str, Any]) -> dict[str, Any]:
             entry["rp1_lifecycle_contract"]["tone_operation"] != "FINITE"
             or entry["rp1_lifecycle_contract"]["tone_duration_ns"] != 1_000_000_000
         ):
-            raise Rp1CampaignError("RP1 campaign entry TONE is not ABI-v2 finite")
+            raise Rp1CampaignError("RP1 campaign entry TONE is not ABI-v3 finite")
         observed = entry["plan_sha256"]
         payload = dict(entry)
         payload.pop("plan_sha256")

@@ -12,6 +12,7 @@ import pytest
 from wsprrypi_qualification.capability_helper import (
     PROTOCOL_VERSION,
     CapabilityHelperServer,
+    CommandRp1Backend,
     HelperProtocolError,
     decode_request,
 )
@@ -47,8 +48,8 @@ def preflight(route: str = "gpio4") -> dict[str, object]:
         "vermagic": "6.18",
         "signer": "development",
         "installed_module_sha256": "b" * 64,
-        "abi_version": 2,
-        "query_version": 2,
+        "abi_version": 3,
+        "query_version": 3,
         "finite_tone": True,
         "live_output": True,
         "route": route,
@@ -272,6 +273,27 @@ def test_helper_protocol_exposes_only_fixed_passive_rp1_inspection() -> None:
     acquire["payload"]["acquire_endpoint"] = True
     with pytest.raises((HelperProtocolError, ValueError)):
         server.dispatch(acquire)
+
+
+def test_command_rp1_backend_adds_only_passive_fixed_fields() -> None:
+    class Backend:
+        def __init__(self) -> None:
+            self.payload: dict[str, object] | None = None
+
+        def request(self, payload: dict[str, object]) -> dict[str, object]:
+            self.payload = payload
+            return preflight("gpio20")
+
+    backend = Backend()
+    result = CommandRp1Backend(backend).inspect("gpio20")  # type: ignore[arg-type]
+    assert result == preflight("gpio20")
+    assert backend.payload == {
+        "route": "gpio20",
+        "read_only": True,
+        "acquire_endpoint": False,
+    }
+    with pytest.raises(HelperProtocolError, match="allowlisted"):
+        CommandRp1Backend(backend).inspect("gpio17")  # type: ignore[arg-type]
 
 
 def test_real_json_client_composes_two_in_process_role_channels(tmp_path: Path) -> None:

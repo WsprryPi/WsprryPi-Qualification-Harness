@@ -18,6 +18,7 @@ from wsprrypi_qualification.real_session import (
     required_tone_overall_deadline,
 )
 from wsprrypi_qualification.receiver_calibration import disabled_binding
+from wsprrypi_qualification.rp1_contracts import route_contract
 
 
 class AutomaticConfigurationError(RuntimeError):
@@ -68,31 +69,31 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
     tx_host = str(facts["transmitter_host"])
     rx_host = str(facts["receiver_host"])
     sdr = cast(dict[str, str], facts["sdr"])
-    artifacts = {
-        name: _record(facts["artifacts"][name], name)
-        for name in (
-            "ssh",
-            "ssh_keygen",
-            "known_hosts",
-            "tx_helper",
-            "tx_helper_config",
-            "tx_keyed_helper_config",
-            "tx_sudo",
-            "tx_systemctl",
-            "tx_gpio",
-            "tx_si5351",
-            "tx_wsprrypi",
-            "tx_git",
-            "rx_helper",
-            "rx_helper_config",
-            "rx_systemctl",
-            "rx_gpio",
-            "capture_helper",
-            "wsprd",
-            "tone_ini_source",
-            "tone_ini",
-        )
-    }
+    artifact_names = [
+        "ssh",
+        "ssh_keygen",
+        "known_hosts",
+        "tx_helper",
+        "tx_helper_config",
+        "tx_keyed_helper_config",
+        "tx_sudo",
+        "tx_systemctl",
+        "tx_gpio",
+        "tx_si5351",
+        "tx_wsprrypi",
+        "tx_git",
+        "rx_helper",
+        "rx_helper_config",
+        "rx_systemctl",
+        "rx_gpio",
+        "capture_helper",
+        "wsprd",
+        "tone_ini_source",
+        "tone_ini",
+    ]
+    if facts.get("transmitter_backend") == "rp1_gpclk":
+        artifact_names.append("tx_rp1")
+    artifacts = {name: _record(facts["artifacts"][name], name) for name in artifact_names}
     revisions = facts["source"]
     if any(
         not isinstance(revisions.get(name), str) or len(revisions[name]) != 40
@@ -100,12 +101,19 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
     ):
         raise AutomaticConfigurationError("WsprryPi source identity is invalid")
     backend = facts.get("transmitter_backend", "gpio")
-    if backend not in {"gpio", "si5351"}:
-        raise AutomaticConfigurationError("transmitter backend must be gpio or si5351")
+    if backend not in {"gpio", "si5351", "rp1_gpclk"}:
+        raise AutomaticConfigurationError("transmitter backend is unsupported")
     si5351 = backend == "si5351"
-    output = "CLK0" if si5351 else "GPIO4"
+    rp1 = backend == "rp1_gpclk"
+    rp1_route = None if not rp1 else f"gpio{facts.get('transmit_gpio')}"
+    if rp1 and rp1_route not in {"gpio4", "gpio20"}:
+        raise AutomaticConfigurationError("RP1 route must be exactly GPIO4 or GPIO20")
+    rp1_identity = None if not rp1 else route_contract(cast(str, rp1_route))
+    output = "CLK0" if si5351 else str(rp1_identity["output"]) if rp1_identity else "GPIO4"
     drive = 1 if si5351 else 0
-    quiescence = artifacts["tx_si5351"] if si5351 else artifacts["tx_gpio"]
+    quiescence = (
+        artifacts["tx_si5351"] if si5351 else artifacts["tx_rp1"] if rp1 else artifacts["tx_gpio"]
+    )
     backend_contract = (
         {
             "backend": "si5351",
@@ -118,6 +126,23 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         }
         if si5351
         else {
+            "backend": "rp1_gpclk",
+            "output": cast(dict[str, Any], rp1_identity)["output"],
+            "gpio_pin": cast(dict[str, Any], rp1_identity)["gpio"],
+            "rp1_route": rp1_route,
+            "endpoint": cast(dict[str, Any], rp1_identity)["endpoint"],
+            "endpoint_node": cast(dict[str, Any], rp1_identity)["endpoint_node"],
+            "compatibility_id": cast(dict[str, Any], rp1_identity)["compatibility_id"],
+            "abi_version": 3,
+            "finite_tone_required": True,
+            "development_enrollment": "Experimental",
+            "live_output_required": True,
+            "drive_or_power_level": drive,
+            "rp1_drive_ma": 2,
+            "quiescence_provider_sha256": quiescence["sha256"],
+        }
+        if rp1
+        else {
             "backend": "gpio",
             "output": output,
             "gpio_pin": 4,
@@ -128,7 +153,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
     application_backend_contract = {
         key: value
         for key, value in backend_contract.items()
-        if key not in {"backend", "quiescence_provider_sha256"}
+        if key not in {"backend", "endpoint_node", "quiescence_provider_sha256"}
     }
     application_backend_contract["ppm"] = 0
     receiver = {
@@ -200,7 +225,8 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         "requested_profiles": {name: profile_seed for name in ("bench", "test", "receiver_run")},
         "resolved_profiles": {name: profile_seed for name in ("bench", "test", "receiver_run")},
         "host": tx_host,
-        "transport": "ssh",
+        "transport": "local_role_channels" if tx_host == rx_host else "ssh",
+        "topology": "same_host_roles" if tx_host == rx_host else "split_host_ssh",
         "transport_identity": {
             "controller_hostname": facts["receiver_hostname"],
             "known_hosts_path": artifacts["known_hosts"]["path"],
@@ -226,8 +252,8 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         "backend_contract": backend_contract,
         "services": {
             "transmitter": ["wsprrypi.service"],
-            "receiver": ["ssh.service"],
-            "receiver_required": ["ssh.service"],
+            "receiver": [] if tx_host == rx_host else ["ssh.service"],
+            "receiver_required": [] if tx_host == rx_host else ["ssh.service"],
         },
         "receiver": receiver,
         "receiver_calibration": disabled_binding(),
@@ -318,6 +344,15 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
                         "0",
                     ]
                     if si5351
+                    else [
+                        "--backend",
+                        "gpio",
+                        "--transmit-gpio",
+                        str(cast(dict[str, Any], rp1_identity)["gpio"]),
+                        "--gpio-power-level",
+                        "0",
+                    ]
+                    if rp1
                     else []
                 ),
                 "-i",
@@ -358,7 +393,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         "arguments": [
             artifacts["tx_wsprrypi"]["path"],
             "--backend",
-            backend,
+            "gpio" if rp1 else backend,
             *(
                 [
                     "--si5351-i2c-bus",
@@ -377,7 +412,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
                 if si5351
                 else [
                     "--transmit-gpio",
-                    "4",
+                    str(cast(dict[str, Any], rp1_identity)["gpio"]) if rp1 else "4",
                     "--gpio-power-level",
                     "0",
                     "--gpio-manual-ppm",
@@ -496,6 +531,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         "evidence_type": "resolved_keyed_session_plan",
         "session_id": "complete-test-keyed-template",
         "mode": "QRSS",
+        "topology": "same_host_roles" if tx_host == rx_host else "split_host_ssh",
         "transmitter": {
             "host": tx_host,
             "backend": backend,
@@ -556,8 +592,12 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "receiver_helper_config": artifacts["rx_helper_config"],
             "receiver_helper_identity": "complete-test-receiver",
             "capture_helper": artifacts["capture_helper"],
-            "services": ["tx:wsprrypi.service", "rx:ssh.service"],
-            "required_receiver_services": ["rx:ssh.service"],
+            "services": (
+                ["tx:wsprrypi.service"]
+                if tx_host == rx_host
+                else ["tx:wsprrypi.service", "rx:ssh.service"]
+            ),
+            "required_receiver_services": [] if tx_host == rx_host else ["rx:ssh.service"],
             "quiescence": backend,
         },
         "deadlines": {"transaction_s": 120, "cleanup_s": 10, "overall_s": 390},
@@ -576,7 +616,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         "receiver_host": rx_host,
         "sdr_selector": facts["sdr_selector"],
         "receiver_delegation": facts["receiver_delegation"],
-        "topology": "split_host_ssh",
+        "topology": "same_host_roles" if tx_host == rx_host else "split_host_ssh",
         "production_templates": {
             "real_session": "templates/real.json",
             "keyed_session": "templates/keyed.json",

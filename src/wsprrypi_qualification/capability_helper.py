@@ -236,6 +236,18 @@ class CommandSi5351Backend:
         return self.backend.request({"bus": bus, "address": address})
 
 
+class CommandRp1Backend:
+    """Pinned passive provider for the route-bound RP1 administrative probe."""
+
+    def __init__(self, backend: JsonInspectionBackend) -> None:
+        self.backend = backend
+
+    def inspect(self, route: str) -> dict[str, object]:
+        if route not in {"gpio4", "gpio20"}:
+            raise HelperProtocolError("RP1 inspection route is not allowlisted")
+        return self.backend.request({"route": route, "read_only": True, "acquire_endpoint": False})
+
+
 @dataclass
 class RepositoryGuardState:
     git: Path
@@ -985,6 +997,8 @@ def load_server_config(
         "gpio_helper_sha256",
         "si5351_helper_path",
         "si5351_helper_sha256",
+        "rp1_helper_path",
+        "rp1_helper_sha256",
         "inspection_timeout_s",
         "bounded_tone_endpoint",
         "wsprrypi_revision",
@@ -1062,6 +1076,18 @@ def load_server_config(
                 inspection_timeout,
             )
         )
+    rp1_backend: Rp1Backend | None = None
+    if "rp1_helper_path" in document:
+        if "rp1_helper_sha256" not in document:
+            raise HelperProtocolError("RP1 helper hash is required with its path")
+        rp1_backend = CommandRp1Backend(
+            JsonInspectionBackend(
+                Path(cast(str, document["rp1_helper_path"])),
+                cast(str, document["rp1_helper_sha256"]),
+                "rp1-inspect",
+                inspection_timeout,
+            )
+        )
     bounded_tone_backend: BoundedToneBackend | None = None
     if "bounded_tone_endpoint" in document or "wsprrypi_revision" in document:
         if "bounded_tone_endpoint" not in document or "wsprrypi_revision" not in document:
@@ -1084,6 +1110,7 @@ def load_server_config(
         services=service_backend,
         gpio=gpio_backend,
         si5351=si5351_backend,
+        rp1=rp1_backend,
         bounded_tone=bounded_tone_backend,
     )
 

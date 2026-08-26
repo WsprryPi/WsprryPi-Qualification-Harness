@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""Collect one fail-closed, passive RP1 ABI-v3 preflight document."""
+
+from __future__ import annotations
+
+import gzip
+import hashlib
+import json
+import lzma
+import os
+import pathlib
+import platform
+import stat
+import subprocess
+import sys
+
+MODULE = "rp1_gpclk_dkms"
+ENDPOINT = pathlib.Path("/dev/rp1-gpclk")
+ROUTES = {
+    "gpio4": (4, "GPIO4", "rp1-gpclk-dkms-gpio4"),
+    "gpio20": (20, "GPIO20", "rp1-gpclk-dkms-gpio20"),
+}
+
+
+def fail() -> int:
+    return 3
+
+
+def sha256(path: pathlib.Path, *, decompressed: bool = False) -> str:
+    opener = (
+        lzma.open
+        if path.suffix == ".xz"
+        else gzip.open
+        if path.suffix == ".gz"
+        else pathlib.Path.open
+    )
+    digest = hashlib.sha256()
+    with opener(path, "rb") as stream:  # type: ignore[arg-type]
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def run(arguments: list[str]) -> str:
+    result = subprocess.run(
+        arguments, shell=False, check=False, capture_output=True, text=True, timeout=5
+    )
+    if result.returncode != 0:
+        raise RuntimeError("passive inspection command failed")
+    return result.stdout.strip()
+
+
+def main() -> int:
+    if len(sys.argv) != 3 or sys.argv[1] != "rp1-inspect":
+        return 2
+    try:
+        request = json.loads(sys.argv[2])
+        if request != {
+            "acquire_endpoint": False,
+            "read_only": True,
+            "route": request.get("route"),
+        }:
+            return 2
+        route = request["route"]
+        gpio, _output, node = ROUTES[route]
+        probe = pathlib.Path(__file__).with_name("rp1-admin-probe")
+        values = dict(line.split("=", 1) for line in run([str(probe), str(gpio)]).splitlines())
+        if values.get("passive_snapshot") != "ok" or values.get("read_only") != "true":
+            return fail()
+        endpoint_stat = ENDPOINT.stat()
+        if not stat.S_ISCHR(endpoint_stat.st_mode):
+            return fail()
+        enrollment_paths = sorted(pathlib.Path("/etc/rp1-gpclk-dkms/development").glob("*.json"))
+        if len(enrollment_paths) != 1:
+            return fail()
+        enrollment = json.loads(enrollment_paths[0].read_text(encoding="utf-8"))
+        manifest_digest = enrollment["sourceManifestSha256"]
+        manifest_paths = sorted(pathlib.Path("/var/lib/rp1-gpclk-dkms/development").rglob("*.json"))
+        manifests = [p for p in manifest_paths if sha256(p) == manifest_digest]
+        if len(manifests) != 1:
+            return fail()
+        manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
+        if enrollment.get("route") != route or manifest.get("route") != route:
+            return fail()
+        kernel = platform.release()
+        modules = sorted(pathlib.Path(f"/lib/modules/{kernel}/updates/dkms").glob(f"{MODULE}.ko*"))
+        if len(modules) != 1:
+            return fail()
+        module = modules[0]
+        modinfo = {
+            field: run(["/usr/sbin/modinfo", "-F", field, str(module)])
+            for field in ("version", "vermagic", "signer")
+        }
+        configured = manifest.get("route")
+        live = pathlib.Path(f"/sys/module/{MODULE}/parameters/live_output").read_text().strip()
+        compatibility_id = values["compatibility_id"]
+        expected_id = f"v1.1.2-pi5-{route}-6.18.34-development-candidate-r3"
+        if compatibility_id != expected_id or live not in {"Y", "1"}:
+            return fail()
+        safe = values.get("gpio_safe") == "true"
+        stable = values.get("stable") == "true"
+        document = {
+            "host": platform.node(),
+            "endpoint": str(ENDPOINT),
+            "endpoint_type": "character",
+            "endpoint_owner": str(endpoint_stat.st_uid),
+            "endpoint_group": str(endpoint_stat.st_gid),
+            "endpoint_mode": f"{stat.S_IMODE(endpoint_stat.st_mode):04o}",
+            "endpoint_device_identity": (
+                f"{os.major(endpoint_stat.st_rdev)}:{os.minor(endpoint_stat.st_rdev)}"
+            ),
+            "endpoint_available": True,
+            "endpoint_open": False,
+            "owner_present": values["owner_present"] == "true",
+            "lease_present": values["lease_present"] == "true",
+            "module": MODULE,
+            "module_version": modinfo["version"],
+            "module_build_id": values["build_id"],
+            "uapi_sha256": manifest["uapiIdentity"]["sha256"],
+            "vermagic": modinfo["vermagic"],
+            "signer": modinfo["signer"] or "unsigned-development-module",
+            "installed_module_sha256": sha256(module),
+            "abi_version": 3,
+            "query_version": 3,
+            "finite_tone": True,
+            "live_output": True,
+            "route": route,
+            "endpoint_node": node,
+            "compatibility_id": compatibility_id,
+            "compatibility_state": "Experimental",
+            "compatibility_reason": values["compatibility_reason"],
+            "development_enrollment": "Experimental",
+            "development_manifest_sha256": manifest_digest,
+            "live_eligible": values["live_eligible"] == "true",
+            "cleanup_fault": values["cleanup_fault"] == "true",
+            "generation": int(values["generation"]),
+            "operation_state": "IDLE" if values["operation_state"] == "0" else "UNKNOWN",
+            "terminal_reason": values["terminal_reason"],
+            "current_event": "none",
+            "elapsed_ns": 0,
+            "remaining_ns": 0,
+            "drain_complete": stable,
+            "gpio_safe": safe,
+            "clock_quiescent": values["clock_quiescent"] == "true",
+            "dma_quiescent": values["dma_quiescent"] == "true",
+            "unresolved_route_transaction": False,
+            "route_state": {
+                name: configured
+                for name in (
+                    "requested",
+                    "saved",
+                    "configured",
+                    "active_overlay",
+                    "module_reported",
+                    "reconciled",
+                )
+            },
+        }
+        print(json.dumps(document, sort_keys=True))
+        return 0
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        ValueError,
+        json.JSONDecodeError,
+        subprocess.TimeoutExpired,
+    ):
+        return fail()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

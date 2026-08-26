@@ -456,7 +456,13 @@ def _parser() -> argparse.ArgumentParser:
     complete.add_argument(
         "--rp1-route",
         choices=("gpio4", "gpio20"),
-        help="required administrative route for hardware-free rp1_gpclk rehearsal",
+        help="route-compatible spelling retained for existing RP1 rehearsal inputs",
+    )
+    complete.add_argument(
+        "--transmit-gpio",
+        type=int,
+        choices=(4, 20),
+        help="explicit RP1 GPCLK transmitter route; only GPIO4 and GPIO20 are supported",
     )
     complete.add_argument("--band", default="20m")
     complete.add_argument("--frequency-hz", type=int, default=14_097_100)
@@ -476,6 +482,14 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "maximum absolute offset in Hz of the strongest acquired transmitter-added "
             "frequency (default: 100; zero is valid)"
+        ),
+    )
+    complete.add_argument(
+        "--gpio-manual-ppm",
+        type=float,
+        help=(
+            "fixed measured GPIO/RP1 host correction applied exactly once through "
+            "WsprryPi --gpio-manual-ppm"
         ),
     )
     complete.add_argument(
@@ -548,49 +562,56 @@ def main(argv: Sequence[str] | None = None) -> int:
             reporter.emit("command", "started", "complete-test command accepted")
             if args.rehearse and args.enable_rf:
                 raise CompleteTestError("--rehearse conflicts with --enable-rf")
-            if (args.transmitter_backend == "rp1_gpclk") != (args.rp1_route is not None):
+            selected_rp1_route = None if args.transmit_gpio is None else f"gpio{args.transmit_gpio}"
+            if (
+                selected_rp1_route is not None
+                and args.rp1_route is not None
+                and selected_rp1_route != args.rp1_route
+            ):
+                raise CompleteTestError("--transmit-gpio and --rp1-route disagree")
+            selected_rp1_route = selected_rp1_route or args.rp1_route
+            if (args.transmitter_backend == "rp1_gpclk") != (selected_rp1_route is not None):
                 raise CompleteTestError(
-                    "--rp1-route is required exactly for --transmitter-backend rp1_gpclk"
+                    "--transmit-gpio is required exactly for --transmitter-backend rp1_gpclk"
                 )
             if args.transmitter_backend == "rp1_gpclk":
-                if not args.rehearse:
-                    raise CompleteTestError(
-                        "missing_capability: rp1_gpclk production execution is unavailable"
-                    )
-                if args.configuration is None:
+                assert selected_rp1_route is not None
+                if args.rehearse and args.configuration is None:
                     raise CompleteTestError("RP1 rehearsal requires --configuration")
-                if args.transmitter_host != args.receiver_host:
+                if args.rehearse and args.transmitter_host != args.receiver_host:
                     raise CompleteTestError("RP1 same-host rehearsal requires identical host names")
-                rehearsal = compose_rp1_rehearsal(
-                    args.configuration.absolute(),
-                    args.rp1_route,
-                    residual_ppm=args.transmitter_ppm_offset,
-                    carrier_offset_max_hz=args.carrier_offset_max_hz,
-                )
-                if rehearsal["host"] != args.transmitter_host:
-                    raise CompleteTestError("RP1 rehearsal host differs from command host")
-                destination = (
-                    configured_output_parent(args.configuration.absolute())
-                    / rehearsal["campaign_id"]
-                )
-                write_rp1_rehearsal(rehearsal, destination)
-                reporter.emit("command", "completed", "RP1 hardware-free rehearsal composed")
-                print(
-                    json.dumps(
-                        {
-                            "bundle": str(destination),
-                            "campaign_id": rehearsal["campaign_id"],
-                            "backend": "rp1_gpclk",
-                            "route": rehearsal["route"],
-                            "mode_count": 5,
-                            "qualification_claim": False,
-                        },
-                        indent=2,
-                        sort_keys=True,
+                if args.rehearse:
+                    rehearsal = compose_rp1_rehearsal(
+                        args.configuration.absolute(),
+                        selected_rp1_route,
+                        residual_ppm=args.transmitter_ppm_offset,
+                        manual_ppm=args.gpio_manual_ppm,
+                        carrier_offset_max_hz=args.carrier_offset_max_hz,
                     )
-                )
-                reporter.close()
-                return 0
+                    if rehearsal["host"] != args.transmitter_host:
+                        raise CompleteTestError("RP1 rehearsal host differs from command host")
+                    destination = (
+                        configured_output_parent(args.configuration.absolute())
+                        / rehearsal["campaign_id"]
+                    )
+                    write_rp1_rehearsal(rehearsal, destination)
+                    reporter.emit("command", "completed", "RP1 hardware-free rehearsal composed")
+                    print(
+                        json.dumps(
+                            {
+                                "bundle": str(destination),
+                                "campaign_id": rehearsal["campaign_id"],
+                                "backend": "rp1_gpclk",
+                                "route": rehearsal["route"],
+                                "mode_count": 5,
+                                "qualification_claim": False,
+                            },
+                            indent=2,
+                            sort_keys=True,
+                        )
+                    )
+                    reporter.close()
+                    return 0
             if (
                 args.wsprrypi_source is not None
                 and args.wsprrypi_config != "/usr/local/etc/wsprrypi.ini"
@@ -661,10 +682,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                         str(args.dfcw_separation_hz),
                         "--carrier-offset-max-hz",
                         str(args.carrier_offset_max_hz),
+                        *(
+                            []
+                            if args.gpio_manual_ppm is None
+                            else ["--gpio-manual-ppm", str(args.gpio_manual_ppm)]
+                        ),
                         "--transmitter-ppm-offset",
                         str(args.transmitter_ppm_offset),
                     )
                 )
+                if selected_rp1_route is not None:
+                    forwarded.extend(("--transmit-gpio", selected_rp1_route.removeprefix("gpio")))
                 if args.configuration is None:
                     delegated = delegate_automatic_complete_test(
                         args.transmitter_host,
@@ -677,6 +705,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                         wsprrypi_configuration=args.wsprrypi_config,
                         wsprrypi_source=args.wsprrypi_source,
                         transmitter_backend=args.transmitter_backend,
+                        transmit_gpio=(
+                            None
+                            if selected_rp1_route is None
+                            else int(selected_rp1_route.removeprefix("gpio"))
+                        ),
                         progress=reporter,
                     )
                 else:
@@ -716,6 +749,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fskcw_separation_hz=args.fskcw_separation_hz,
                 dfcw_separation_hz=args.dfcw_separation_hz,
                 carrier_offset_max_hz=args.carrier_offset_max_hz,
+                gpio_manual_ppm=args.gpio_manual_ppm,
                 transmitter_ppm_offset=args.transmitter_ppm_offset,
             )
             complete_plan = compose_complete_test_plan(

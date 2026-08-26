@@ -73,6 +73,10 @@ def validate_resolved_keyed_plan(document: dict[str, Any]) -> dict[str, Any]:
     application = document["application_plan"]
     validate_application_plan(application)
     transmitter = document["transmitter"]
+    if "topology" in document:
+        same_host = transmitter["host"] == document["receiver"]["host"]
+        if same_host != (document["topology"] == "same_host_roles"):
+            _fail("keyed topology contradicts physical host identity")
     if (
         application["protocol"].upper() != document["mode"]
         or application["identity"]["executable"] != transmitter["executable"]["path"]

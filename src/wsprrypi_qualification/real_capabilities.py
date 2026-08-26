@@ -1325,6 +1325,26 @@ class HelperSi5351Provider:
         return Si5351Observation(bus, address, tuple(outputs), owner)
 
 
+class HelperRp1Provider:
+    """Read a full passive RP1 preflight document through the bound helper."""
+
+    def __init__(self, client: JsonHelperClient) -> None:
+        self.client = client
+
+    def inspect(self, route: str) -> dict[str, object]:
+        response = self.client.request(
+            "rp1-inspect",
+            {"route": route, "read_only": True, "acquire_endpoint": False},
+        )
+        from wsprrypi_qualification.rp1_contracts import validate_preflight
+
+        try:
+            validate_preflight(cast(dict[str, Any], response), route=route)
+        except ValueError as error:
+            raise CapabilityError(str(error)) from error
+        return response
+
+
 @dataclass(frozen=True)
 class SealedFakeGpioProvider:
     observation: GpioObservation

@@ -819,8 +819,17 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         raise RealSessionError("random WSPR offset must be disabled")
     if document["external_access_enabled"] is not True or document["rf_enabled"] is not True:
         raise RealSessionError("real session plan must explicitly enable external access and RF")
-    if document["backend"] not in {"gpio", "si5351"}:
+    if document["backend"] not in {"gpio", "si5351", "rp1_gpclk"}:
         raise RealSessionError("real session requires supported backend quiescence")
+    topology = document.get("topology", "split_host_ssh")
+    if topology not in {"split_host_ssh", "same_host_roles"}:
+        raise RealSessionError("real session topology is unsupported")
+    if "topology" in document:
+        if (document["host"] == document["receiver"]["host"]) != (topology == "same_host_roles"):
+            raise RealSessionError("real session topology contradicts host identity")
+        expected_transport = "local_role_channels" if topology == "same_host_roles" else "ssh"
+        if document["transport"] != expected_transport:
+            raise RealSessionError("real session topology and transport disagree")
     if (
         document["backend_contract"]["backend"] != document["backend"]
         or document["backend_contract"]["output"] != document["output"]
@@ -936,6 +945,23 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
                 format(float(document["calibration"]["ppm"]), ".15g"),
             ]
             accepted_arguments = [expected_arguments]
+        elif document["backend"] == "rp1_gpclk":
+            contract = document["backend_contract"]
+            accepted_arguments = [
+                [
+                    document["wsprrypi"]["path"],
+                    "--no-system-clock-frequency-estimate",
+                    "--backend",
+                    "gpio",
+                    "--transmit-gpio",
+                    str(contract["gpio_pin"]),
+                    "--gpio-power-level",
+                    str(contract["drive_or_power_level"]),
+                    *expected_arguments[1:],
+                    "--gpio-manual-ppm",
+                    format(float(document["calibration"]["ppm"]), ".15g"),
+                ]
+            ]
         elif document["backend"] == "si5351":
             contract = document["backend_contract"]
             explicit_arguments = [
@@ -1340,11 +1366,27 @@ def _failed_stage(
 
 
 def _validate_quiescence_details(document: dict[str, object], plan: dict[str, Any]) -> None:
-    if document["details"] != {
+    expected = {
         "backend": plan["backend"],
         "output": plan["output"],
         "verified": True,
-    }:
+    }
+    details = cast(dict[str, object], document["details"])
+    if plan["backend"] == "rp1_gpclk":
+        preflight = details.get("rp1_preflight")
+        if not isinstance(preflight, dict):
+            raise RealSessionError("RP1 quiescence omits passive preflight evidence")
+        from wsprrypi_qualification.rp1_contracts import validate_preflight
+
+        try:
+            validate_preflight(
+                cast(dict[str, Any], preflight),
+                route=plan["backend_contract"]["rp1_route"],
+            )
+        except ValueError as error:
+            raise RealSessionError(str(error)) from error
+        expected["rp1_preflight"] = preflight
+    if details != expected:
         raise RealSessionError("quiescence evidence differs from the resolved backend/output")
 
 

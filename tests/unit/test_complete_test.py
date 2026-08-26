@@ -611,7 +611,7 @@ def test_unsupported_topology_and_invalid_input_fail_before_dispatch(tmp_path: P
     keyed = json.loads(keyed_path.read_text(encoding="utf-8"))
     keyed["application_plan"]["backend"] = "rp1_gpclk"
     _write(keyed_path, keyed)
-    with pytest.raises(CompleteTestError, match="rp1_gpclk"):
+    with pytest.raises(CompleteTestError, match="RP1 requires"):
         compose_complete_test_plan(
             "wspr4.local", "wspr5.local", SDR, configuration=config, live=False
         )

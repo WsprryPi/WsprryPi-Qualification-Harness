@@ -10,6 +10,7 @@
     "transmitter_host",
     "receiver_host",
     "sdr_selector",
+    "transmitter_route",
     "transmitter_ppm_resolution",
     "delegation_receipt",
     "authorization",
@@ -48,6 +49,7 @@
       "type": "string",
       "minLength": 1
     },
+    "transmitter_route": {"enum": [null, "gpio4", "gpio20"]},
     "transmitter_ppm_resolution": {"type": "object"},
     "delegation_receipt": {
       "anyOf": [
@@ -275,7 +277,8 @@
         "band",
         "frequency_hz",
         "modes",
-        "topology"
+        "topology",
+        "transmitter_route"
       ],
       "properties": {
         "transmitter_host": {
@@ -308,8 +311,9 @@
           ]
         },
         "topology": {
-          "const": "split_host_ssh"
-        }
+          "enum": ["split_host_ssh", "same_host_roles"]
+        },
+        "transmitter_route": {"enum": [null, "gpio4", "gpio20"]}
       }
     },
     "qualification_claim": {

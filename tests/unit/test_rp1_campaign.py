@@ -136,8 +136,8 @@ def test_route_substitution_tone_and_digest_tampering_fail(tmp_path: Path) -> No
         validate_rp1_rehearsal(changed_digest)
 
 
-def test_cli_rehearsal_writes_bundle_and_live_rp1_fails_closed(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_cli_rehearsal_writes_bundle_and_live_rp1_dispatches(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = configuration(tmp_path, "gpio4")
     assert (
@@ -150,8 +150,8 @@ def test_cli_rehearsal_writes_bundle_and_live_rp1_fails_closed(
                 "driver=sdrplay,serial=2404058C60",
                 "--transmitter-backend",
                 "rp1_gpclk",
-                "--rp1-route",
-                "gpio4",
+                "--transmit-gpio",
+                "4",
                 "--configuration",
                 str(config),
                 "--carrier-offset-max-hz",
@@ -166,6 +166,22 @@ def test_cli_rehearsal_writes_bundle_and_live_rp1_fails_closed(
     result = json.loads(capsys.readouterr().out)
     assert Path(result["bundle"], "rehearsal.json").is_file()
     assert result["qualification_claim"] is False
+    observed: dict[str, object] = {}
+
+    def delegated(*args, **kwargs):
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        return {
+            "bundle": "/tmp/rp1-live-result",
+            "result": {
+                "final_status": "preflight_failed",
+                "transmitter_host": "wspr5",
+                "receiver_host": "wspr5",
+                "sdr_selector": "driver=sdrplay,serial=2404058C60",
+            },
+        }
+
+    monkeypatch.setattr("wsprrypi_qualification.cli.delegate_automatic_complete_test", delegated)
     assert (
         main(
             [
@@ -183,9 +199,10 @@ def test_cli_rehearsal_writes_bundle_and_live_rp1_fails_closed(
                 str(tmp_path / "live-progress.jsonl"),
             ]
         )
-        == 2
+        == 3
     )
-    assert "missing_capability" in capsys.readouterr().err
+    assert observed["kwargs"]["transmit_gpio"] == 4
+    assert observed["kwargs"]["transmitter_backend"] == "rp1_gpclk"
 
 
 def test_cli_requires_route_exactly_for_rp1(tmp_path: Path, capsys) -> None:
@@ -206,7 +223,7 @@ def test_cli_requires_route_exactly_for_rp1(tmp_path: Path, capsys) -> None:
         )
         == 2
     )
-    assert "--rp1-route" in capsys.readouterr().err
+    assert "--transmit-gpio" in capsys.readouterr().err
     assert (
         main(
             [
@@ -224,4 +241,29 @@ def test_cli_requires_route_exactly_for_rp1(tmp_path: Path, capsys) -> None:
         )
         == 2
     )
-    assert "--rp1-route" in capsys.readouterr().err
+    assert "--transmit-gpio" in capsys.readouterr().err
+
+
+def test_cli_rejects_conflicting_route_spellings(tmp_path: Path, capsys) -> None:
+    assert (
+        main(
+            [
+                "complete-test",
+                "wspr5",
+                "wspr5",
+                "--sdr",
+                "driver=sdrplay,serial=x",
+                "--transmitter-backend",
+                "rp1_gpclk",
+                "--transmit-gpio",
+                "4",
+                "--rp1-route",
+                "gpio20",
+                "--rehearse",
+                "--progress-log",
+                str(tmp_path / "conflicting-route-progress.jsonl"),
+            ]
+        )
+        == 2
+    )
+    assert "disagree" in capsys.readouterr().err

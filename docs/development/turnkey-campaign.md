@@ -91,10 +91,10 @@ deployment includes a hash-bound read-only register-3 inspector and requires
 all selected outputs to be disabled at preflight and cleanup. The backend never
 falls back to GPIO or to the installed INI backend default.
 
-An explicit `--transmitter-backend rp1_gpclk --rp1-route gpio4|gpio20
---rehearse --configuration CONFIG` selects the sealed RP1 hardware-free
+An explicit `--transmitter-backend rp1_gpclk --transmit-gpio 4|20
+--gpio-manual-ppm PPM --rehearse --configuration CONFIG` selects the sealed RP1 hardware-free
 composer. It binds two distinct logical roles on the named host, the canonical
-endpoint/module, ABI v2, finite TONE, route-specific r2 compatibility identity,
+endpoint/module, ABI v3, finite TONE, route-specific r3 compatibility identity,
 `Experimental` enrollment, `live_output=1`, exact WsprryPi/component revisions,
 receiver/RF-path identity, and one provenance-bound PPM source. The WsprryPi
 argv uses its reviewed Pi-5 `--backend gpio --transmit-gpio 4|20` interface,

@@ -183,7 +183,7 @@ def _remote_python_path(host: str, *, ssh: Path, known_hosts: Path) -> str:
 
 
 def _selected_host_keys(known_hosts: Path, host: str, *, ssh_keygen: Path) -> tuple[str, str]:
-    selected = _run([str(ssh_keygen), "-F", f"{host}.local", "-f", str(known_hosts)])
+    selected = _run([str(ssh_keygen), "-F", host, "-f", str(known_hosts)])
     lines = [
         line
         for line in _require(selected, "transmitter trust discovery").splitlines()
@@ -222,12 +222,17 @@ def _prepare_transmitter(
     installed_binary: str | None = None,
     installed_configuration: str = DEFAULT_WSPRRRYPI_CONFIGURATION,
     transmitter_backend: str = "gpio",
+    transmit_gpio: int | None = None,
 ) -> dict[str, Any]:
-    if transmitter_backend not in {"gpio", "si5351"}:
-        raise AutomaticDeploymentError("transmitter backend must be gpio or si5351")
+    if transmitter_backend not in {"gpio", "si5351", "rp1_gpclk"}:
+        raise AutomaticDeploymentError("transmitter backend is unsupported")
     token = stage.root.rsplit("-", 1)[-1]
     deployment = f"/home/pi/wsprrypi-qualification-runs/complete-test-deployment-{token}"
     if installed_binary is not None:
+        if transmitter_backend == "rp1_gpclk":
+            raise AutomaticDeploymentError(
+                "RP1 automatic deployment requires an exact WsprryPi source selection"
+            )
         if not PurePosixPath(installed_binary).is_absolute():
             raise AutomaticDeploymentError("installed WsprryPi binary must be absolute")
         if not PurePosixPath(installed_configuration).is_absolute():
@@ -292,6 +297,12 @@ def _prepare_transmitter(
             "os.write(fd,data);os.fsync(fd);os.close(fd);"
             "assert binary.is_file() and not binary.is_symlink() and "
             "hashlib.sha256(binary.read_bytes()).hexdigest()==hashlib.sha256(data).hexdigest();"
+            "probe_source=build_source/'src/build/bin/rp1_gpclk_admin_probe';"
+            "probe=deployment/'rp1-admin-probe';"
+            "probe_data=probe_source.read_bytes() if probe_source.is_file() else b'';"
+            "assert sys.argv[4]!='rpi-gpio' or probe_data;"
+            "fd=os.open(probe,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o700);"
+            "os.write(fd,probe_data);os.fsync(fd);os.close(fd);"
             "config_source=src/'config/wsprrypi.ini';"
             "assert config_source.is_file() and not config_source.is_symlink();"
             "config_data=config_source.read_bytes();config=deployment/'wsprrypi.ini';"
@@ -311,6 +322,18 @@ def _prepare_transmitter(
         tone_configuration_source = f"{source_path}/config/wsprrypi.ini"
         tone_configuration = f"{deployment}/wsprrypi.ini"
     binary = _require(result, "temporary WsprryPi build").strip().splitlines()[-1]
+    rp1_probe = f"{stage.root}/rp1-admin-probe"
+    if transmitter_backend == "rp1_gpclk":
+        _require(
+            stage.run_python(
+                "import os;source=pathlib.Path(sys.argv[2]);target=pathlib.Path(sys.argv[3]);"
+                "data=source.read_bytes();fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o700);"
+                "os.write(fd,data);os.fsync(fd);os.close(fd)",
+                f"{deployment}/rp1-admin-probe",
+                rp1_probe,
+            ),
+            "RP1 administrative probe staging",
+        )
     launcher = f"{stage.root}/capability-helper"
     _write_remote(
         stage,
@@ -330,6 +353,7 @@ def _prepare_transmitter(
         "tone_configuration_source": tone_configuration_source,
         "tone_configuration": tone_configuration,
         "deployment_root": deployment,
+        "rp1_probe": rp1_probe,
     }
 
 
@@ -457,6 +481,7 @@ def delegate_automatic_complete_test(
     wsprrypi_configuration: str = DEFAULT_WSPRRRYPI_CONFIGURATION,
     wsprrypi_source: Path | None = None,
     transmitter_backend: str = "gpio",
+    transmit_gpio: int | None = None,
     timeout_s: float | None = None,
     progress: Any | None = None,
 ) -> dict[str, Any]:
@@ -480,6 +505,7 @@ def delegate_automatic_complete_test(
             wsprrypi_configuration=wsprrypi_configuration,
             wsprrypi_source=selected_source,
             transmitter_backend=transmitter_backend,
+            transmit_gpio=transmit_gpio,
             timeout_s=timeout_s,
             progress=progress,
         )
@@ -496,11 +522,14 @@ def _delegate_automatic_complete_test(
     wsprrypi_configuration: str = DEFAULT_WSPRRRYPI_CONFIGURATION,
     wsprrypi_source: Path | None = None,
     transmitter_backend: str,
+    transmit_gpio: int | None,
     timeout_s: float | None,
     progress: Any | None = None,
 ) -> dict[str, Any]:
-    if transmitter_backend not in {"gpio", "si5351"}:
-        raise AutomaticDeploymentError("automatic deployment backend must be gpio or si5351")
+    if transmitter_backend not in {"gpio", "si5351", "rp1_gpclk"}:
+        raise AutomaticDeploymentError("automatic deployment backend is unsupported")
+    if (transmitter_backend == "rp1_gpclk") != (transmit_gpio in {4, 20}):
+        raise AutomaticDeploymentError("RP1 automatic deployment requires GPIO4 or GPIO20")
     source = _validate_runtime_selection(wsprrypi_binary, wsprrypi_configuration, wsprrypi_source)
     root = Path(__file__).resolve().parents[1]
     discovered_ssh = shutil.which("ssh")
@@ -548,6 +577,14 @@ def _delegate_automatic_complete_test(
                 / "raspberry-pi-os"
                 / "wspq-si5351-inspect"
             )
+        rp1 = root.parent / "deployment" / "raspberry-pi-os" / "wspq-rp1-inspect"
+        if not rp1.is_file():
+            rp1 = (
+                Path(__file__).resolve().parents[2]
+                / "deployment"
+                / "raspberry-pi-os"
+                / "wspq-rp1-inspect"
+            )
         native = _zip_tree(
             Path(__file__).resolve().parents[2],
             temporary / "native.zip",
@@ -564,6 +601,7 @@ def _delegate_automatic_complete_test(
             StagedFile(runtime, "runtime.zip"),
             StagedFile(gpio, "gpio-inspect"),
             StagedFile(si5351, "si5351-inspect"),
+            StagedFile(rp1, "rp1-inspect"),
         ]
         if source is not None:
             tx_files.append(StagedFile(bundle, "wsprrypi.bundle"))
@@ -597,6 +635,7 @@ def _delegate_automatic_complete_test(
                 installed_binary=wsprrypi_binary,
                 installed_configuration=wsprrypi_configuration,
                 transmitter_backend=transmitter_backend,
+                transmit_gpio=transmit_gpio,
             )
             rx_paths = _prepare_receiver(
                 rx,
@@ -606,20 +645,21 @@ def _delegate_automatic_complete_test(
                 native_cache_key,
                 runtime_cache_key,
             )
-            tx_records = _remote_records(
-                tx,
-                {
-                    "tx_helper": tx_paths["launcher"],
-                    "tx_sudo": "/usr/bin/sudo",
-                    "tx_systemctl": "/usr/bin/systemctl",
-                    "tx_gpio": f"{tx.root}/gpio-inspect",
-                    "tx_si5351": f"{tx.root}/si5351-inspect",
-                    "tx_wsprrypi": tx_paths["binary"],
-                    "tx_git": "/usr/bin/git",
-                    "tone_ini_source": tx_paths["tone_configuration_source"],
-                    "tone_ini": tx_paths["tone_configuration"],
-                },
-            )
+            tx_record_paths = {
+                "tx_helper": tx_paths["launcher"],
+                "tx_sudo": "/usr/bin/sudo",
+                "tx_systemctl": "/usr/bin/systemctl",
+                "tx_gpio": f"{tx.root}/gpio-inspect",
+                "tx_si5351": f"{tx.root}/si5351-inspect",
+                "tx_rp1": f"{tx.root}/rp1-inspect",
+                "tx_wsprrypi": tx_paths["binary"],
+                "tx_git": "/usr/bin/git",
+                "tone_ini_source": tx_paths["tone_configuration_source"],
+                "tone_ini": tx_paths["tone_configuration"],
+            }
+            if transmitter_backend == "rp1_gpclk":
+                tx_record_paths["tx_rp1_probe"] = tx_paths["rp1_probe"]
+            tx_records = _remote_records(tx, tx_record_paths)
             rx_records = _remote_records(
                 rx,
                 {
@@ -677,6 +717,11 @@ def _delegate_automatic_complete_test(
                 },
                 "wsprrypi_revision": revision,
             }
+            if transmitter_backend == "rp1_gpclk":
+                tx_config.update(
+                    rp1_helper_path=f"{tx.root}/rp1-inspect",
+                    rp1_helper_sha256=tx_records["tx_rp1"]["sha256"],
+                )
             tx_keyed_config = {
                 **tx_config,
                 "process_privilege_wrapper_path": "/usr/bin/sudo",
@@ -766,6 +811,7 @@ def _delegate_automatic_complete_test(
                     "authorization_scope": "single_run",
                 },
                 "transmitter_backend": transmitter_backend,
+                "transmit_gpio": transmit_gpio,
                 "receiver_delegation": {
                     "ssh": delegation_receipt["ssh"],
                     "known_hosts": delegation_receipt["known_hosts"],

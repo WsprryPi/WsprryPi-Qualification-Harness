@@ -199,8 +199,8 @@ def test_wspr_requires_application_supported_identity_power_and_offset() -> None
 @pytest.mark.parametrize(
     ("route", "pin", "output", "compatibility_id"),
     (
-        ("gpio4", 4, "GPIO4", "v1.1.2-pi5-gpio4-6.18.34-development-candidate-r2"),
-        ("gpio20", 20, "GPIO20", "v1.1.2-pi5-gpio20-6.18.34-development-candidate-r2"),
+        ("gpio4", 4, "GPIO4", "v1.1.2-pi5-gpio4-6.18.34-development-candidate-r3"),
+        ("gpio20", 20, "GPIO20", "v1.1.2-pi5-gpio20-6.18.34-development-candidate-r3"),
     ),
 )
 def test_rp1_backend_is_route_bound_and_applies_ppm_once(
@@ -214,7 +214,7 @@ def test_rp1_backend_is_route_bound_and_applies_ppm_once(
         rp1_route=route,
         endpoint="/dev/rp1-gpclk",
         compatibility_id=compatibility_id,
-        abi_version=2,
+        abi_version=3,
         finite_tone_required=True,
         development_enrollment="Experimental",
         live_output_required=True,
@@ -259,8 +259,8 @@ def test_rp1_backend_rejects_missing_or_cross_route_identity() -> None:
                 gpio_pin=4,
                 rp1_route="gpio4",
                 endpoint="/dev/rp1-gpclk",
-                compatibility_id="v1.1.2-pi5-gpio20-6.18.34-development-candidate-r2",
-                abi_version=2,
+                compatibility_id="v1.1.2-pi5-gpio20-6.18.34-development-candidate-r3",
+                abi_version=3,
                 finite_tone_required=True,
                 development_enrollment="Experimental",
                 live_output_required=True,

@@ -9,6 +9,7 @@
     "transmitter_host",
     "receiver_host",
     "sdr_selector",
+    "transmitter_route",
     "sdr_discovery",
     "delegation_receipt",
     "execution_policy",
@@ -52,6 +53,7 @@
       "type": "string",
       "minLength": 1
     },
+    "transmitter_route": {"enum": [null, "gpio4", "gpio20"]},
     "sdr_discovery": {
       "type": [
         "object",
@@ -192,10 +194,10 @@
       }
     },
     "topology": {
-      "const": "split_host_ssh"
+      "enum": ["split_host_ssh", "same_host_roles"]
     },
     "transport": {
-      "const": "ssh"
+      "enum": ["ssh", "local_role_channels"]
     },
     "campaign_deadline_s": {
       "type": "number",
@@ -357,7 +359,7 @@
         "dfcw_separation_hz",
         "keyed_observations",
         "wspr_observations"
-        ,"carrier_offset_max_hz", "transmitter_ppm_offset"
+        ,"carrier_offset_max_hz", "gpio_manual_ppm", "transmitter_ppm_offset"
       ],
       "properties": {
         "band": {
@@ -410,6 +412,7 @@
           "const": 3
         },
         "carrier_offset_max_hz": {"type": "number", "minimum": 0},
+        "gpio_manual_ppm": {"type": ["number", "null"], "minimum": -200, "maximum": 200},
         "transmitter_ppm_offset": {"type": "number", "minimum": -200, "maximum": 200}
       }
     },
@@ -419,7 +422,7 @@
       "properties": {
         "algorithm": {"const": "host_absolute_precedence_plus_harness_delta_v1"},
         "resolved_utc": {"type": "string", "format": "date-time"},
-        "transmitter_host": {"type": "string", "minLength": 1}, "backend": {"enum": ["gpio", "si5351"]},
+        "transmitter_host": {"type": "string", "minLength": 1}, "backend": {"enum": ["gpio", "si5351", "rp1_gpclk"]},
         "contributors": {"type": "array", "minItems": 2, "items": {"type": "object"}},
         "host_correction_ppm": {"type": "number", "minimum": -200, "maximum": 200},
         "harness_offset_ppm": {"type": "number", "minimum": -200, "maximum": 200},
