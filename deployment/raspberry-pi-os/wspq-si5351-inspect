@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Read Si5351 output-enable state without changing its configuration."""
+
+from __future__ import annotations
+
+import fcntl
+import json
+import os
+import re
+import sys
+
+
+I2C_SLAVE = 0x0703
+OUTPUT_ENABLE_CONTROL = 3
+
+
+def main() -> int:
+    if len(sys.argv) != 3 or sys.argv[1] != "si5351-inspect":
+        return 2
+    try:
+        request = json.loads(sys.argv[2])
+        if type(request) is not dict or set(request) != {"bus", "address"}:
+            return 2
+        bus = request["bus"]
+        address_text = request["address"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return 2
+    if type(bus) is not int or bus < 0:
+        return 2
+    if type(address_text) is not str or re.fullmatch(r"0x[0-9A-Fa-f]{2}", address_text) is None:
+        return 2
+    address = int(address_text, 16)
+    if not 0x03 <= address <= 0x77:
+        return 2
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(f"/dev/i2c-{bus}", os.O_RDWR | os.O_CLOEXEC)
+        fcntl.ioctl(descriptor, I2C_SLAVE, address)
+        # Selecting register 3 changes only the device's read pointer. It does
+        # not alter any Si5351 configuration or output state.
+        if os.write(descriptor, bytes((OUTPUT_ENABLE_CONTROL,))) != 1:
+            return 3
+        observed = os.read(descriptor, 1)
+    except OSError:
+        return 3
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    if len(observed) != 1:
+        return 3
+    enabled_outputs = [f"CLK{index}" for index in range(3) if not observed[0] & (1 << index)]
+    print(
+        json.dumps(
+            {
+                "bus": bus,
+                "address": address_text.lower(),
+                "enabled_outputs": enabled_outputs,
+                "owner": None,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
