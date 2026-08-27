@@ -14,6 +14,26 @@ Before operating or changing the harness, read in this order:
 Treat the checked-out source and CLI help as current. Do not reconstruct an
 operation from old logs or target evidence.
 
+## Agentic testing control
+
+For an agent asked to plan, rehearse, execute, monitor, or review a campaign:
+
+1. follow `docs/AGENT_OPERATIONS.md` to establish repository and tool truth;
+2. follow `docs/OPERATOR_SECURITY.md` to verify the required SSH trust paths
+   and privilege boundary without copying private keys or forwarding agents;
+3. select the maintained route in `docs/CURRENT_WORKFLOWS.md`;
+4. use `docs/CAPABILITY_MATRIX.md` to locate its schemas, production modules,
+   and tests; and
+5. derive exact commands from the checked-out CLI `--help` and the relevant
+   `docs/development/` guide.
+
+The normal agentic five-mode entrypoint is `complete-test`; its progress JSONL
+path and exact viewer command are printed before long-running work begins.
+Planning, rehearsal, validation, and log review do not authorize host access,
+physical SDR access, privilege, transmitter operation, or RF. Cross those
+boundaries only when the current user request grants the exact authority that
+`CONTRACT.md` requires.
+
 ## Scope and preservation
 
 - Read `CONTRACT.md` before planning or changing implementation.

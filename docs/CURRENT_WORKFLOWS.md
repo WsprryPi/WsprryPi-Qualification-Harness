@@ -33,8 +33,7 @@ Guide: [Turnkey campaign orchestration](development/turnkey-campaign.md).
 
 ### Simple complete five-mode campaign
 
-[Issue #9](https://github.com/WsprryPi/WsprryPi-Qualification-Harness/issues/9)
-is implemented by `complete-test`. The normal live form is:
+The normal live form is:
 
 ```text
 wsprrypi-qualification complete-test TRANSMITTER_HOST RECEIVER_HOST \
@@ -82,8 +81,9 @@ selected SDR through SoapySDR, validates all five generated subordinate plans, t
 routes TONE, WSPR, QRSS, FSKCW, and DFCW in that order. Both named hosts may be
 remote to the controller; execution is delegated to the receiver host.
 `--rehearse` is deterministic and hardware-free and conflicts with
-`--enable-rf`. Same-host local production transport remains unsupported until
-Track D; it fails before production adapter construction.
+`--enable-rf`. Same-host local production transport remains unsupported and
+fails before production adapter construction; support is scoped in
+[`ROADMAP.md`](ROADMAP.md).
 
 The composed WSPR outer deadline follows the final three-slot schedule. It
 contains receiver setup derived from the configured read bound, the exact wait
@@ -228,6 +228,11 @@ The receiver host must have strict, plan-bound SSH access to the transmitter.
 Service elevation, when required, uses a static-configuration-bound executable
 such as `/usr/bin/sudo` in non-interactive mode; both it and `systemctl` are
 hash-checked before each allowlisted operation.
+
+Before operating a split-host campaign, establish the execution-host-to-both-
+endpoints and receiver-to-transmitter trust paths described in
+[`OPERATOR_SECURITY.md`](OPERATOR_SECURITY.md). Private keys must not be copied
+between hosts or supplied through implicit agent forwarding.
 
 ## External archive intake
 

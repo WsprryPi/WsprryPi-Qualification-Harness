@@ -72,6 +72,12 @@ work. Existing work is a non-interference blocker unless the operator confirms
 that it is stale and authorizes its bounded removal. Never infer authority from
 an earlier run or a committed profile.
 
+For live split-host work, follow
+[`OPERATOR_SECURITY.md`](OPERATOR_SECURITY.md). The execution host requires
+independent authenticated paths to the transmitter and receiver, and delegated
+execution requires the receiver to authenticate independently to the
+transmitter. Do not copy private keys or assume agent forwarding.
+
 ## Install a development environment
 
 Python 3.11 or newer is required. Run Python tooling from a virtual
@@ -369,6 +375,9 @@ hosted-CI result into a hardware qualification claim.
 
 - Safety and result meaning: [`CONTRACT.md`](../CONTRACT.md)
 - Task and command routing: [`CURRENT_WORKFLOWS.md`](CURRENT_WORKFLOWS.md)
+- Operator SSH and privilege boundaries:
+  [`OPERATOR_SECURITY.md`](OPERATOR_SECURITY.md)
+- Remaining work only: [`ROADMAP.md`](ROADMAP.md)
 - Contributor workflow: [`CONTRIBUTING.md`](../CONTRIBUTING.md)
 - Capability adapters: [`real-capability-adapters.md`](development/real-capability-adapters.md)
 - Raspberry Pi helper deployment: [`helper-deployment.md`](development/helper-deployment.md)

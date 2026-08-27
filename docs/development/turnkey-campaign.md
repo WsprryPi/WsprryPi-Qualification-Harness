@@ -182,14 +182,11 @@ qualification scope even if a manifest has been rebuilt after tampering.
 Rehearsal routes and authenticates five generated plans but contacts no host,
 opens no receiver, inspects no service, touches no GPIO/I2C/GPCLK, and emits no
 RF. It is non-qualifying. Same-host local production transport is rejected as
-`unsupported_topology`; Track D owns that capability. Track E transmitter-PPM
-provenance remains separate. Until that track closes, GPIO complete-test plans
-pin each transmitter process to the resolved fixed manual PPM value and
-explicitly disable the system-clock frequency estimate. The Tone server is not
-an exception. This prevents configuration defaults or a changing Chrony
-observation from altering RF during a campaign, but it does not establish the
-manual value's provenance. Later prompt/qualification campaigns are also
-outside this work.
+`unsupported_topology`; future topology support is scoped in
+[`../ROADMAP.md`](../ROADMAP.md). Complete-test resolves transmitter PPM once,
+records its provenance, applies the requested residual offset exactly once, and
+pins every generated process to the resulting value while disabling a changing
+system-clock estimate. The Tone server is not an exception.
 
 The simple complete-test composer gives generated mode plans, expected-event
 documents, resolved profiles, and production-dispatch wrapper inputs their own
@@ -212,7 +209,7 @@ roots, and external process working directory. The helper verifies the boundary
 at spawn and compares the post-process repository state with its exact original
 baseline, including pre-existing dirty work. Mutation fails cleanup and is
 reported without automatic repair.
-The current `main` production application/quiescence contracts support GPIO and
+The current production application/quiescence contracts support GPIO and
 Si5351, not `rp1_gpclk`; selecting RP1 therefore returns `missing_capability`
 before adapter construction. GPIO4/2 mA RP1 defaults will apply only after that
 backend is present in the maintained production contracts and cannot leak into
