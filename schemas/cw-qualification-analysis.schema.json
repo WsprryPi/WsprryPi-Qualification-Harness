@@ -7,7 +7,7 @@
     "schema_version": {"const": 1},
     "evidence_type": {"const": "cw_qualification_analysis"},
     "mode": {"enum": ["tone", "qrss", "fskcw", "dfcw"]},
-    "backend": {"enum": ["gpio", "si5351"]},
+    "backend": {"enum": ["gpio", "si5351", "rp1_gpclk"]},
     "hardware_profile": {"type": "string", "minLength": 1},
     "band": {"type": "string", "minLength": 1},
     "source": {

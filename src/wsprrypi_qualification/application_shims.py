@@ -69,6 +69,15 @@ class WsprryPiBackendConfig:
     reference_frequency_hz: int | None = None
     drive_or_power_level: int | None = None
     gpio_pin: int | None = None
+    rp1_route: str | None = None
+    endpoint: str | None = None
+    compatibility_id: str | None = None
+    abi_version: int | None = None
+    finite_tone_required: bool | None = None
+    development_enrollment: str | None = None
+    live_output_required: bool | None = None
+    operation_live_gate_required: bool | None = None
+    rp1_drive_ma: int | None = None
 
 
 @dataclass(frozen=True)
@@ -136,8 +145,8 @@ class WsprryPiShim:
     ) -> None:
         if identity.application != "wsprrypi":
             raise ApplicationPlanError("WsprryPi shim requires application identity 'wsprrypi'")
-        if backend not in {"gpio", "si5351"}:
-            raise ApplicationPlanError("WsprryPi backend must be 'gpio' or 'si5351'")
+        if backend not in {"gpio", "si5351", "rp1_gpclk"}:
+            raise ApplicationPlanError("WsprryPi backend must be 'gpio', 'si5351', or 'rp1_gpclk'")
         self.identity = identity
         self.backend = backend
         self.backend_config = backend_config
@@ -148,6 +157,43 @@ class WsprryPiShim:
             return ()
         if not math.isfinite(config.ppm) or not -200 <= config.ppm <= 200:
             raise ApplicationPlanError("backend PPM must be finite and within +/-200")
+        if self.backend == "rp1_gpclk":
+            route_contracts = {
+                "gpio4": (4, "GPIO4", "v1.1.2-pi5-gpio4-6.18.34-development-candidate-r4"),
+                "gpio20": (20, "GPIO20", "v1.1.2-pi5-gpio20-6.18.34-development-candidate-r4"),
+            }
+            selected = route_contracts.get(config.rp1_route or "")
+            if selected is None:
+                raise ApplicationPlanError("RP1 requires the explicit route 'gpio4' or 'gpio20'")
+            pin, output, compatibility_id = selected
+            if (
+                config.gpio_pin != pin
+                or config.output != output
+                or config.endpoint != "/dev/rp1-gpclk"
+                or config.compatibility_id != compatibility_id
+                or config.abi_version != 4
+                or config.finite_tone_required is not True
+                or config.development_enrollment != "Experimental"
+                or config.live_output_required is not True
+                or config.operation_live_gate_required is not True
+                or config.rp1_drive_ma not in {2, 4, 8, 12}
+            ):
+                raise ApplicationPlanError(
+                    "RP1 backend identity contract is incomplete or mismatched"
+                )
+            if config.drive_or_power_level is None or not 0 <= config.drive_or_power_level <= 7:
+                raise ApplicationPlanError("RP1 power level must be within 0 through 7")
+            return (
+                "--transmit-gpio",
+                str(pin),
+                "--gpio-power-level",
+                str(config.drive_or_power_level),
+                "--rp1-gpio-drive-ma",
+                str(config.rp1_drive_ma),
+                "--no-system-clock-frequency-estimate",
+                "--gpio-manual-ppm",
+                self._number(config.ppm) if config.ppm > 0 else str(config.ppm),
+            )
         if self.backend == "si5351":
             drive_level = config.drive_or_power_level
             if None in (
@@ -200,10 +246,11 @@ class WsprryPiShim:
     def resolve_plan(self, plan_id: str, protocol: ProtocolPlan) -> ApplicationPlan:
         if not plan_id.strip():
             raise ApplicationPlanError("plan_id must not be empty")
+        application_backend = "rp1-gpclk" if self.backend == "rp1_gpclk" else self.backend
         common = (
             str(self.identity.executable),
             "--backend",
-            self.backend,
+            application_backend,
             *self._backend_arguments(),
             "--no-offset",
         )
@@ -346,7 +393,8 @@ def validate_application_plan(document: dict[str, object]) -> None:
     identity = document["identity"]
     if not isinstance(arguments, list) or not isinstance(identity, dict):
         raise ApplicationPlanError("application plan has invalid structured fields")
-    expected_prefix = [identity["executable"], "--backend", document["backend"]]
+    application_backend = "rp1-gpclk" if document["backend"] == "rp1_gpclk" else document["backend"]
+    expected_prefix = [identity["executable"], "--backend", application_backend]
     if arguments[:3] != expected_prefix or "--no-offset" not in arguments:
         raise ApplicationPlanError("arguments do not match executable/backend safety contract")
     protocol = document["protocol"]

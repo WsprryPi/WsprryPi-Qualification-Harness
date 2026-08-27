@@ -197,6 +197,7 @@ def run_bounded_tone_transaction(
     frequency_hz: int,
     duration_ms: int,
     outer_timeout_s: float,
+    rp1_development: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Run one product-bounded transaction and return non-qualifying evidence."""
     if (
@@ -214,6 +215,18 @@ def run_bounded_tone_transaction(
         raise ValueError("duration must be between 1 and 60000 milliseconds")
     if outer_timeout_s <= duration_ms / 1000:
         raise ValueError("outer timeout must exceed the product duration")
+    if rp1_development is not None:
+        expected = {
+            "enabled": True,
+            "route": rp1_development.get("route"),
+            "physical_connection": True,
+            "attenuation_and_load": True,
+            "bounded_operation": True,
+            "non_radiating_topology": True,
+            "experimental_acknowledged": True,
+        }
+        if rp1_development != expected or expected["route"] not in {"GPIO4", "GPIO20"}:
+            raise ValueError("RP1 development confirmation is incomplete or invalid")
     outer_deadline = time.monotonic() + outer_timeout_s
     # Split the exact non-RF remainder evenly between terminal response work
     # and the cleanup attempt instead of imposing a fixed cleanup allowance.
@@ -226,15 +239,16 @@ def run_bounded_tone_transaction(
     observed_responses: list[dict[str, Any]] = []
     try:
         with LoopbackWebSocket(endpoint, transaction_deadline) as websocket:
-            websocket.send_json(
-                {
-                    "command": "bounded_tone",
-                    "request_id": request_id,
-                    "duration_ms": duration_ms,
-                    "frequency_source": "custom_rf",
-                    "frequency_hz": frequency_hz,
-                }
-            )
+            request: dict[str, object] = {
+                "command": "bounded_tone",
+                "request_id": request_id,
+                "duration_ms": duration_ms,
+                "frequency_source": "custom_rf",
+                "frequency_hz": frequency_hz,
+            }
+            if rp1_development is not None:
+                request["rp1_development"] = rp1_development
+            websocket.send_json(request)
             request_sent = True
             start_response = _receive_correlated(
                 websocket,

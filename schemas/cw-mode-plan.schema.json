@@ -42,7 +42,8 @@
     "backend": {
       "enum": [
         "gpio",
-        "si5351"
+      "si5351",
+      "rp1_gpclk"
       ]
     },
     "hardware_profile": {

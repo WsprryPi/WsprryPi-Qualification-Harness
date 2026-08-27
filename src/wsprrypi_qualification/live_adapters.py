@@ -48,6 +48,7 @@ from wsprrypi_qualification.real_capabilities import (
     CaptureCapabilityPlan,
     GpioQuiescenceCapability,
     HelperGpioProvider,
+    HelperRp1Provider,
     HelperServiceProvider,
     HelperSi5351Provider,
     JsonHelperClient,
@@ -321,6 +322,7 @@ class ProductionRealSessionAdapters:
         self._capture_artifacts: dict[str, tuple[Path, Path]] = {}
         self._acquired_carrier_frequency_hz: float | None = None
         self._final_quiescence: bool | None = None
+        self._last_rp1_preflight: dict[str, object] | None = None
         self._session_deadline: float | None = None
         self._cleanup_reserve_s = 0.0
         self._publication_budget_s = 0.0
@@ -509,6 +511,14 @@ class ProductionRealSessionAdapters:
                 raise RealSessionError("helper verification aggregate deadline expired")
             return self._remaining(remaining)
 
+        receiver_services = plan["services"]["receiver"]
+        if not receiver_services and plan.get("topology") == "same_host_roles":
+            # Both logical role channels terminate on one physical host. The receiver
+            # owns no service, so verify its independently authenticated channel by
+            # inspecting the physical host's transmitter service without claiming
+            # receiver ownership of that service.
+            receiver_services = plan["services"]["transmitter"]
+
         # A signed, plan-bound response proves both persistent helper sessions.
         for operation_name, provider, services in (
             (
@@ -519,7 +529,7 @@ class ProductionRealSessionAdapters:
             (
                 HELPER_VERIFICATION_OPERATIONS[1],
                 self.rx_services,
-                plan["services"]["receiver"],
+                receiver_services,
             ),
         ):
             if not services:
@@ -654,7 +664,8 @@ class ProductionRealSessionAdapters:
                     "wsprrypi_qualification.real_capabilities", fromlist=["HelperGpioProvider"]
                 ).HelperGpioProvider(self.tx_client)
             ).inspect(contract["gpio_pin"], authorization)
-        else:
+            return result["outcome"] == "verified"
+        elif plan["backend"] == "si5351":
             result = Si5351QuiescenceCapability(
                 __import__(
                     "wsprrypi_qualification.real_capabilities", fromlist=["HelperSi5351Provider"]
@@ -665,24 +676,46 @@ class ProductionRealSessionAdapters:
                 (plan["output"],),
                 authorization,
             )
-        return result["outcome"] == "verified"
+            return result["outcome"] == "verified"
+        else:
+            route = contract["rp1_route"]
+            observed = HelperRp1Provider(self.tx_client).inspect(route)
+            self._last_rp1_preflight = observed
+            return True
+
+    def _quiescence_details(self, plan: dict[str, Any], verified: bool) -> dict[str, object]:
+        details: dict[str, object] = {
+            "backend": plan["backend"],
+            "output": plan["output"],
+            "verified": verified,
+        }
+        if plan["backend"] == "rp1_gpclk":
+            if self._last_rp1_preflight is None:
+                raise RealSessionError("RP1 passive preflight evidence was not retained")
+            details["rp1_preflight"] = self._last_rp1_preflight
+        return details
 
     def verify_rf_idle(self, plan: dict[str, Any]) -> dict[str, object]:
         started = time.monotonic()
-        inspection_plan = (
-            {
+        if plan["backend"] == "gpio":
+            inspection_plan = {
                 "pin": plan["backend_contract"]["gpio_pin"],
                 "expected_direction": "input",
                 "read_only": True,
             }
-            if plan["backend"] == "gpio"
-            else {
+        elif plan["backend"] == "si5351":
+            inspection_plan = {
                 "bus": plan["backend_contract"]["i2c_bus"],
                 "address": plan["backend_contract"]["i2c_address"],
                 "required_outputs": [plan["output"]],
                 "read_only": True,
             }
-        )
+        else:
+            inspection_plan = {
+                "route": plan["backend_contract"]["rp1_route"],
+                "read_only": True,
+                "acquire_endpoint": False,
+            }
         auth = RuntimeAuthorization(
             capability_plan_sha256(inspection_plan), "real-session", datetime.now(UTC), True, False
         )
@@ -692,7 +725,7 @@ class ProductionRealSessionAdapters:
             plan,
             "rf_idle",
             "passed",
-            {"backend": plan["backend"], "output": plan["output"], "verified": True},
+            self._quiescence_details(plan, True),
             plan["deadlines"]["helper_s"],
             started,
         )
@@ -794,6 +827,15 @@ class ProductionRealSessionAdapters:
             reference_frequency_hz=contract.get("reference_frequency_hz"),
             drive_or_power_level=contract["drive_or_power_level"],
             gpio_pin=contract.get("gpio_pin"),
+            rp1_route=contract.get("rp1_route"),
+            endpoint=contract.get("endpoint"),
+            compatibility_id=contract.get("compatibility_id"),
+            abi_version=contract.get("abi_version"),
+            finite_tone_required=contract.get("finite_tone_required"),
+            development_enrollment=contract.get("development_enrollment"),
+            live_output_required=contract.get("live_output_required"),
+            operation_live_gate_required=contract.get("operation_live_gate_required"),
+            rp1_drive_ma=contract.get("rp1_drive_ma"),
         )
         shim = WsprryPiShim(
             ApplicationIdentity(
@@ -1078,13 +1120,37 @@ class ProductionRealSessionAdapters:
                     plan["deadlines"]["transmitter_s"], reserve_cleanup=True
                 )
                 try:
+                    payload: dict[str, object] = {
+                        "frequency_hz": int(plan["frequency_hz"]),
+                        "duration_ms": int(schedule["on_seconds"] * 1000),
+                        "outer_timeout_s": outer_timeout_s,
+                    }
+                    if plan["backend"] == "rp1_gpclk":
+                        contract = plan["backend_contract"]
+                        rf_path = plan["rf_path"]
+                        if (
+                            contract["rp1_route"] not in {"gpio4", "gpio20"}
+                            or rf_path["path_type"] != "conducted"
+                            or rf_path["antenna_connected"] is not False
+                            or rf_path["attenuation_db"] is None
+                            or float(rf_path["attenuation_db"]) <= 0
+                        ):
+                            raise RealSessionError(
+                                "RP1 development confirmation requires an exact conducted, "
+                                "attenuated, antenna-disconnected path"
+                            )
+                        payload["rp1_development"] = {
+                            "enabled": True,
+                            "route": contract["rp1_route"].upper(),
+                            "physical_connection": True,
+                            "attenuation_and_load": True,
+                            "bounded_operation": True,
+                            "non_radiating_topology": True,
+                            "experimental_acknowledged": True,
+                        }
                     evidence = self.tx_client.request_evidence(
                         "bounded-tone",
-                        {
-                            "frequency_hz": int(plan["frequency_hz"]),
-                            "duration_ms": int(schedule["on_seconds"] * 1000),
-                            "outer_timeout_s": outer_timeout_s,
-                        },
+                        payload,
                         response_timeout_s=response_timeout_s,
                     )
                 except Exception as exc:
@@ -1307,6 +1373,7 @@ class ProductionRealSessionAdapters:
                 _metadata_schema="cw-acquired-capture.schema.json",
                 _synthetic=False,
                 _artifact_root=self.paths.work_directory,
+                _acquisition_offset_gate_hz=float(plan["carrier"]["offset_gate_hz"]),
             )
             mode_gate = generated_gate["mode_gate"]
             self._artifacts.extend((observations, mode_gate_path))
@@ -1650,20 +1717,25 @@ class ProductionRealSessionAdapters:
             except Exception as exc:
                 ok = False
                 failures.append(f"service restoration {side}:{name}: {type(exc).__name__}: {exc}")
-        inspection = (
-            {
+        if plan["backend"] == "gpio":
+            inspection = {
                 "pin": plan["backend_contract"]["gpio_pin"],
                 "expected_direction": "input",
                 "read_only": True,
             }
-            if plan["backend"] == "gpio"
-            else {
+        elif plan["backend"] == "si5351":
+            inspection = {
                 "bus": plan["backend_contract"]["i2c_bus"],
                 "address": plan["backend_contract"]["i2c_address"],
                 "required_outputs": [plan["output"]],
                 "read_only": True,
             }
-        )
+        else:
+            inspection = {
+                "route": plan["backend_contract"]["rp1_route"],
+                "read_only": True,
+                "acquire_endpoint": False,
+            }
         auth = RuntimeAuthorization(
             capability_plan_sha256(inspection),
             "real-session",
@@ -1742,7 +1814,7 @@ class ProductionRealSessionAdapters:
             plan,
             "quiescence",
             "verified" if verified else "failed",
-            {"backend": plan["backend"], "output": plan["output"], "verified": verified},
+            self._quiescence_details(plan, verified),
             plan["deadlines"]["cleanup_s"],
             started,
         )
@@ -1833,9 +1905,11 @@ class ProductionRealSessionAdapters:
 def build_production_adapters(
     plan: dict[str, Any], *, ssh_executable: Path, work_directory: Path
 ) -> ProductionRealSessionAdapters:
-    """Build the one reviewed topology: local wspr5 receiver, SSH wspr4 transmitter."""
-    if plan["transport"] != "ssh" or plan["execution_mode"] != "live":
-        raise RealSessionError("production composition requires an SSH live plan")
+    """Build split-host SSH or distinct same-host local role channels."""
+    topology = plan.get("topology", "split_host_ssh")
+    expected_transport = "local_role_channels" if topology == "same_host_roles" else "ssh"
+    if plan["transport"] != expected_transport or plan["execution_mode"] != "live":
+        raise RealSessionError("production composition has an invalid live topology transport")
     try:
         validate_live_binding(
             plan["receiver_calibration"],
@@ -1844,10 +1918,11 @@ def build_production_adapters(
         )
     except ReceiverCalibrationError as error:
         raise RealSessionError(str(error)) from error
-    if not ssh_executable.is_absolute() or not ssh_executable.is_file():
-        raise RealSessionError("OpenSSH executable must be an existing absolute file")
-    if artifact(ssh_executable)["sha256"] != plan["capability_bindings"]["transmitter_ssh"]:
-        raise RealSessionError("OpenSSH executable identity differs from the resolved plan")
+    if topology == "split_host_ssh":
+        if not ssh_executable.is_absolute() or not ssh_executable.is_file():
+            raise RealSessionError("OpenSSH executable must be an existing absolute file")
+        if artifact(ssh_executable)["sha256"] != plan["capability_bindings"]["transmitter_ssh"]:
+            raise RealSessionError("OpenSSH executable identity differs from the resolved plan")
     known_hosts = Path(plan["transport_identity"]["known_hosts_path"])
     if (
         not known_hosts.is_absolute()
@@ -1872,7 +1947,7 @@ def build_production_adapters(
         check=False,
     )
     selected_lines = [line for line in selected.stdout.splitlines() if not line.startswith("#")]
-    if selected.returncode != 0 or not selected_lines:
+    if topology == "split_host_ssh" and (selected.returncode != 0 or not selected_lines):
         raise RealSessionError("transmitter destination is absent from pinned known-hosts")
     with TemporaryDirectory(prefix="wspq-host-key-") as directory:
         selected_path = Path(directory) / "selected-known-hosts"
@@ -1891,7 +1966,7 @@ def build_production_adapters(
         for fields in (line.split() for line in fingerprint.stdout.splitlines())
         if len(fields) >= 2 and fields[1].startswith("SHA256:")
     ]
-    if (
+    if topology == "split_host_ssh" and (
         fingerprint.returncode != 0
         or not parsed_fingerprints
         or any(
@@ -1921,6 +1996,15 @@ def build_production_adapters(
         raise RealSessionError("local receiver helper identity changed")
     if artifact(receiver_config)["sha256"] != plan["receiver_helper"]["config_sha256"]:
         raise RealSessionError("local receiver helper configuration identity changed")
+    if topology == "same_host_roles":
+        transmitter_helper = Path(plan["remote_helper"]["path"])
+        transmitter_config = Path(plan["remote_helper"]["config_path"])
+        if transmitter_helper == receiver_helper or transmitter_config == receiver_config:
+            raise RealSessionError("same-host role helpers and configurations must be distinct")
+        if artifact(transmitter_helper)["sha256"] != plan["remote_helper"]["sha256"]:
+            raise RealSessionError("local transmitter helper identity changed")
+        if artifact(transmitter_config)["sha256"] != plan["remote_helper"]["config_sha256"]:
+            raise RealSessionError("local transmitter helper configuration identity changed")
     paths = LiveAdapterPaths(
         work_directory.resolve(),
         Path(plan["resolved_profiles"]["bench"]["path"]).resolve(),
@@ -1951,8 +2035,23 @@ def build_production_adapters(
     tx_transport: PersistentHelperTransport | None = None
     rx_transport: PersistentHelperTransport | None = None
     try:
-        tx_transport = PersistentHelperTransport(
+        tx_arguments = (
             (
+                str(remote_wrapper),
+                "-n",
+                plan["remote_helper"]["path"],
+                "--serve",
+                "--config",
+                plan["remote_helper"]["config_path"],
+                "--plan-sha256",
+                digest,
+                "--helper-sha256",
+                plan["remote_helper"]["sha256"],
+                "--config-sha256",
+                plan["remote_helper"]["config_sha256"],
+            )
+            if topology == "same_host_roles"
+            else (
                 str(ssh_executable),
                 "-o",
                 f"ConnectTimeout={plan['deadlines']['helper_s']:g}",
@@ -1963,8 +2062,10 @@ def build_production_adapters(
                 "--",
                 plan["host"],
                 remote_command,
-            ),
-            cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
+            )
+        )
+        tx_transport = PersistentHelperTransport(
+            tx_arguments, cleanup_timeout_s=plan["deadlines"]["cleanup_s"]
         )
         rx_transport = PersistentHelperTransport(
             (
@@ -1987,13 +2088,20 @@ def build_production_adapters(
         shutil.rmtree(work_directory)
         raise
     assert tx_transport is not None and rx_transport is not None
+    tx_executable = (
+        Path(plan["remote_helper"]["path"]) if topology == "same_host_roles" else ssh_executable
+    )
     tx_client = JsonHelperClient(
-        ssh_executable,
+        tx_executable,
         tx_transport,
         plan["deadlines"]["helper_s"],
         digest,
         plan["remote_helper"]["identity"],
-        plan["capability_bindings"]["transmitter_ssh"],
+        (
+            plan["remote_helper"]["sha256"]
+            if topology == "same_host_roles"
+            else plan["capability_bindings"]["transmitter_ssh"]
+        ),
     )
     rx_client = JsonHelperClient(
         receiver_helper,
@@ -2093,6 +2201,8 @@ class KeyedCapabilityProviders:
         self.schedule_acknowledgements: dict[int, dict[str, object]] = {}
         self.analysis_evidence: dict[int, Path] = {}
         self.capture_diagnostics: dict[int, Path] = {}
+        self.rp1_preflight_evidence: dict[int, Path] = {}
+        self.rp1_quiescence_evidence: dict[int, Path] = {}
         self.capture_tasks: dict[
             int,
             tuple[
@@ -2104,6 +2214,16 @@ class KeyedCapabilityProviders:
         ] = {}
 
     def preflight(self, plan: dict[str, Any], number: int) -> bool:
+        if plan["transmitter"]["backend"] == "rp1_gpclk":
+            try:
+                observed = HelperRp1Provider(self.tx_client).inspect(
+                    plan["application_plan"]["backend_contract"]["rp1_route"]
+                )
+                path = self.work_directory / f"rp1-preflight-{number}.json"
+                write_json_new(path, observed, schema_name="rp1-preflight-evidence.schema.json")
+                self.rp1_preflight_evidence[number] = path
+            except Exception:
+                return False
         for binding in plan["reference"].values():
             path = Path(binding["path"])
             if not path.is_absolute() or artifact(path) != binding:
@@ -2172,6 +2292,28 @@ class KeyedCapabilityProviders:
         mode_plan = load_json_document(
             Path(self.plan["reference"]["plan"]["path"]), "cw-mode-plan.schema.json"
         )
+        effective_arguments = arguments
+        if self.plan["transmitter"]["backend"] == "rp1_gpclk":
+            if "--rp1-development-confirmation-json" in arguments:
+                self._retain_process_start_failure(number, "duplicate_rp1_confirmation")
+                return None
+            route = self.plan["application_plan"]["backend_contract"]["rp1_route"]
+            operation_id = f"{self.plan['session_id']}-operation-{number}"
+            confirmation = {
+                "enabled": True,
+                "route": route.upper(),
+                "physical_connection_confirmed": True,
+                "attenuation_and_load_confirmed": True,
+                "bounded_operation_confirmed": True,
+                "non_radiating_topology_confirmed": True,
+                "experimental_status_acknowledged": True,
+                "operation_id": operation_id,
+            }
+            effective_arguments = (
+                *arguments,
+                "--rp1-development-confirmation-json",
+                json.dumps(confirmation, sort_keys=True, separators=(",", ":")),
+            )
         pre_quiet = float(mode_plan["protocol"]["pre_quiet_seconds"])
         # Authenticate the process and repository state without arming it.
         # Capture readiness is then the causal RF-arm barrier, so neither
@@ -2179,7 +2321,7 @@ class KeyedCapabilityProviders:
         minimum_margin = pre_quiet / 2.0
         request_sent = datetime.now(UTC)
         try:
-            process = self.launcher.prepare(arguments)
+            process = self.launcher.prepare(effective_arguments)
         except Exception as error:
             self._retain_process_start_failure(number, "prepare", error=error)
             return None
@@ -2256,7 +2398,7 @@ class KeyedCapabilityProviders:
         process_path = directory / "process.json"
         write_json_new(
             process_path,
-            {"handle_id": process.handle_id, "arguments": list(arguments)},
+            {"handle_id": process.handle_id, "arguments": list(effective_arguments)},
         )
         schedule_path = directory / "process-schedule.json"
         write_json_new(
@@ -2636,15 +2778,20 @@ class KeyedCapabilityProviders:
         )
 
     def verify_quiescence(self, plan: dict[str, Any], number: int) -> bool:
-        del number
         config = plan["application_plan"]["backend_contract"]
         if plan["transmitter"]["backend"] == "gpio":
             observed = HelperGpioProvider(self.tx_client).inspect(config["gpio_pin"])
             return observed.direction == "input" and observed.owner is None
-        observed_si5351 = HelperSi5351Provider(self.tx_client).inspect(
-            config["i2c_bus"], config["i2c_address"]
-        )
-        return not observed_si5351.enabled_outputs and observed_si5351.owner is None
+        if plan["transmitter"]["backend"] == "si5351":
+            observed_si5351 = HelperSi5351Provider(self.tx_client).inspect(
+                config["i2c_bus"], config["i2c_address"]
+            )
+            return not observed_si5351.enabled_outputs and observed_si5351.owner is None
+        observed_rp1 = HelperRp1Provider(self.tx_client).inspect(config["rp1_route"])
+        path = self.work_directory / f"rp1-quiescence-{number}.json"
+        write_json_new(path, observed_rp1, schema_name="rp1-preflight-evidence.schema.json")
+        self.rp1_quiescence_evidence[number] = path
+        return True
 
     def evidence_paths(self, number: int) -> dict[str, Path]:
         capture_validated = number in getattr(self, "validated_captures", set())
@@ -2657,6 +2804,8 @@ class KeyedCapabilityProviders:
             "analysis": self.analysis_evidence.get(number),
             "capture_diagnostic": getattr(self, "capture_diagnostics", {}).get(number),
             "process_start_diagnostic": getattr(self, "process_start_diagnostics", {}).get(number),
+            "rp1_preflight": getattr(self, "rp1_preflight_evidence", {}).get(number),
+            "rp1_quiescence": getattr(self, "rp1_quiescence_evidence", {}).get(number),
         }
         native_failure = self.capture_metadata.get(number)
         if native_failure is not None:
@@ -2702,15 +2851,23 @@ def build_keyed_capability_providers(
     receiver_helper = Path(bindings["receiver_helper"]["path"])
     receiver_config = Path(bindings["receiver_helper_config"]["path"])
     capture_helper = Path(bindings["capture_helper"]["path"])
-    for path, binding in (
-        (ssh_executable, bindings["ssh"]),
+    topology = plan.get("topology", "split_host_ssh")
+    local_roles = topology == "same_host_roles"
+    checked_bindings = (
         (known_hosts, bindings["known_hosts"]),
         (receiver_helper, bindings["receiver_helper"]),
         (receiver_config, bindings["receiver_helper_config"]),
         (capture_helper, bindings["capture_helper"]),
-    ):
+    )
+    for path, binding in checked_bindings:
         if not path.is_absolute() or not path.is_file() or artifact(path) != binding:
             raise RealSessionError("keyed capability executable identity changed")
+    if not local_roles and (
+        not ssh_executable.is_absolute()
+        or not ssh_executable.is_file()
+        or artifact(ssh_executable) != bindings["ssh"]
+    ):
+        raise RealSessionError("keyed SSH executable identity changed")
     remote_helper = bindings["transmitter_helper"]
     remote_config = bindings["transmitter_helper_config"]
     if any(
@@ -2722,6 +2879,16 @@ def build_keyed_capability_providers(
         )
     ):
         raise RealSessionError("remote keyed helper or configuration path is unsafe")
+    if local_roles:
+        remote_helper_path = Path(remote_helper["path"])
+        remote_config_path = Path(remote_config["path"])
+        if remote_helper_path == receiver_helper or remote_config_path == receiver_config:
+            raise RealSessionError("same-host keyed role bindings must be distinct")
+        if (
+            artifact(remote_helper_path) != remote_helper
+            or artifact(remote_config_path) != remote_config
+        ):
+            raise RealSessionError("same-host keyed transmitter binding identity changed")
     _reject_git_worktree_runtime(work_directory)
     work_directory.mkdir(parents=True, exist_ok=False)
     digest = resolved_keyed_plan_sha256(plan)
@@ -2739,8 +2906,22 @@ def build_keyed_capability_providers(
     tx_transport: PersistentHelperTransport | None = None
     rx_transport: PersistentHelperTransport | None = None
     try:
-        tx_transport = PersistentHelperTransport(
+        tx_arguments = (
             (
+                bindings["transmitter_process_privilege_wrapper"]["path"],
+                "-n",
+                remote_helper["path"],
+                *(
+                    value.format(
+                        config=remote_config["path"],
+                        helper_sha256=remote_helper["sha256"],
+                        config_sha256=remote_config["sha256"],
+                    )
+                    for value in helper_arguments
+                ),
+            )
+            if local_roles
+            else (
                 str(ssh_executable),
                 "-o",
                 "StrictHostKeyChecking=yes",
@@ -2761,7 +2942,10 @@ def build_keyed_capability_providers(
                         ),
                     )
                 ),
-            ),
+            )
+        )
+        tx_transport = PersistentHelperTransport(
+            tx_arguments,
             cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
         )
         rx_transport = PersistentHelperTransport(
@@ -2779,12 +2963,12 @@ def build_keyed_capability_providers(
             cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
         )
         tx_client = JsonHelperClient(
-            ssh_executable,
+            Path(remote_helper["path"]) if local_roles else ssh_executable,
             tx_transport,
             plan["deadlines"]["transaction_s"],
             digest,
             bindings["transmitter_helper_identity"],
-            bindings["ssh"]["sha256"],
+            remote_helper["sha256"] if local_roles else bindings["ssh"]["sha256"],
         )
         rx_client = JsonHelperClient(
             receiver_helper,

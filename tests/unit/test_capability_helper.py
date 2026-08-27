@@ -149,7 +149,7 @@ class Si5351:
 
 
 class BoundedTone:
-    def run(self, request_id, frequency_hz, duration_ms, outer_timeout_s):
+    def run(self, request_id, frequency_hz, duration_ms, outer_timeout_s, rp1_development=None):
         return {
             "schema_version": 1,
             "evidence_type": "bounded_tone_control",
@@ -242,6 +242,42 @@ def test_bounded_tone_round_trip_preserves_helper_envelope_and_nonclaim() -> Non
     assert response["request_id"] == response["result"]["request_id"]
     assert response["result"]["qualification_claim"] is False
     assert response["result"]["wsprrypi_revision"] == "1" * 40
+
+
+def test_bounded_tone_accepts_only_complete_rp1_development_confirmation() -> None:
+    confirmation = {
+        "enabled": True,
+        "route": "GPIO4",
+        "physical_connection": True,
+        "attenuation_and_load": True,
+        "bounded_operation": True,
+        "non_radiating_topology": True,
+        "experimental_acknowledged": True,
+    }
+    response = server().dispatch(
+        request(
+            "bounded-tone",
+            {
+                "frequency_hz": 14_097_100,
+                "duration_ms": 1000,
+                "outer_timeout_s": 3.0,
+                "rp1_development": confirmation,
+            },
+        )
+    )
+    assert response["outcome"] == "completed"
+    with pytest.raises(HelperProtocolError, match="invalid"):
+        server().dispatch(
+            request(
+                "bounded-tone",
+                {
+                    "frequency_hz": 14_097_100,
+                    "duration_ms": 1000,
+                    "outer_timeout_s": 3.0,
+                    "rp1_development": {**confirmation, "bounded_operation": False},
+                },
+            )
+        )
 
 
 def test_request_encoding_round_trip_and_strict_envelope():

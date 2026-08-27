@@ -964,12 +964,14 @@ class JsonHelperClient:
         plan_sha256: str,
         helper_identity: str,
         executable_sha256: str | None = None,
+        configuration_sha256: str | None = None,
     ) -> None:
         if not executable.is_absolute() or not executable.is_file() or timeout_s <= 0:
             raise CapabilityError("helper client requires a pinned executable and deadline")
         self.executable, self.transport, self.timeout_s = executable, transport, timeout_s
         self.plan_sha256, self.helper_identity = plan_sha256, helper_identity
         self.executable_sha256 = executable_sha256 or artifact(executable)["sha256"]
+        self.configuration_sha256 = configuration_sha256
 
     def request(
         self,
@@ -1051,6 +1053,7 @@ class JsonHelperClient:
             "service-set": "service-helper-result.schema.json",
             "gpio-inspect": "gpio-helper-result.schema.json",
             "si5351-inspect": "si5351-helper-result.schema.json",
+            "rp1-inspect": "rp1-preflight-evidence.schema.json",
             "bounded-tone": "bounded-tone-helper-result.schema.json",
         }[operation]
         validate_document(result, result_schema)
@@ -1320,6 +1323,26 @@ class HelperSi5351Provider:
         if owner is not None and not isinstance(owner, str):
             raise CapabilityError("Si5351 helper owner is invalid")
         return Si5351Observation(bus, address, tuple(outputs), owner)
+
+
+class HelperRp1Provider:
+    """Read a full passive RP1 preflight document through the bound helper."""
+
+    def __init__(self, client: JsonHelperClient) -> None:
+        self.client = client
+
+    def inspect(self, route: str) -> dict[str, object]:
+        response = self.client.request(
+            "rp1-inspect",
+            {"route": route, "read_only": True, "acquire_endpoint": False},
+        )
+        from wsprrypi_qualification.rp1_contracts import validate_preflight
+
+        try:
+            validate_preflight(cast(dict[str, Any], response), route=route)
+        except ValueError as error:
+            raise CapabilityError(str(error)) from error
+        return response
 
 
 @dataclass(frozen=True)

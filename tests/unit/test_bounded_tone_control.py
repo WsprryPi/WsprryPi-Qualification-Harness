@@ -173,13 +173,18 @@ class FakeServer:
                 _send_json(cleanup, {"command": "tone_end", "status": "ok"})
 
 
-def _run(server: FakeServer, timeout: float = 1.0) -> dict:
+def _run(
+    server: FakeServer,
+    timeout: float = 1.0,
+    rp1_development: dict[str, object] | None = None,
+) -> dict:
     return run_bounded_tone_transaction(
         BoundedToneEndpoint("127.0.0.1", server.port),
         request_id="tone-001",
         frequency_hz=14_097_100,
         duration_ms=20,
         outer_timeout_s=timeout,
+        rp1_development=rp1_development,
     )
 
 
@@ -193,6 +198,33 @@ def test_success_is_correlated_and_non_qualifying() -> None:
     ]
     assert evidence["qualification_claim"] is False
     assert server.requests[0]["command"] == "bounded_tone"
+
+
+def test_rp1_development_confirmation_is_forwarded_exactly() -> None:
+    confirmation = {
+        "enabled": True,
+        "route": "GPIO4",
+        "physical_connection": True,
+        "attenuation_and_load": True,
+        "bounded_operation": True,
+        "non_radiating_topology": True,
+        "experimental_acknowledged": True,
+    }
+    with FakeServer() as server:
+        _run(server, rp1_development=confirmation)
+    assert server.requests[0]["rp1_development"] == confirmation
+
+
+def test_rp1_development_confirmation_rejects_partial_input_before_connection() -> None:
+    with pytest.raises(ValueError, match="incomplete"):
+        run_bounded_tone_transaction(
+            BoundedToneEndpoint("127.0.0.1", 39000),
+            request_id="tone-001",
+            frequency_hz=14_097_100,
+            duration_ms=20,
+            outer_timeout_s=1.0,
+            rp1_development={"enabled": True, "route": "GPIO4"},
+        )
 
 
 def test_interleaved_broadcasts_are_retained_and_do_not_break_correlation() -> None:

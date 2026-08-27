@@ -267,9 +267,9 @@ def test_gpio_manual_ppm_containment_overrides_configuration_defaults() -> None:
     arguments = _fixed_gpio_ppm_arguments(["wsprrypi", "-i", "estimate-enabled.ini"], -1.25)
     assert arguments == [
         "wsprrypi",
-        "--no-system-clock-frequency-estimate",
         "-i",
         "estimate-enabled.ini",
+        "--no-system-clock-frequency-estimate",
         "--gpio-manual-ppm",
         "-1.25",
     ]
@@ -433,6 +433,8 @@ def test_every_override_is_bound_and_changes_digest(tmp_path: Path) -> None:
         dfcw_dot_seconds=1.3,
         fskcw_separation_hz=6.0,
         dfcw_separation_hz=7.0,
+        carrier_offset_max_hz=1_000.0,
+        carrier_best_20hz_share_min=0.1,
     )
     changed = compose_complete_test_plan(
         "wspr4.local",
@@ -446,6 +448,10 @@ def test_every_override_is_bound_and_changes_digest(tmp_path: Path) -> None:
     assert changed["resolved_values"] == override.validated()
     assert complete_test_sha256(changed) != complete_test_sha256(baseline)
     keyed = {entry["mode"]: entry["plan"] for entry in changed["mode_plans"][2:]}
+    assert all(
+        entry["plan"]["carrier"]["best_20hz_share_min"] == 0.1
+        for entry in changed["mode_plans"][:2]
+    )
     assert (
         keyed["FSKCW"]["application_plan"]["protocol_contract"]["secondary_frequency_hz"]
         == 10_140_094.0
@@ -605,13 +611,15 @@ def test_unsupported_topology_and_invalid_input_fail_before_dispatch(tmp_path: P
         )
     with pytest.raises(CompleteTestError, match="positive"):
         CompleteTestOverrides(fskcw_separation_hz=0).validated()
+    with pytest.raises(CompleteTestError, match="between zero and one"):
+        CompleteTestOverrides(carrier_best_20hz_share_min=1.1).validated()
 
     config = _configuration(tmp_path / "rp1")
     keyed_path = tmp_path / "rp1/templates/keyed.json"
     keyed = json.loads(keyed_path.read_text(encoding="utf-8"))
     keyed["application_plan"]["backend"] = "rp1_gpclk"
     _write(keyed_path, keyed)
-    with pytest.raises(CompleteTestError, match="rp1_gpclk"):
+    with pytest.raises(CompleteTestError, match="RP1 requires"):
         compose_complete_test_plan(
             "wspr4.local", "wspr5.local", SDR, configuration=config, live=False
         )

@@ -71,6 +71,18 @@ def test_transmitter_binary_is_exclusively_installed_per_campaign() -> None:
     assert "timeout=900" not in stage.calls[0][0]
 
 
+def test_rp1_source_build_selects_the_rp1_provider_profile() -> None:
+    stage = _TransmitterStage()
+
+    automatic_deployment._prepare_transmitter(
+        stage, transmitter_backend="rp1_gpclk", transmit_gpio=4
+    )
+
+    deployment = "/home/pi/wsprrypi-qualification-runs/complete-test-deployment-stage"
+    assert stage.calls[0][1] == (deployment, stage.owner_token, "rp1-gpclk")
+    assert "sys.argv[4]!='rp1-gpclk' or probe_data" in stage.calls[0][0]
+
+
 def test_installed_configuration_is_staged_byte_for_byte_without_normalization() -> None:
     stage = _InstalledTransmitterStage()
     paths = automatic_deployment._prepare_transmitter(
@@ -203,3 +215,33 @@ def test_transmitter_address_discovery_uses_strict_selected_transport(
         "wspr4",
         "hostname -I",
     ]
+
+
+@pytest.mark.parametrize(
+    ("transmitter_host", "receiver_host", "expected"),
+    [
+        ("wspr4", "wspr5", ["ssh.service"]),
+        ("wspr5", "wspr5", ["wsprrypi.service"]),
+    ],
+)
+def test_receiver_helper_service_allowlist_tracks_physical_topology(
+    transmitter_host: str, receiver_host: str, expected: list[str]
+) -> None:
+    assert (
+        automatic_deployment._receiver_allowed_services(transmitter_host, receiver_host) == expected
+    )
+
+
+@pytest.mark.parametrize("name", ["wspq-gpio-inspect", "wspq-si5351-inspect", "wspq-rp1-inspect"])
+def test_inspection_assets_resolve_from_checkout(name: str) -> None:
+    root = Path(automatic_deployment.__file__).resolve().parents[1]
+    asset = automatic_deployment._inspection_asset(root, name)
+    assert asset.is_file()
+    assert asset.name == name
+
+
+def test_native_capture_sources_resolve_from_checkout() -> None:
+    root = Path(automatic_deployment.__file__).resolve().parents[1]
+    native_root = automatic_deployment._native_source_root(root)
+    assert (native_root / "CMakeLists.txt").is_file()
+    assert (native_root / "native").is_dir()

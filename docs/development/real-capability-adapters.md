@@ -42,6 +42,20 @@ not execute providers or establish qualification.
 
 `JsonHelperClient`, `HelperServiceProvider`, `HelperGpioProvider`, and
 `HelperSi5351Provider` are the production OS/hardware isolation boundary.
+The helper protocol additionally reserves `rp1-inspect` for a fixed passive
+request containing only `gpio4|gpio20`, `read_only=true`, and
+`acquire_endpoint=false`. `SameHostRp1Collector` authenticates its response
+against the exact plan and transmitter helper while retaining an independently
+bound receiver role. The two roles require distinct channel, helper,
+configuration, and helper-identity values even though both name the same host;
+agent forwarding and self-SSH are forbidden. The collector also rejects any
+authorization carrying RF permission.
+
+No RP1 inspection executable or helper-configuration activation is included
+yet. The server backend therefore remains unsupported unless a later reviewed
+deployment slice explicitly injects one. Unit tests use only an in-process
+backend and fake role clients; they do not contact a host or open the endpoint.
+
 `SshOwnedProcessLauncher` uses a remote start/wait/stop helper protocol so the
 remote handle is recorded before waiting and cleanup can target that identity.
 The installed `wspq-capability-helper --serve --config ...` implements the
