@@ -80,7 +80,12 @@ class Rp1Backend(Protocol):
 
 class BoundedToneBackend(Protocol):
     def run(
-        self, request_id: str, frequency_hz: int, duration_ms: int, outer_timeout_s: float
+        self,
+        request_id: str,
+        frequency_hz: int,
+        duration_ms: int,
+        outer_timeout_s: float,
+        rp1_development: dict[str, object] | None = None,
     ) -> dict[str, object]: ...
 
 
@@ -89,7 +94,12 @@ class LoopbackBoundedToneBackend:
         self.endpoint, self.wsprrypi_revision = endpoint, wsprrypi_revision
 
     def run(
-        self, request_id: str, frequency_hz: int, duration_ms: int, outer_timeout_s: float
+        self,
+        request_id: str,
+        frequency_hz: int,
+        duration_ms: int,
+        outer_timeout_s: float,
+        rp1_development: dict[str, object] | None = None,
     ) -> dict[str, object]:
         result = run_bounded_tone_transaction(
             self.endpoint,
@@ -97,6 +107,7 @@ class LoopbackBoundedToneBackend:
             frequency_hz=frequency_hz,
             duration_ms=duration_ms,
             outer_timeout_s=outer_timeout_s,
+            rp1_development=rp1_development,
         )
         result["wsprrypi_revision"] = self.wsprrypi_revision
         return result
@@ -857,6 +868,9 @@ class CapabilityHelperServer:
                 _integer(payload, "frequency_hz"),
                 _integer(payload, "duration_ms"),
                 _positive_number(payload, "outer_timeout_s"),
+                cast(dict[str, object], payload["rp1_development"])
+                if "rp1_development" in payload
+                else None,
             )
         result_schemas = {
             "process-start": "process-start-result.schema.json",
@@ -931,7 +945,7 @@ def _validate_envelope(request: dict[str, object]) -> None:
         "gpio-inspect": {"pin"},
         "si5351-inspect": {"bus", "address"},
         "rp1-inspect": {"route", "read_only", "acquire_endpoint"},
-        "bounded-tone": {"frequency_hz", "duration_ms", "outer_timeout_s"},
+        "bounded-tone": {"frequency_hz", "duration_ms", "outer_timeout_s", "rp1_development"},
     }
     operation = request["operation"]
     assert isinstance(operation, str)
@@ -953,6 +967,9 @@ def _validate_envelope(request: dict[str, object]) -> None:
             }
     elif operation == "service-set":
         base_fields = permitted - {"repository_guard"}
+        valid_fields = frozenset(payload) in {frozenset(base_fields), frozenset(permitted)}
+    elif operation == "bounded-tone":
+        base_fields = permitted - {"rp1_development"}
         valid_fields = frozenset(payload) in {frozenset(base_fields), frozenset(permitted)}
     else:
         valid_fields = set(payload) == permitted

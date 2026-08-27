@@ -1077,6 +1077,52 @@ def test_tone_pattern_uses_absolute_deadlines_and_stops_every_cycle(
     assert len([path for path in adapter._artifacts if "bounded-tone" in path.name]) == 3
 
 
+def test_rp1_tone_pattern_binds_development_confirmation_from_plan(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = bare_adapter(tmp_path)
+    requests = []
+
+    class Client:
+        def request_evidence(self, operation, payload, *, response_timeout_s=None):
+            requests.append(payload)
+            return _bounded_tone_envelope(plan, len(requests), payload["outer_timeout_s"])
+
+    adapter.tx_client = Client()
+    plan = tone_plan_document()
+    plan["backend"] = "rp1_gpclk"
+    plan["output"] = "GPIO4"
+    plan["backend_contract"] = {"rp1_route": "gpio4"}
+    plan["rf_path"] = {
+        "path_type": "conducted",
+        "antenna_connected": False,
+        "attenuation_db": 20,
+    }
+    plan["tone_schedule"]["cycles"] = 1
+
+    class Worker:
+        running = True
+
+        def is_alive(self):
+            return self.running
+
+        def join(self, timeout=None):
+            self.running = False
+
+    worker = Worker()
+    monkeypatch.setattr(adapter, "_sleep_until", lambda *args, **kwargs: None)
+    adapter._run_tone_pattern_cycles(plan, worker, threading.Event(), [{"capture": "complete"}], [])
+    assert requests[0]["rp1_development"] == {
+        "enabled": True,
+        "route": "GPIO4",
+        "physical_connection": True,
+        "attenuation_and_load": True,
+        "bounded_operation": True,
+        "non_radiating_topology": True,
+        "experimental_acknowledged": True,
+    }
+
+
 def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, monkeypatch) -> None:
     adapter = bare_adapter(tmp_path)
     adapter._cleanup_installed = True

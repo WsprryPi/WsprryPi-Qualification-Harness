@@ -27,6 +27,7 @@
     "gpio":{"type":"object","additionalProperties":false,"required":["pin"],"properties":{"pin":{"type":"integer","minimum":0}}},
     "si5351":{"type":"object","additionalProperties":false,"required":["bus","address"],"properties":{"bus":{"type":"integer","minimum":0},"address":{"type":"string","minLength":1}}},
     "rp1":{"type":"object","additionalProperties":false,"required":["route","read_only","acquire_endpoint"],"properties":{"route":{"enum":["gpio4","gpio20"]},"read_only":{"const":true},"acquire_endpoint":{"const":false}}},
-    "bounded_tone":{"type":"object","additionalProperties":false,"required":["frequency_hz","duration_ms","outer_timeout_s"],"properties":{"frequency_hz":{"type":"integer","minimum":1},"duration_ms":{"type":"integer","minimum":1,"maximum":60000},"outer_timeout_s":{"type":"number","exclusiveMinimum":0}}}
+    "bounded_tone":{"type":"object","additionalProperties":false,"required":["frequency_hz","duration_ms","outer_timeout_s"],"properties":{"frequency_hz":{"type":"integer","minimum":1},"duration_ms":{"type":"integer","minimum":1,"maximum":60000},"outer_timeout_s":{"type":"number","exclusiveMinimum":0},"rp1_development":{"$ref":"#/$defs/rp1_development"}}},
+    "rp1_development":{"type":"object","additionalProperties":false,"required":["enabled","route","physical_connection","attenuation_and_load","bounded_operation","non_radiating_topology","experimental_acknowledged"],"properties":{"enabled":{"const":true},"route":{"enum":["GPIO4","GPIO20"]},"physical_connection":{"const":true},"attenuation_and_load":{"const":true},"bounded_operation":{"const":true},"non_radiating_topology":{"const":true},"experimental_acknowledged":{"const":true}}}
   }
 }

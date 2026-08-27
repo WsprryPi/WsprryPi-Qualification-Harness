@@ -1119,13 +1119,37 @@ class ProductionRealSessionAdapters:
                     plan["deadlines"]["transmitter_s"], reserve_cleanup=True
                 )
                 try:
+                    payload: dict[str, object] = {
+                        "frequency_hz": int(plan["frequency_hz"]),
+                        "duration_ms": int(schedule["on_seconds"] * 1000),
+                        "outer_timeout_s": outer_timeout_s,
+                    }
+                    if plan["backend"] == "rp1_gpclk":
+                        contract = plan["backend_contract"]
+                        rf_path = plan["rf_path"]
+                        if (
+                            contract["rp1_route"] not in {"gpio4", "gpio20"}
+                            or rf_path["path_type"] != "conducted"
+                            or rf_path["antenna_connected"] is not False
+                            or rf_path["attenuation_db"] is None
+                            or float(rf_path["attenuation_db"]) <= 0
+                        ):
+                            raise RealSessionError(
+                                "RP1 development confirmation requires an exact conducted, "
+                                "attenuated, antenna-disconnected path"
+                            )
+                        payload["rp1_development"] = {
+                            "enabled": True,
+                            "route": contract["rp1_route"].upper(),
+                            "physical_connection": True,
+                            "attenuation_and_load": True,
+                            "bounded_operation": True,
+                            "non_radiating_topology": True,
+                            "experimental_acknowledged": True,
+                        }
                     evidence = self.tx_client.request_evidence(
                         "bounded-tone",
-                        {
-                            "frequency_hz": int(plan["frequency_hz"]),
-                            "duration_ms": int(schedule["on_seconds"] * 1000),
-                            "outer_timeout_s": outer_timeout_s,
-                        },
+                        payload,
                         response_timeout_s=response_timeout_s,
                     )
                 except Exception as exc:
