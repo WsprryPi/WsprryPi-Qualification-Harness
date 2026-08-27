@@ -230,3 +230,18 @@ def test_receiver_helper_service_allowlist_tracks_physical_topology(
     assert (
         automatic_deployment._receiver_allowed_services(transmitter_host, receiver_host) == expected
     )
+
+
+@pytest.mark.parametrize("name", ["wspq-gpio-inspect", "wspq-si5351-inspect", "wspq-rp1-inspect"])
+def test_inspection_assets_resolve_from_checkout(name: str) -> None:
+    root = Path(automatic_deployment.__file__).resolve().parents[1]
+    asset = automatic_deployment._inspection_asset(root, name)
+    assert asset.is_file()
+    assert asset.name == name
+
+
+def test_native_capture_sources_resolve_from_checkout() -> None:
+    root = Path(automatic_deployment.__file__).resolve().parents[1]
+    native_root = automatic_deployment._native_source_root(root)
+    assert (native_root / "CMakeLists.txt").is_file()
+    assert (native_root / "native").is_dir()

@@ -33,6 +33,10 @@ packages = ["src/wsprrypi_qualification"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "deployment/raspberry-pi-os/wspq-gpio-inspect" = "wsprrypi_qualification/deployment_assets/wspq-gpio-inspect"
+"deployment/raspberry-pi-os/wspq-si5351-inspect" = "wsprrypi_qualification/deployment_assets/wspq-si5351-inspect"
+"deployment/raspberry-pi-os/wspq-rp1-inspect" = "wsprrypi_qualification/deployment_assets/wspq-rp1-inspect"
+"CMakeLists.txt" = "wsprrypi_qualification/native_build/CMakeLists.txt"
+"native" = "wsprrypi_qualification/native_build/native"
 
 [tool.hatch.build.targets.sdist]
 include = [

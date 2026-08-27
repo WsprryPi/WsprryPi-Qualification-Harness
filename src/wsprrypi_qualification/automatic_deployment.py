@@ -533,6 +533,25 @@ def _receiver_allowed_services(transmitter_host: str, receiver_host: str) -> lis
     return ["wsprrypi.service"] if transmitter_host == receiver_host else ["ssh.service"]
 
 
+def _inspection_asset(root: Path, name: str) -> Path:
+    candidates = (
+        root.parent / "deployment" / "raspberry-pi-os" / name,
+        Path(__file__).resolve().parent / "deployment_assets" / name,
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise AutomaticDeploymentError(f"required inspection asset is unavailable: {name}")
+
+
+def _native_source_root(root: Path) -> Path:
+    candidates = (root.parent, Path(__file__).resolve().parent / "native_build")
+    for candidate in candidates:
+        if (candidate / "CMakeLists.txt").is_file() and (candidate / "native").is_dir():
+            return candidate
+    raise AutomaticDeploymentError("required native capture sources are unavailable")
+
+
 def _delegate_automatic_complete_test(
     transmitter_host: str,
     receiver_host: str,
@@ -583,34 +602,11 @@ def _delegate_automatic_complete_test(
         temporary = Path(temporary_name).resolve()
         runtime = build_runtime_archive(root, temporary / "runtime.zip")
         runtime_cache_key = str(artifact(runtime)["sha256"])
-        gpio = root.parent / "deployment" / "raspberry-pi-os" / "wspq-gpio-inspect"
-        if not gpio.is_file():
-            gpio = (
-                Path(__file__).resolve().parents[2]
-                / "deployment"
-                / "raspberry-pi-os"
-                / "wspq-gpio-inspect"
-            )
-        si5351 = root.parent / "deployment" / "raspberry-pi-os" / "wspq-si5351-inspect"
-        if not si5351.is_file():
-            si5351 = (
-                Path(__file__).resolve().parents[2]
-                / "deployment"
-                / "raspberry-pi-os"
-                / "wspq-si5351-inspect"
-            )
-        rp1 = root.parent / "deployment" / "raspberry-pi-os" / "wspq-rp1-inspect"
-        if not rp1.is_file():
-            rp1 = (
-                Path(__file__).resolve().parents[2]
-                / "deployment"
-                / "raspberry-pi-os"
-                / "wspq-rp1-inspect"
-            )
+        gpio = _inspection_asset(root, "wspq-gpio-inspect")
+        si5351 = _inspection_asset(root, "wspq-si5351-inspect")
+        rp1 = _inspection_asset(root, "wspq-rp1-inspect")
         native = _zip_tree(
-            Path(__file__).resolve().parents[2],
-            temporary / "native.zip",
-            ("CMakeLists.txt", "native"),
+            _native_source_root(root), temporary / "native.zip", ("CMakeLists.txt", "native")
         )
         native_cache_key = str(artifact(native)["sha256"])
         bundle = temporary / "wsprrypi.bundle"
