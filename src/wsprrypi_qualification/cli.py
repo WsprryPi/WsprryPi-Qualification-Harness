@@ -485,6 +485,12 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     complete.add_argument(
+        "--carrier-best-20hz-share-min",
+        type=float,
+        default=0.5,
+        help="minimum resolved carrier power share in the best 20 Hz (default: 0.5)",
+    )
+    complete.add_argument(
         "--gpio-manual-ppm",
         type=float,
         help=(
@@ -682,6 +688,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         str(args.dfcw_separation_hz),
                         "--carrier-offset-max-hz",
                         str(args.carrier_offset_max_hz),
+                        "--carrier-best-20hz-share-min",
+                        str(args.carrier_best_20hz_share_min),
                         *(
                             []
                             if args.gpio_manual_ppm is None
@@ -749,6 +757,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fskcw_separation_hz=args.fskcw_separation_hz,
                 dfcw_separation_hz=args.dfcw_separation_hz,
                 carrier_offset_max_hz=args.carrier_offset_max_hz,
+                carrier_best_20hz_share_min=args.carrier_best_20hz_share_min,
                 gpio_manual_ppm=args.gpio_manual_ppm,
                 transmitter_ppm_offset=args.transmitter_ppm_offset,
             )

@@ -89,6 +89,7 @@ DEFAULTS: dict[str, object] = {
     "keyed_observations": 3,
     "wspr_observations": 3,
     "carrier_offset_max_hz": 100.0,
+    "carrier_best_20hz_share_min": 0.5,
     "gpio_manual_ppm": None,
     "transmitter_ppm_offset": 0.0,
 }
@@ -405,6 +406,7 @@ class CompleteTestOverrides:
     keyed_observations: int = 3
     wspr_observations: int = 3
     carrier_offset_max_hz: float = 100.0
+    carrier_best_20hz_share_min: float = 0.5
     gpio_manual_ppm: float | None = None
     transmitter_ppm_offset: float = 0.0
 
@@ -451,6 +453,10 @@ class CompleteTestOverrides:
             raise CompleteTestError("dot durations and tone separations must be positive")
         if not math.isfinite(self.carrier_offset_max_hz) or self.carrier_offset_max_hz < 0:
             raise CompleteTestError("carrier-offset-max-hz must be finite and non-negative")
+        if not math.isfinite(self.carrier_best_20hz_share_min) or not (
+            0 <= self.carrier_best_20hz_share_min <= 1
+        ):
+            raise CompleteTestError("carrier-best-20hz-share-min must be between zero and one")
         if self.gpio_manual_ppm is not None and (
             not math.isfinite(self.gpio_manual_ppm) or not -200 <= self.gpio_manual_ppm <= 200
         ):
@@ -657,6 +663,7 @@ def _resolve_real(
     plan["mode"] = mode
     plan["calibration"]["ppm"] = values["effective_transmitter_ppm"]
     plan["carrier"]["offset_gate_hz"] = values["carrier_offset_max_hz"]
+    plan["carrier"]["best_20hz_share_min"] = values["carrier_best_20hz_share_min"]
     plan["frame_count"] = 0 if mode == "TONE" else values["wspr_observations"]
     if mode == "TONE":
         plan["session_kind"] = "cw_live_tone"
@@ -1336,6 +1343,11 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
             and child["carrier"]["offset_gate_hz"] != values["carrier_offset_max_hz"]
         ):
             raise CompleteTestError("subordinate carrier tolerance differs from the CLI value")
+        if (
+            entry["mode"] in {"TONE", "WSPR"}
+            and child["carrier"]["best_20hz_share_min"] != values["carrier_best_20hz_share_min"]
+        ):
+            raise CompleteTestError("subordinate carrier share gate differs from the CLI value")
     try:
         expected_tuning = ReceiverTuningGeometry(
             requested_frequency_hz=float(values["frequency_hz"]),

@@ -359,7 +359,7 @@
         "dfcw_separation_hz",
         "keyed_observations",
         "wspr_observations"
-        ,"carrier_offset_max_hz", "gpio_manual_ppm", "transmitter_ppm_offset"
+        ,"carrier_offset_max_hz", "carrier_best_20hz_share_min", "gpio_manual_ppm", "transmitter_ppm_offset"
       ],
       "properties": {
         "band": {
@@ -412,6 +412,7 @@
           "const": 3
         },
         "carrier_offset_max_hz": {"type": "number", "minimum": 0},
+        "carrier_best_20hz_share_min": {"type": "number", "minimum": 0, "maximum": 1},
         "gpio_manual_ppm": {"type": ["number", "null"], "minimum": -200, "maximum": 200},
         "transmitter_ppm_offset": {"type": "number", "minimum": -200, "maximum": 200}
       }
