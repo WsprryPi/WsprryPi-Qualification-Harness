@@ -1431,6 +1431,128 @@ def test_each_live_tone_cycle_uses_its_resolved_remote_watchdog(
     assert observed["cleanup_timeout_s"] == plan["deadlines"]["cleanup_s"]
 
 
+@pytest.mark.parametrize(
+    ("tone", "operation"),
+    [(True, "carrier"), (False, "frames")],
+)
+def test_rp1_direct_wspr_launch_binds_distinct_operation_confirmation(
+    tmp_path: Path, monkeypatch, tone: bool, operation: str
+) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._cleanup_installed = True
+    adapter._initial_services = {}
+    adapter._changed_services = []
+    adapter._owned = []
+    observed = {}
+
+    class Launcher:
+        def begin(self, arguments):
+            observed["arguments"] = arguments
+            return object()
+
+    class Application:
+        arguments = ("/tx", "--test-tone", "14097100") if tone else ("/tx", "-n", "3")
+
+        def to_document(self):
+            return {}
+
+    adapter.tx_launcher = Launcher()
+    monkeypatch.setattr(adapter, "_application", lambda plan, tone: Application())
+    monkeypatch.setattr(
+        "wsprrypi_qualification.live_adapters.write_json_new", lambda *args, **kwargs: None
+    )
+    plan = tone_plan_document()
+    plan["backend"] = "rp1_gpclk"
+    plan["backend_contract"] = {"rp1_route": "gpio4"}
+    plan["rf_path"] = {
+        "path_type": "conducted",
+        "antenna_connected": False,
+        "attenuation_db": 20,
+    }
+
+    process = adapter._begin_transmitter(plan, tone)
+
+    assert process in adapter._owned
+    arguments = observed["arguments"]
+    option = arguments.index("--rp1-development-confirmation-json")
+    confirmation = json.loads(arguments[option + 1])
+    assert confirmation == {
+        "enabled": True,
+        "route": "GPIO4",
+        "physical_connection_confirmed": True,
+        "attenuation_and_load_confirmed": True,
+        "bounded_operation_confirmed": True,
+        "non_radiating_topology_confirmed": True,
+        "experimental_status_acknowledged": True,
+        "operation_id": (f"wspq-{resolved_real_plan_sha256(plan)[:16]}-{operation}"),
+    }
+
+
+def test_rp1_direct_wspr_launch_rejects_unsafe_path_before_process(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._cleanup_installed = True
+    adapter._initial_services = {}
+    adapter._changed_services = []
+    adapter._owned = []
+
+    class Launcher:
+        def begin(self, arguments):
+            raise AssertionError("unsafe plan reached process launch")
+
+    class Application:
+        arguments = ("/tx", "--test-tone", "14097100")
+
+        def to_document(self):
+            return {}
+
+    adapter.tx_launcher = Launcher()
+    monkeypatch.setattr(adapter, "_application", lambda plan, tone: Application())
+    monkeypatch.setattr(
+        "wsprrypi_qualification.live_adapters.write_json_new", lambda *args, **kwargs: None
+    )
+    plan = tone_plan_document()
+    plan["backend"] = "rp1_gpclk"
+    plan["backend_contract"] = {"rp1_route": "gpio4"}
+    plan["rf_path"] = {
+        "path_type": "conducted",
+        "antenna_connected": True,
+        "attenuation_db": 20,
+    }
+
+    with pytest.raises(RealSessionError, match="exact conducted"):
+        adapter._begin_transmitter(plan, True)
+
+
+def test_rp1_direct_wspr_launch_rejects_duplicate_confirmation(tmp_path: Path, monkeypatch) -> None:
+    adapter = bare_adapter(tmp_path)
+    adapter._cleanup_installed = True
+    adapter._initial_services = {}
+    adapter._changed_services = []
+
+    class Launcher:
+        def begin(self, arguments):
+            raise AssertionError("duplicate confirmation reached process launch")
+
+    class Application:
+        arguments = ("/tx", "--rp1-development-confirmation-json", "{}")
+
+        def to_document(self):
+            return {}
+
+    adapter.tx_launcher = Launcher()
+    monkeypatch.setattr(adapter, "_application", lambda plan, tone: Application())
+    monkeypatch.setattr(
+        "wsprrypi_qualification.live_adapters.write_json_new", lambda *args, **kwargs: None
+    )
+    plan = tone_plan_document()
+    plan["backend"] = "rp1_gpclk"
+
+    with pytest.raises(RealSessionError, match="duplicate RP1"):
+        adapter._begin_transmitter(plan, True)
+
+
 def test_partial_receiver_service_change_retains_restoration_intent(tmp_path: Path) -> None:
     class InspectFailure(FakeServiceProvider):
         calls = 0

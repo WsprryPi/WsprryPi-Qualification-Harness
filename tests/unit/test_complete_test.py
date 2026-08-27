@@ -499,7 +499,7 @@ def test_frequency_contract_propagates_offset_window_and_explicit_ppm(tmp_path: 
         overrides=CompleteTestOverrides(
             requested_transmit_frequency_offset_hz=1_100,
             frequency_acquisition_half_width_hz=1_000.0,
-            gpio_manual_ppm=3.903,
+            gpio_manual_ppm=3.924,
         ),
         live=False,
     )
@@ -513,7 +513,7 @@ def test_frequency_contract_propagates_offset_window_and_explicit_ppm(tmp_path: 
         "fskcw_secondary_frequency_hz": 14_098_195.0,
         "dfcw_secondary_frequency_hz": 14_098_195.0,
     }
-    assert plan["transmitter_ppm_resolution"]["effective_correction_ppm"] == 3.903
+    assert plan["transmitter_ppm_resolution"]["effective_correction_ppm"] == 3.924
     assert plan["receiver_tuning"]["target_search_half_width_hz"] == 1_000.0
     for entry in plan["mode_plans"]:
         child = entry["plan"]
@@ -525,7 +525,7 @@ def test_frequency_contract_propagates_offset_window_and_explicit_ppm(tmp_path: 
         }
         if entry["mode"] in {"TONE", "WSPR"}:
             assert child["frequency_hz"] == 14_098_200.0
-            assert child["calibration"]["ppm"] == 3.903
+            assert child["calibration"]["ppm"] == 3.924
         else:
             assert child["frequency_acquisition_half_width_hz"] == 1_000.0
             assert (

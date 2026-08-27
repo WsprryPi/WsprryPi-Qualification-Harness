@@ -861,6 +861,35 @@ class ProductionRealSessionAdapters:
         )
         return shim.resolve_plan(f"{plan['run_id']}-{'carrier' if tone else 'frames'}", protocol)
 
+    @staticmethod
+    def _rp1_direct_confirmation(plan: dict[str, Any], *, tone: bool) -> str:
+        contract = plan["backend_contract"]
+        rf_path = plan["rf_path"]
+        route = contract.get("rp1_route")
+        if (
+            route not in {"gpio4", "gpio20"}
+            or rf_path["path_type"] != "conducted"
+            or rf_path["antenna_connected"] is not False
+            or rf_path["attenuation_db"] is None
+            or float(rf_path["attenuation_db"]) <= 0
+        ):
+            raise RealSessionError(
+                "RP1 development confirmation requires an exact conducted, "
+                "attenuated, antenna-disconnected path"
+            )
+        operation = "carrier" if tone else "frames"
+        confirmation = {
+            "enabled": True,
+            "route": route.upper(),
+            "physical_connection_confirmed": True,
+            "attenuation_and_load_confirmed": True,
+            "bounded_operation_confirmed": True,
+            "non_radiating_topology_confirmed": True,
+            "experimental_status_acknowledged": True,
+            "operation_id": f"wspq-{resolved_real_plan_sha256(plan)[:16]}-{operation}",
+        }
+        return json.dumps(confirmation, sort_keys=True, separators=(",", ":"))
+
     def _begin_transmitter(
         self, plan: dict[str, Any], tone: bool, *, cycle: int | None = None
     ) -> OwnedProcess:
@@ -899,7 +928,16 @@ class ProductionRealSessionAdapters:
                 },
                 cleanup_timeout_s=plan["deadlines"]["cleanup_s"],
             )
-        process = launcher.begin(application.arguments)
+        arguments = application.arguments
+        if plan["backend"] == "rp1_gpclk":
+            if "--rp1-development-confirmation-json" in arguments:
+                raise RealSessionError("duplicate RP1 development confirmation argument")
+            arguments = (
+                *arguments,
+                "--rp1-development-confirmation-json",
+                self._rp1_direct_confirmation(plan, tone=tone),
+            )
+        process = launcher.begin(arguments)
         self._owned.append(process)
         return process
 
