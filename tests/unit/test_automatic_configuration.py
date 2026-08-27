@@ -352,6 +352,9 @@ def test_same_host_rp1_route_and_manual_ppm_are_bound(tmp_path: Path, transmit_g
                 if entry["mode"] == "TONE"
                 else child["application_plan"]["arguments"]
             )
+            backend_index = arguments.index("--backend")
+            assert arguments[backend_index + 1] == "rp1-gpclk"
+            assert "gpio" not in arguments[backend_index : backend_index + 2]
             assert arguments.count("--transmit-gpio") == 1
             assert arguments[arguments.index("--transmit-gpio") + 1] == str(transmit_gpio)
             assert arguments.count("--gpio-manual-ppm") == 1

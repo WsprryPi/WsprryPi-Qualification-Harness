@@ -952,7 +952,7 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
                     document["wsprrypi"]["path"],
                     "--no-system-clock-frequency-estimate",
                     "--backend",
-                    "gpio",
+                    "rp1-gpclk",
                     "--transmit-gpio",
                     str(contract["gpio_pin"]),
                     "--gpio-power-level",

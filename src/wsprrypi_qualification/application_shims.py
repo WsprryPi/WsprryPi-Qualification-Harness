@@ -244,11 +244,7 @@ class WsprryPiShim:
     def resolve_plan(self, plan_id: str, protocol: ProtocolPlan) -> ApplicationPlan:
         if not plan_id.strip():
             raise ApplicationPlanError("plan_id must not be empty")
-        # WsprryPi exposes the RP1 provider through its explicit Pi-5 GPIO
-        # application interface. The Harness retains rp1_gpclk as the backend
-        # identity and binds the complete RP1 route contract, so this cannot
-        # become an implicit fallback to the legacy GPIO implementation.
-        application_backend = "gpio" if self.backend == "rp1_gpclk" else self.backend
+        application_backend = "rp1-gpclk" if self.backend == "rp1_gpclk" else self.backend
         common = (
             str(self.identity.executable),
             "--backend",
@@ -395,7 +391,7 @@ def validate_application_plan(document: dict[str, object]) -> None:
     identity = document["identity"]
     if not isinstance(arguments, list) or not isinstance(identity, dict):
         raise ApplicationPlanError("application plan has invalid structured fields")
-    application_backend = "gpio" if document["backend"] == "rp1_gpclk" else document["backend"]
+    application_backend = "rp1-gpclk" if document["backend"] == "rp1_gpclk" else document["backend"]
     expected_prefix = [identity["executable"], "--backend", application_backend]
     if arguments[:3] != expected_prefix or "--no-offset" not in arguments:
         raise ApplicationPlanError("arguments do not match executable/backend safety contract")

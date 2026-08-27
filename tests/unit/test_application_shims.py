@@ -226,7 +226,7 @@ def test_rp1_backend_is_route_bound_and_applies_ppm_once(
     assert plan.arguments[:13] == (
         "/opt/Wsprry Pi/wsprrypi",
         "--backend",
-        "gpio",
+        "rp1-gpclk",
         "--transmit-gpio",
         str(pin),
         "--gpio-power-level",

@@ -107,7 +107,8 @@ def test_both_routes_compose_ten_independent_hardware_free_plans(tmp_path: Path)
     assert all(entry["transmitter_ppm_resolution"]["effective_ppm"] == 3.56 for entry in plans)
     for entry in plans:
         arguments = entry["application_plan"]["arguments"]
-        assert arguments[1:3] == ["--backend", "gpio"]
+        assert arguments[1:3] == ["--backend", "rp1-gpclk"]
+        assert arguments[1:3] != ["--backend", "gpio"]
         assert arguments.count("--gpio-manual-ppm") == 1
         assert arguments.count("--no-system-clock-frequency-estimate") == 1
         assert arguments.count("--transmit-gpio") == 1

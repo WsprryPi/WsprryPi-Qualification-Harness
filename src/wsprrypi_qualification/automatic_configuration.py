@@ -346,7 +346,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
                     if si5351
                     else [
                         "--backend",
-                        "gpio",
+                        "rp1-gpclk",
                         "--transmit-gpio",
                         str(cast(dict[str, Any], rp1_identity)["gpio"]),
                         "--gpio-power-level",
@@ -393,7 +393,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         "arguments": [
             artifacts["tx_wsprrypi"]["path"],
             "--backend",
-            "gpio" if rp1 else backend,
+            "rp1-gpclk" if rp1 else backend,
             *(
                 [
                     "--si5351-i2c-bus",

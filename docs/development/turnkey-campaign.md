@@ -97,7 +97,7 @@ composer. It binds two distinct logical roles on the named host, the canonical
 endpoint/module, ABI v3, finite TONE, route-specific r3 compatibility identity,
 `Experimental` enrollment, `live_output=1`, exact WsprryPi/component revisions,
 receiver/RF-path identity, and one provenance-bound PPM source. The WsprryPi
-argv uses its reviewed Pi-5 `--backend gpio --transmit-gpio 4|20` interface,
+argv uses its reviewed Pi-5 `--backend rp1-gpclk --transmit-gpio 4|20` interface,
 while the Harness retains `rp1_gpclk` as the authenticated backend identity.
 The complete route contract prevents legacy fallback. Any RP1 invocation
 without `--rehearse` fails before configuration loading or adapter construction.
