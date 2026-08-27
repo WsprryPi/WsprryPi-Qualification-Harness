@@ -18,8 +18,8 @@ def test_enrollment_digest_preserves_all_non_lifecycle_manifest_fields() -> None
         "sourceCommit": "a" * 40,
         "route": "gpio4",
         "uapiIdentity": {"sha256": "b" * 64},
-        "developmentState": "development-live-enabled",
-        "parameters": {"live_output": 1},
+        "developmentState": "development-loaded",
+        "parameters": {"live_output": 0},
     }
     enrolled = {
         **manifest,

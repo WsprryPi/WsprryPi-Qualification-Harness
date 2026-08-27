@@ -111,13 +111,13 @@ def main() -> int:
         }
         configured = manifest.get("route")
         live = pathlib.Path(f"/sys/module/{MODULE}/parameters/live_output").read_text().strip()
-        if manifest.get("developmentState") != "development-live-enabled" or manifest.get(
+        if manifest.get("developmentState") != "development-loaded" or manifest.get(
             "parameters"
-        ) != {"live_output": 1}:
+        ) != {"live_output": 0}:
             return fail()
         compatibility_id = values["compatibility_id"]
         expected_id = f"v1.1.2-pi5-{route}-6.18.34-development-candidate-r3"
-        if compatibility_id != expected_id or live not in {"Y", "1"}:
+        if compatibility_id != expected_id or live not in {"N", "0"}:
             return fail()
         safe = values.get("gpio_safe") == "true"
         stable = values.get("stable") == "true"
@@ -145,7 +145,7 @@ def main() -> int:
             "abi_version": 3,
             "query_version": 3,
             "finite_tone": True,
-            "live_output": True,
+            "live_output": False,
             "route": route,
             "endpoint_node": node,
             "compatibility_id": compatibility_id,

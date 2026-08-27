@@ -102,6 +102,12 @@ while the Harness retains `rp1_gpclk` as the authenticated backend identity.
 The complete route contract prevents legacy fallback. Any RP1 invocation
 without `--rehearse` fails before configuration loading or adapter construction.
 
+Live RP1 preflight requires the enrolled provider to remain in its safe idle
+state with `live_output=0`, no endpoint owner or lease, and quiescent GPIO,
+clock, and DMA state. The exact bounded request and its development confirmation
+authorize output only inside WsprryPi's operation-scoped lifecycle; startup or
+passive inspection never pre-authorizes transmission.
+
 `rp1_contracts.validate_preflight` and
 `rp1_contracts.validate_operation_lifecycle` are the maintained semantic
 boundaries for the future RP1 collector. Both require their packaged schemas

@@ -119,7 +119,7 @@ def validate_preflight(document: dict[str, Any], *, route: str) -> dict[str, Any
         "development_enrollment": "Experimental",
         "abi_version": 3,
         "query_version": 3,
-        "live_output": True,
+        "live_output": False,
         "live_eligible": True,
         "finite_tone": True,
         "endpoint_available": True,

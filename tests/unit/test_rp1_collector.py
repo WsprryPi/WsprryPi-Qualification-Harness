@@ -51,7 +51,7 @@ def preflight(route: str = "gpio4") -> dict[str, object]:
         "abi_version": 3,
         "query_version": 3,
         "finite_tone": True,
-        "live_output": True,
+        "live_output": False,
         "route": route,
         "endpoint_node": contract["endpoint_node"],
         "compatibility_id": contract["compatibility_id"],

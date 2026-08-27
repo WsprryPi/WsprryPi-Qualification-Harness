@@ -51,7 +51,7 @@ def preflight(route: str = "gpio4") -> dict[str, object]:
         "abi_version": 3,
         "query_version": 3,
         "finite_tone": True,
-        "live_output": True,
+        "live_output": False,
         "route": route,
         "endpoint_node": contract["endpoint_node"],
         "compatibility_id": contract["compatibility_id"],
@@ -164,7 +164,6 @@ def test_real_session_quiescence_stage_retains_typed_rp1_preflight() -> None:
     "field",
     [
         "endpoint_available",
-        "live_output",
         "live_eligible",
         "finite_tone",
         "drain_complete",
@@ -177,6 +176,13 @@ def test_rp1_preflight_fails_closed(field: str) -> None:
     evidence = preflight()
     evidence[field] = False
     with pytest.raises(Rp1ContractError):
+        validate_preflight(evidence, route="gpio4")
+
+
+def test_rp1_preflight_rejects_output_enabled_before_operation_authorization() -> None:
+    evidence = preflight()
+    evidence["live_output"] = True
+    with pytest.raises(Rp1ContractError, match="live_output"):
         validate_preflight(evidence, route="gpio4")
 
 
