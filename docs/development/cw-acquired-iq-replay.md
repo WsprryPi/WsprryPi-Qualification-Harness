@@ -42,3 +42,12 @@ the mode gate, verifies the canonical manifest, and recomputes the acquired-IQ
 observations. Every replay result is `inconclusive` with
 `qualification_claim: false` and explicitly absent lifecycle evidence. Mock
 lifecycle rehearsal and every live operation remain separate workflows.
+
+For acquired FSKCW and DFCW, analysis first resolves the bounded common capture
+latency from the RF-active envelope. It then estimates one common receiver-frequency
+offset from guarded interiors of the authenticated primary and secondary events and
+preserves the commanded tone spacing while classifying transitions. This prevents
+drift-broadened whole-capture FFT sidelobes from being mistaken for a keyed state.
+The independent frequency model still measures spacing, drift, residuals, transition
+direction, timing, and carrier continuity against the plan thresholds; acquisition
+of the common offset does not relax any gate.

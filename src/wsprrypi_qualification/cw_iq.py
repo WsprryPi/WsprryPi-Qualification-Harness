@@ -19,7 +19,7 @@ from wsprrypi_qualification.offline import (
 )
 
 ANALYZER_NAME = "wsprrypi-qualification-cw-iq"
-ANALYZER_VERSION = "5"
+ANALYZER_VERSION = "6"
 
 
 class CwIqError(OfflineAnalysisError):
@@ -301,31 +301,56 @@ def _acquired_shifted_centers(
     samples: np.ndarray,
     rate: float,
     center: float,
-    primary: float,
-    secondary: float,
-    spacing_tolerance: float,
+    plan: dict[str, Any],
+    expected: dict[str, Any],
+    common_shift_s: float,
     acquisition_offset_gate_hz: float,
-) -> tuple[float, float] | None:
-    """Acquire two coherent keyed tones before classifying their transitions."""
-    spectrum = np.abs(np.fft.fft(samples)) ** 2
-    frequencies = np.fft.fftfreq(samples.size, 1.0 / rate) + center
-    midpoint = (primary + secondary) / 2.0
-    band = np.flatnonzero(np.abs(frequencies - midpoint) <= acquisition_offset_gate_hz)
-    if not band.size:
+) -> tuple[float, float, float, float] | None:
+    """Acquire bounded common offset and drift from authenticated state interiors."""
+    protocol = plan["protocol"]
+    primary = float(protocol["primary_frequency_hz"])
+    secondary = float(protocol["secondary_frequency_hz"])
+    transition_guard_s = min(
+        0.1,
+        float(plan["thresholds"]["maximum_transition_s"]) / 2.0,
+    )
+    rows: list[tuple[float, float]] = []
+    observed_states: set[str] = set()
+    for event in expected["events"]:
+        state = event["rf_state"]
+        if state not in {"primary", "secondary"}:
+            continue
+        start = max(
+            0,
+            round((float(event["start_s"]) + common_shift_s + transition_guard_s) * rate),
+        )
+        end = min(
+            samples.size,
+            round((float(event["end_s"]) + common_shift_s - transition_guard_s) * rate),
+        )
+        if end - start < 4:
+            continue
+        measured = _estimate_frequency(samples[start:end], rate, center)
+        requested = primary if state == "primary" else secondary
+        offset = measured - requested
+        if abs(offset) <= acquisition_offset_gate_hz:
+            rows.append(((start + end) / (2.0 * rate), offset))
+            observed_states.add(state)
+    if len(rows) < 3 or observed_states != {"primary", "secondary"}:
         return None
-    first = int(band[np.argmax(spectrum[band])])
-    expected_spacing = abs(primary - secondary)
-    candidates = band[
-        np.abs(np.abs(frequencies[band] - frequencies[first]) - expected_spacing)
-        <= spacing_tolerance
-    ]
-    if not candidates.size:
+    reference_s = float(np.median(np.asarray([time for time, _ in rows])))
+    design = np.asarray([[1.0, time - reference_s] for time, _ in rows])
+    offsets = np.asarray([offset for _, offset in rows])
+    coefficients, _, rank, _ = np.linalg.lstsq(design, offsets, rcond=None)
+    if rank != 2 or not np.all(np.isfinite(coefficients)):
         return None
-    second = int(candidates[np.argmax(spectrum[candidates])])
-    acquired = sorted((float(frequencies[first]), float(frequencies[second])))
-    if primary > secondary:
-        return acquired[1], acquired[0]
-    return acquired[0], acquired[1]
+    common_offset, drift_hz_per_s = (float(value) for value in coefficients)
+    return (
+        primary + common_offset,
+        secondary + common_offset,
+        drift_hz_per_s,
+        reference_s,
+    )
 
 
 def _centered_complex_average(values: np.ndarray, window: int) -> np.ndarray:
@@ -439,19 +464,39 @@ def analyze_synthetic_iq(
         primary_center = float(plan["protocol"]["primary_frequency_hz"])
         secondary_center = float(secondary)
         if not _synthetic:
+            active_only_states = np.zeros(count, dtype=np.int8)
+            active_only_states[active] = 1
+            preliminary_alignment = _acquired_timing_alignment(
+                plan, expected, active_only_states, rate
+            )
+            preliminary_shift_s = (
+                float(preliminary_alignment["common_shift_s"])
+                if preliminary_alignment is not None
+                else 0.0
+            )
             acquired_centers = _acquired_shifted_centers(
                 samples,
                 rate,
                 center,
-                primary_center,
-                secondary_center,
-                float(thresholds["spacing_tolerance_hz"]),
+                plan,
+                expected,
+                preliminary_shift_s,
                 acquisition_offset_gate_hz,
             )
             if acquired_centers is not None:
-                primary_center, secondary_center = acquired_centers
-        secondary_samples = np.abs(frequencies - secondary_center) < np.abs(
-            frequencies - primary_center
+                primary_center, secondary_center, acquired_drift, acquired_reference = (
+                    acquired_centers
+                )
+            else:
+                acquired_drift = 0.0
+                acquired_reference = 0.0
+        else:
+            acquired_drift = 0.0
+            acquired_reference = 0.0
+        classification_times = np.arange(frequencies.size, dtype=np.float64) / rate
+        drift_correction = acquired_drift * (classification_times - acquired_reference)
+        secondary_samples = np.abs(frequencies - (secondary_center + drift_correction)) < np.abs(
+            frequencies - (primary_center + drift_correction)
         )
         detected_states[1:][active[1:] & secondary_samples] = 2
 

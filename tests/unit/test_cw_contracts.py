@@ -10,6 +10,7 @@ from wsprrypi_qualification.cli import main
 from wsprrypi_qualification.cw_contracts import CwContractError, load_cw_contract_chain
 from wsprrypi_qualification.cw_iq import (
     CwIqError,
+    _acquired_shifted_centers,
     _acquired_timing_alignment,
     _shifted_frequency_model,
     _unmatched_event_cause,
@@ -337,6 +338,103 @@ def test_acquired_shifted_modes_resolve_one_common_frequency_offset(
     assert model is not None
     assert model["primary_frequency_hz"] == pytest.approx(137520.0, abs=0.25)
     assert abs(model["signed_spacing_hz"]) == pytest.approx(10.0, abs=0.25)
+
+
+def test_acquired_fskcw_centers_use_one_common_offset_under_drift(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, *_ = _chain(source, "fskcw")
+    plan_document = json.loads(plan.read_text(encoding="utf-8"))
+    plan_document["protocol"].update(
+        {
+            "message": "ETE",
+            "dot_seconds": 0.7,
+            "repetitions": 1,
+            "secondary_frequency_hz": 137495.0,
+            "pre_quiet_seconds": 2.0,
+            "post_quiet_seconds": 2.0,
+        }
+    )
+    plan_document["thresholds"].update(
+        {
+            "frequency_tolerance_hz": 2.0,
+            "spacing_tolerance_hz": 2.0,
+            "timing_tolerance_s": 0.15,
+            "maximum_transition_s": 0.25,
+            "maximum_alignment_shift_s": 0.75,
+        }
+    )
+    _write(plan, plan_document)
+    expected_document = json.loads(expected.read_text(encoding="utf-8"))
+    expected_document["plan"] = _artifact(plan)
+    expected_document["events"] = generate_expected_events(plan_document)
+    _write(expected, expected_document)
+    capture = source / "source acquired.cf32"
+    discarded_metadata = source / "discarded-synthetic-metadata.json"
+    generate_synthetic_iq(plan, expected, capture, discarded_metadata, seed=73)
+    metadata = source / "acquired.json"
+    metadata_document = {
+        "schema_version": 1,
+        "evidence_type": "cw_acquired_capture",
+        "run_id": plan_document["run_id"],
+        "mode": "fskcw",
+        "plan": _artifact(plan),
+        "expected_events": _artifact(expected),
+        "capture": _artifact(capture),
+        "format": "CF32LE",
+        "sample_count": 100000,
+        "sample_rate_hz": 100.0,
+        "center_frequency_hz": 137500.0,
+        "acquired_sample_count": 100000,
+        "overflow_count": 0,
+        "fixed_gain": True,
+        "agc_enabled": False,
+        "bias_tee_enabled": False,
+        "first_read_discarded": True,
+        "receiver": plan_document["receiver"],
+        "acquired_utc": "2026-08-15T12:00:00Z",
+        "synthetic": False,
+    }
+    _write(metadata, metadata_document)
+    samples = np.fromfile(capture, dtype="<c8")
+    rate = float(metadata_document["sample_rate_hz"])
+    times = np.arange(samples.size, dtype=np.float64) / rate
+    common_offset_hz = -20.0
+    drift_hz_per_s = 0.35
+    samples *= np.exp(
+        2j * np.pi * (common_offset_hz * times + 0.5 * drift_hz_per_s * times**2)
+    ).astype(np.complex64)
+    acquired = _acquired_shifted_centers(
+        samples,
+        rate,
+        float(metadata_document["center_frequency_hz"]),
+        plan_document,
+        expected_document,
+        0.0,
+        float(plan_document["thresholds"]["frequency_acquisition_half_width_hz"]),
+    )
+    assert acquired is not None
+    primary, secondary, acquired_drift, _ = acquired
+    assert primary is not None and secondary is not None
+    assert primary - secondary == pytest.approx(
+        float(plan_document["protocol"]["primary_frequency_hz"])
+        - float(plan_document["protocol"]["secondary_frequency_hz"]),
+        abs=1e-9,
+    )
+    assert acquired_drift == pytest.approx(drift_hz_per_s, abs=0.02)
+
+    samples.astype("<c8").tofile(capture)
+    metadata_document["capture"] = _artifact(capture)
+    _write(metadata, metadata_document)
+    bundle = tmp_path / "bundle"
+    result = compose_acquired_replay(plan, expected, metadata, bundle, source_revision="e" * 40)
+    observations = json.loads((bundle / "observations.json").read_text(encoding="utf-8"))
+    assert result["measurement"]["mode_gate"] == "passed"
+    assert "carrier_interruption" not in observations["failure_causes"]
+    assert all(
+        observation["carrier_continuous"] is not False
+        for observation in observations["observations"]
+    )
 
 
 @pytest.mark.parametrize("mode", ["fskcw", "dfcw"])
