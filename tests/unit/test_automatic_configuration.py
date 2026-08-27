@@ -344,7 +344,7 @@ def test_same_host_rp1_route_and_manual_ppm_are_bound(tmp_path: Path, transmit_g
         assert contract["rp1_route"] == f"gpio{transmit_gpio}"
         assert contract["gpio_pin"] == transmit_gpio
         assert contract["compatibility_id"].endswith(
-            f"gpio{transmit_gpio}-6.18.34-development-candidate-r3"
+            f"gpio{transmit_gpio}-6.18.34-development-candidate-r4"
         )
         if entry["mode"] != "WSPR":
             arguments = (
@@ -354,6 +354,12 @@ def test_same_host_rp1_route_and_manual_ppm_are_bound(tmp_path: Path, transmit_g
             )
             backend_index = arguments.index("--backend")
             assert arguments[backend_index + 1] == "rp1-gpclk"
+            if entry["mode"] == "TONE":
+                assert arguments[1:3] == [
+                    "-i",
+                    child["tone_server"]["configuration"]["path"],
+                ]
+                assert backend_index > 2
             assert "gpio" not in arguments[backend_index : backend_index + 2]
             assert arguments.count("--transmit-gpio") == 1
             assert arguments[arguments.index("--transmit-gpio") + 1] == str(transmit_gpio)

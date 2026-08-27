@@ -939,8 +939,10 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
         if document["backend"] == "gpio":
             expected_arguments = [
                 document["wsprrypi"]["path"],
+                "-i",
+                tone_server["configuration"]["path"],
                 "--no-system-clock-frequency-estimate",
-                *expected_arguments[1:],
+                *expected_arguments[3:],
                 "--gpio-manual-ppm",
                 format(float(document["calibration"]["ppm"]), ".15g"),
             ]
@@ -950,6 +952,8 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
             accepted_arguments = [
                 [
                     document["wsprrypi"]["path"],
+                    "-i",
+                    tone_server["configuration"]["path"],
                     "--no-system-clock-frequency-estimate",
                     "--backend",
                     "rp1-gpclk",
@@ -957,7 +961,7 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
                     str(contract["gpio_pin"]),
                     "--gpio-power-level",
                     str(contract["drive_or_power_level"]),
-                    *expected_arguments[1:],
+                    *expected_arguments[3:],
                     "--gpio-manual-ppm",
                     format(float(document["calibration"]["ppm"]), ".15g"),
                 ]
@@ -966,6 +970,8 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
             contract = document["backend_contract"]
             explicit_arguments = [
                 document["wsprrypi"]["path"],
+                "-i",
+                tone_server["configuration"]["path"],
                 "--backend",
                 "si5351",
                 "--si5351-i2c-bus",
@@ -980,7 +986,7 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
                 str(contract["drive_or_power_level"]),
                 "--si5351-ppm",
                 format(float(document["calibration"]["ppm"]), ".15g"),
-                *expected_arguments[1:],
+                *expected_arguments[3:],
             ]
             # Advanced plans may bind a byte-identical INI which already selects
             # Si5351. Automatic complete-test plans instead bind every transient

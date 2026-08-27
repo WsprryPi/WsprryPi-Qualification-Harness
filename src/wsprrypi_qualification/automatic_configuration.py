@@ -133,10 +133,11 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "endpoint": cast(dict[str, Any], rp1_identity)["endpoint"],
             "endpoint_node": cast(dict[str, Any], rp1_identity)["endpoint_node"],
             "compatibility_id": cast(dict[str, Any], rp1_identity)["compatibility_id"],
-            "abi_version": 3,
+            "abi_version": 4,
             "finite_tone_required": True,
             "development_enrollment": "Experimental",
             "live_output_required": True,
+            "operation_live_gate_required": True,
             "drive_or_power_level": drive,
             "rp1_drive_ma": 2,
             "quiescence_provider_sha256": quiescence["sha256"],
@@ -326,6 +327,8 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "configuration": artifacts["tone_ini"],
             "arguments": [
                 artifacts["tx_wsprrypi"]["path"],
+                "-i",
+                artifacts["tone_ini"]["path"],
                 *(
                     [
                         "--backend",
@@ -355,8 +358,6 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
                     if rp1
                     else []
                 ),
-                "-i",
-                artifacts["tone_ini"]["path"],
                 "--socket-port",
                 "31416",
                 "--socket-loopback-only",

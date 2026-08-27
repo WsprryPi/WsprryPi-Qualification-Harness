@@ -94,8 +94,8 @@ falls back to GPIO or to the installed INI backend default.
 An explicit `--transmitter-backend rp1_gpclk --transmit-gpio 4|20
 --gpio-manual-ppm PPM --rehearse --configuration CONFIG` selects the sealed RP1 hardware-free
 composer. It binds two distinct logical roles on the named host, the canonical
-endpoint/module, ABI v3, finite TONE, route-specific r3 compatibility identity,
-`Experimental` enrollment, `live_output=1`, exact WsprryPi/component revisions,
+endpoint/module, ABI v4, finite TONE, route-specific r4 compatibility identity,
+`Experimental` enrollment, operation-live-gate capability, exact WsprryPi/component revisions,
 receiver/RF-path identity, and one provenance-bound PPM source. The WsprryPi
 argv uses its reviewed Pi-5 `--backend rp1-gpclk --transmit-gpio 4|20` interface,
 while the Harness retains `rp1_gpclk` as the authenticated backend identity.
@@ -105,8 +105,9 @@ without `--rehearse` fails before configuration loading or adapter construction.
 Live RP1 preflight requires the enrolled provider to remain in its safe idle
 state with `live_output=0`, no endpoint owner or lease, and quiescent GPIO,
 clock, and DMA state. The exact bounded request and its development confirmation
-authorize output only inside WsprryPi's operation-scoped lifecycle; startup or
-passive inspection never pre-authorizes transmission.
+authorize output only through an ABI-v4 lease bound to that exact operation;
+release or close revokes it. Startup or passive inspection never pre-authorizes
+transmission.
 
 `rp1_contracts.validate_preflight` and
 `rp1_contracts.validate_operation_lifecycle` are the maintained semantic

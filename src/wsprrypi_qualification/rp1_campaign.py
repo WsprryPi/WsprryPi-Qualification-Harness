@@ -98,10 +98,11 @@ def _application_config(
         rp1_route=route,
         endpoint=str(expected["endpoint"]),
         compatibility_id=str(expected["compatibility_id"]),
-        abi_version=3,
+        abi_version=4,
         finite_tone_required=True,
         development_enrollment="Experimental",
         live_output_required=True,
+        operation_live_gate_required=True,
         rp1_drive_ma=int(configuration["rp1_identity"]["rp1_drive_ma"]),
     )
 
@@ -183,11 +184,12 @@ def compose_rp1_rehearsal(
             "endpoint": expected["endpoint"],
             "route": route,
             "compatibility_id": expected["compatibility_id"],
-            "abi_version": 3,
+            "abi_version": 4,
             "finite_tone_required": True,
             "tone_operation": "FINITE" if mode == "TONE" else "NOT_APPLICABLE",
             "tone_duration_ns": 1_000_000_000 if mode == "TONE" else None,
             "live_output_required": True,
+            "operation_live_gate_required": True,
             "cleanup": "lease_release_endpoint_close_gpio_clock_dma_quiescence",
             "terminal_silence_required": True,
         }
@@ -251,10 +253,11 @@ def validate_rp1_rehearsal(document: dict[str, Any]) -> dict[str, Any]:
             "rp1_route": document["route"],
             "endpoint": expected["endpoint"],
             "compatibility_id": expected["compatibility_id"],
-            "abi_version": 3,
+            "abi_version": 4,
             "finite_tone_required": True,
             "development_enrollment": "Experimental",
             "live_output_required": True,
+            "operation_live_gate_required": True,
         }
         if any(backend.get(name) != value for name, value in expected_application.items()):
             raise Rp1CampaignError("RP1 subordinate application identity is wrong-route")
@@ -275,7 +278,7 @@ def validate_rp1_rehearsal(document: dict[str, Any]) -> dict[str, Any]:
             entry["rp1_lifecycle_contract"]["tone_operation"] != "FINITE"
             or entry["rp1_lifecycle_contract"]["tone_duration_ns"] != 1_000_000_000
         ):
-            raise Rp1CampaignError("RP1 campaign entry TONE is not ABI-v3 finite")
+            raise Rp1CampaignError("RP1 campaign entry TONE is not ABI-v4 finite")
         observed = entry["plan_sha256"]
         payload = dict(entry)
         payload.pop("plan_sha256")

@@ -21,13 +21,13 @@ RP1_ROUTES = {
         "gpio": 4,
         "output": "GPIO4",
         "endpoint_node": "rp1-gpclk-dkms-gpio4",
-        "compatibility_id": "v1.1.2-pi5-gpio4-6.18.34-development-candidate-r3",
+        "compatibility_id": "v1.1.2-pi5-gpio4-6.18.34-development-candidate-r4",
     },
     "gpio20": {
         "gpio": 20,
         "output": "GPIO20",
         "endpoint_node": "rp1-gpclk-dkms-gpio20",
-        "compatibility_id": "v1.1.2-pi5-gpio20-6.18.34-development-candidate-r3",
+        "compatibility_id": "v1.1.2-pi5-gpio20-6.18.34-development-candidate-r4",
     },
 }
 
@@ -55,10 +55,11 @@ def route_contract(route: str) -> dict[str, object]:
         **selected,
         "endpoint": RP1_ENDPOINT,
         "module": RP1_MODULE,
-        "abi_version": 3,
+        "abi_version": 4,
         "finite_tone_required": True,
         "development_enrollment": "Experimental",
         "live_output_required": True,
+        "operation_live_gate_required": True,
         "terminal_silence_required": True,
     }
 
@@ -117,10 +118,11 @@ def validate_preflight(document: dict[str, Any], *, route: str) -> dict[str, Any
         "compatibility_id": expected["compatibility_id"],
         "compatibility_state": "Experimental",
         "development_enrollment": "Experimental",
-        "abi_version": 3,
+        "abi_version": 4,
         "query_version": 3,
         "live_output": False,
         "live_eligible": True,
+        "operation_live_gate": True,
         "finite_tone": True,
         "endpoint_available": True,
         "endpoint_open": False,

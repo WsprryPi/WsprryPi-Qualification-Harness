@@ -267,9 +267,9 @@ def test_gpio_manual_ppm_containment_overrides_configuration_defaults() -> None:
     arguments = _fixed_gpio_ppm_arguments(["wsprrypi", "-i", "estimate-enabled.ini"], -1.25)
     assert arguments == [
         "wsprrypi",
-        "--no-system-clock-frequency-estimate",
         "-i",
         "estimate-enabled.ini",
+        "--no-system-clock-frequency-estimate",
         "--gpio-manual-ppm",
         "-1.25",
     ]

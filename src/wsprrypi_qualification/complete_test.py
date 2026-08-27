@@ -607,7 +607,8 @@ def _fixed_gpio_ppm_arguments(arguments: list[str], ppm: object) -> list[str]:
     else:
         arguments.extend(("--gpio-manual-ppm", rendered))
     if "--no-system-clock-frequency-estimate" not in arguments:
-        arguments.insert(1, "--no-system-clock-frequency-estimate")
+        insert_at = 3 if len(arguments) >= 3 and arguments[1] == "-i" else 1
+        arguments.insert(insert_at, "--no-system-clock-frequency-estimate")
     return arguments
 
 

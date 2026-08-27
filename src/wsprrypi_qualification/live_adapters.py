@@ -834,6 +834,7 @@ class ProductionRealSessionAdapters:
             finite_tone_required=contract.get("finite_tone_required"),
             development_enrollment=contract.get("development_enrollment"),
             live_output_required=contract.get("live_output_required"),
+            operation_live_gate_required=contract.get("operation_live_gate_required"),
             rp1_drive_ma=contract.get("rp1_drive_ma"),
         )
         shim = WsprryPiShim(

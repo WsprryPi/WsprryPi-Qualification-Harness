@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect one fail-closed, passive RP1 ABI-v3 preflight document."""
+"""Collect one fail-closed, passive RP1 ABI-v4 preflight document."""
 
 from __future__ import annotations
 
@@ -116,7 +116,7 @@ def main() -> int:
         ) != {"live_output": 0}:
             return fail()
         compatibility_id = values["compatibility_id"]
-        expected_id = f"v1.1.2-pi5-{route}-6.18.34-development-candidate-r3"
+        expected_id = f"v1.1.2-pi5-{route}-6.18.34-development-candidate-r4"
         if compatibility_id != expected_id or live not in {"N", "0"}:
             return fail()
         safe = values.get("gpio_safe") == "true"
@@ -142,7 +142,7 @@ def main() -> int:
             "vermagic": modinfo["vermagic"],
             "signer": modinfo["signer"] or "unsigned-development-module",
             "installed_module_sha256": sha256(module),
-            "abi_version": 3,
+            "abi_version": 4,
             "query_version": 3,
             "finite_tone": True,
             "live_output": False,
@@ -154,6 +154,7 @@ def main() -> int:
             "development_enrollment": "Experimental",
             "development_manifest_sha256": manifest_digest,
             "live_eligible": values["live_eligible"] == "true",
+            "operation_live_gate": bool(int(values["capabilities"]) & (1 << 11)),
             "cleanup_fault": values["cleanup_fault"] == "true",
             "generation": int(values["generation"]),
             "operation_state": "IDLE" if values["operation_state"] == "0" else "UNKNOWN",

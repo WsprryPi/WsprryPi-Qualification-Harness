@@ -76,6 +76,7 @@ class WsprryPiBackendConfig:
     finite_tone_required: bool | None = None
     development_enrollment: str | None = None
     live_output_required: bool | None = None
+    operation_live_gate_required: bool | None = None
     rp1_drive_ma: int | None = None
 
 
@@ -158,8 +159,8 @@ class WsprryPiShim:
             raise ApplicationPlanError("backend PPM must be finite and within +/-200")
         if self.backend == "rp1_gpclk":
             route_contracts = {
-                "gpio4": (4, "GPIO4", "v1.1.2-pi5-gpio4-6.18.34-development-candidate-r3"),
-                "gpio20": (20, "GPIO20", "v1.1.2-pi5-gpio20-6.18.34-development-candidate-r3"),
+                "gpio4": (4, "GPIO4", "v1.1.2-pi5-gpio4-6.18.34-development-candidate-r4"),
+                "gpio20": (20, "GPIO20", "v1.1.2-pi5-gpio20-6.18.34-development-candidate-r4"),
             }
             selected = route_contracts.get(config.rp1_route or "")
             if selected is None:
@@ -170,10 +171,11 @@ class WsprryPiShim:
                 or config.output != output
                 or config.endpoint != "/dev/rp1-gpclk"
                 or config.compatibility_id != compatibility_id
-                or config.abi_version != 3
+                or config.abi_version != 4
                 or config.finite_tone_required is not True
                 or config.development_enrollment != "Experimental"
                 or config.live_output_required is not True
+                or config.operation_live_gate_required is not True
                 or config.rp1_drive_ma not in {2, 4, 8, 12}
             ):
                 raise ApplicationPlanError(

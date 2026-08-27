@@ -53,7 +53,7 @@ required public route selector `--transmit-gpio 4|20` (the older
 binds the measured fixed host source independently from the residual Harness
 `--transmitter-ppm-offset`. Hardware-free `--rehearse --configuration CONFIG`
 composes five route-bound plans with distinct same-host transmitter and receiver
-roles, ABI-v3 finite TONE, exact PPM provenance, and receiver/RF-path identity.
+roles, ABI-v4 finite TONE, exact PPM provenance, and receiver/RF-path identity.
 It constructs no production adapter, makes no external call, and is not
 deployment, target, GPIO, SDR, or qualification evidence.
 
@@ -62,15 +62,15 @@ identical transmitter/receiver host. The receiver delegation enters that host
 once through the configured controller SSH alias. Inside the host, distinct,
 digest-bound local transmitter and receiver helper channels are used; self-SSH
 and agent forwarding are not part of the topology. The transmitter helper
-retains a schema-validated passive ABI-v3 snapshot before RF and after cleanup.
+retains a schema-validated passive ABI-v4-capable snapshot before RF and after cleanup.
 The maintained `rp1_contracts` validators additionally define the strict input
 boundary for future passive preflight and operation-scoped lifecycle evidence.
 They validate review-facing schemas, exact route identity, authenticated
-process/lease/generation state, terminal timing, cancellation, endpoint
-closure, cleanup and GPIO/clock/DMA quiescence. A complete cleanup failure is
+process/lease/generation state, terminal timing, cancellation, operation-live-gate
+capability, endpoint closure, cleanup and GPIO/clock/DMA quiescence. A complete cleanup failure is
 valid unsuccessful evidence only when classified `cleanup_failed`; receiver
-blockage after authenticated launch remains `fixture_blocked`. No production
-collector or adapter is provided by this validation-only capability.
+blockage after authenticated launch remains `fixture_blocked`. The passive
+collector never acquires the endpoint or authorizes RF.
 
 The versioned helper protocol now reserves one fixed `rp1-inspect` request with
 an allowlisted route, `read_only=true`, and `acquire_endpoint=false`. The
