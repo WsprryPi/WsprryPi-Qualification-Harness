@@ -196,9 +196,79 @@ def test_wspr_requires_application_supported_identity_power_and_offset() -> None
         shim.resolve_plan("offset", WsprProtocol("Q0QQQ", "JJ00", 0, 10_140_200, 3, 1200))
 
 
-def test_unimplemented_backend_is_rejected() -> None:
-    with pytest.raises(ApplicationPlanError, match=r"gpio.*si5351"):
-        WsprryPiShim(identity(), backend="rp1_gpclk")
+@pytest.mark.parametrize(
+    ("route", "pin", "output", "compatibility_id"),
+    (
+        ("gpio4", 4, "GPIO4", "v1.1.2-pi5-gpio4-6.18.34-development-candidate-r4"),
+        ("gpio20", 20, "GPIO20", "v1.1.2-pi5-gpio20-6.18.34-development-candidate-r4"),
+    ),
+)
+def test_rp1_backend_is_route_bound_and_applies_ppm_once(
+    route: str, pin: int, output: str, compatibility_id: str
+) -> None:
+    config = WsprryPiBackendConfig(
+        output,
+        -3.56,
+        drive_or_power_level=0,
+        gpio_pin=pin,
+        rp1_route=route,
+        endpoint="/dev/rp1-gpclk",
+        compatibility_id=compatibility_id,
+        abi_version=4,
+        finite_tone_required=True,
+        development_enrollment="Experimental",
+        live_output_required=True,
+        operation_live_gate_required=True,
+        rp1_drive_ma=2,
+    )
+    plan = WsprryPiShim(identity(), backend="rp1_gpclk", backend_config=config).resolve_plan(
+        f"rp1-{route}", WsprProtocol("Q0QQQ", "JJ00", 0, 10_140_200, 3, 1500)
+    )
+    assert plan.arguments[:13] == (
+        "/opt/Wsprry Pi/wsprrypi",
+        "--backend",
+        "rp1-gpclk",
+        "--transmit-gpio",
+        str(pin),
+        "--gpio-power-level",
+        "0",
+        "--rp1-gpio-drive-ma",
+        "2",
+        "--no-system-clock-frequency-estimate",
+        "--gpio-manual-ppm",
+        "-3.56",
+        "--no-offset",
+    )
+    assert plan.arguments.count("--gpio-manual-ppm") == 1
+    assert plan.arguments.count("--no-system-clock-frequency-estimate") == 1
+    validate_application_plan(plan.to_document())
+
+
+def test_rp1_backend_rejects_missing_or_cross_route_identity() -> None:
+    with pytest.raises(ApplicationPlanError, match="explicit route"):
+        WsprryPiShim(
+            identity(), backend="rp1_gpclk", backend_config=WsprryPiBackendConfig("GPIO4", 0)
+        ).resolve_plan("missing-route", ToneProtocol(14_097_100))
+    with pytest.raises(ApplicationPlanError, match="mismatched"):
+        WsprryPiShim(
+            identity(),
+            backend="rp1_gpclk",
+            backend_config=WsprryPiBackendConfig(
+                "GPIO4",
+                0,
+                drive_or_power_level=0,
+                gpio_pin=4,
+                rp1_route="gpio4",
+                endpoint="/dev/rp1-gpclk",
+                compatibility_id="v1.1.2-pi5-gpio20-6.18.34-development-candidate-r4",
+                abi_version=4,
+                finite_tone_required=True,
+                development_enrollment="Experimental",
+                live_output_required=True,
+                operation_live_gate_required=True,
+                rp1_drive_ma=2,
+            ),
+        ).resolve_plan("wrong-route", ToneProtocol(14_097_100))
 
 
 def test_windows_path_with_spaces_is_preserved_as_one_argument() -> None:

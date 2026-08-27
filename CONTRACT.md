@@ -71,6 +71,18 @@ The harness provides:
 19. a durable JSON Lines `complete-test` progress stream, flushed after each
     campaign, mode, capture/lifecycle, WSPR-frame, keyed-observation, cleanup,
     and terminal transition and forwarded to the invoking controller.
+20. a sealed hardware-free RP1 `complete-test` rehearsal that requires an
+    explicit GPIO4 or GPIO20 administrative route, composes five independently
+    authenticated mode plans for distinct same-host logical roles, and rejects
+    live execution before production adapters are constructed.
+21. schema-backed RP1 preflight and operation-lifecycle evidence validators
+    that bind route-specific identity, process/lease/generation state, bounded
+    drain, endpoint closure, cleanup, GPIO/clock/DMA quiescence, terminal
+    silence, and fail-closed result precedence without contacting a host.
+22. a plan-bound passive RP1 inspection protocol and same-host role collector
+    that retain distinct transmitter/receiver helper, configuration, channel,
+    and trust identities, forbid endpoint acquisition and RF authorization,
+    and remain unavailable until a production provider is explicitly deployed.
 
 The keyed schema/validator layer is validation-only: it exposes no process,
 transport, receiver, transmitter, service, or RF operation. Its three

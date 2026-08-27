@@ -41,6 +41,9 @@
         "DFCW"
       ]
     },
+    "topology": {
+      "enum": ["split_host_ssh", "same_host_roles"]
+    },
     "transmitter": {
       "type": "object",
       "additionalProperties": false,
@@ -60,7 +63,8 @@
         "backend": {
           "enum": [
             "gpio",
-            "si5351"
+            "si5351",
+            "rp1_gpclk"
           ]
         },
         "output": {
@@ -315,7 +319,8 @@
         "quiescence": {
           "enum": [
             "gpio",
-            "si5351"
+            "si5351",
+            "rp1_gpclk"
           ]
         }
       }

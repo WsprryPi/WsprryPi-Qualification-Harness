@@ -243,10 +243,10 @@ def test_carrier_tolerance_rejects_large_uncalibrated_receiver_offset(
     assert result["contract"]["gate_policy"] == "target_window_relative_carrier_acquisition_v2"
 
 
-def test_relative_acquisition_thresholds_cannot_be_silently_relaxed(tmp_path: Path) -> None:
+def test_relative_acquisition_offset_is_explicit_and_must_be_positive(tmp_path: Path) -> None:
     off = write_cf32(tmp_path / "off.cf32", np.zeros(1024))
     on = write_cf32(tmp_path / "on.cf32", tone(1024, 4096, 500))
-    with pytest.raises(OfflineAnalysisError, match="maintained 500 Hz and 10 dB"):
+    with pytest.raises(OfflineAnalysisError, match="positive finite offset"):
         analyze_carrier(
             off,
             on,
@@ -256,7 +256,7 @@ def test_relative_acquisition_thresholds_cannot_be_silently_relaxed(tmp_path: Pa
                 11_000,
                 fft_size=1024,
                 dc_exclusion_hz=100,
-                relative_acquisition_offset_gate_hz=5_000,
+                relative_acquisition_offset_gate_hz=0,
             ),
             tmp_path / "result.json",
         )

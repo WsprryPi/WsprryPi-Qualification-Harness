@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -92,11 +93,13 @@ def analyze_carrier(
     if not 0 <= parameters.share_gate <= 1:
         raise OfflineAnalysisError("share gate must be in [0, 1]")
     if (
-        parameters.relative_acquisition_offset_gate_hz != 500.0
+        not math.isfinite(parameters.relative_acquisition_offset_gate_hz)
+        or parameters.relative_acquisition_offset_gate_hz <= 0
         or parameters.relative_acquisition_contrast_gate_db != 10.0
     ):
         raise OfflineAnalysisError(
-            "bounded relative acquisition requires the maintained 500 Hz and 10 dB gates"
+            "bounded relative acquisition requires a positive finite offset "
+            "and the maintained 10 dB contrast gate"
         )
     half_span = parameters.usable_half_span_hz or parameters.sample_rate_hz / 2
     try:
@@ -356,6 +359,7 @@ def analyze_carrier_acquired(
         usable_half_span_hz=context.bench.receiver.bandwidth_hz / 2,
         offset_gate_hz=context.test.gates.carrier_offset_max_hz,
         share_gate=context.test.gates.best_20hz_share_min,
+        relative_acquisition_offset_gate_hz=context.test.gates.carrier_offset_max_hz,
     )
     return analyze_carrier(
         rf_off_path,

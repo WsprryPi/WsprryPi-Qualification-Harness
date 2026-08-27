@@ -91,6 +91,38 @@ deployment includes a hash-bound read-only register-3 inspector and requires
 all selected outputs to be disabled at preflight and cleanup. The backend never
 falls back to GPIO or to the installed INI backend default.
 
+An explicit `--transmitter-backend rp1_gpclk --transmit-gpio 4|20
+--gpio-manual-ppm PPM --rehearse --configuration CONFIG` selects the sealed RP1 hardware-free
+composer. The corresponding live form omits `--rehearse` and requires automatic
+exact-source deployment on one same-host transmitter/receiver target. Both bind
+two distinct logical roles on the named host, the canonical
+endpoint/module, ABI v4, finite TONE, route-specific r4 compatibility identity,
+`Experimental` enrollment, operation-live-gate capability, exact WsprryPi/component revisions,
+receiver/RF-path identity, and one provenance-bound PPM source. The WsprryPi
+argv uses its reviewed Pi-5 `--backend rp1-gpclk --transmit-gpio 4|20` interface,
+while the Harness retains `rp1_gpclk` as the authenticated backend identity.
+The complete route contract prevents legacy fallback. Live RP1 additionally
+requires authenticated same-host helper channels and a separately bound,
+operation-scoped development authorization for each transmission.
+
+Live RP1 preflight requires the enrolled provider to remain in its safe idle
+state with `live_output=0`, no endpoint owner or lease, and quiescent GPIO,
+clock, and DMA state. The exact bounded request and its development confirmation
+authorize output only through an ABI-v4 lease bound to that exact operation;
+release or close revokes it. Startup or passive inspection never pre-authorizes
+transmission.
+
+`rp1_contracts.validate_preflight` and
+`rp1_contracts.validate_operation_lifecycle` are the maintained semantic
+boundaries for the future RP1 collector. Both require their packaged schemas
+and reject extra or incomplete fields. The lifecycle validator additionally
+requires the expected plan digest and prior generation from the caller. It
+accepts cleanup failure only as `cleanup_failed`, never as a passing
+measurement, and preserves authenticated post-launch receiver blockage as
+`fixture_blocked`. These functions validate supplied documents only; they do
+not open the endpoint, run diagnostics, construct SSH commands, or authorize
+live execution.
+
 ```text
 wsprrypi-qualification complete-test wspr4 wspr5 \
   --sdr driver=sdrplay,serial=2404058C60 \
@@ -209,8 +241,7 @@ roots, and external process working directory. The helper verifies the boundary
 at spawn and compares the post-process repository state with its exact original
 baseline, including pre-existing dirty work. Mutation fails cleanup and is
 reported without automatic repair.
-The current production application/quiescence contracts support GPIO and
-Si5351, not `rp1_gpclk`; selecting RP1 therefore returns `missing_capability`
-before adapter construction. GPIO4/2 mA RP1 defaults will apply only after that
-backend is present in the maintained production contracts and cannot leak into
-GPIO or Si5351 plans.
+The current production application/quiescence contracts support GPIO, Si5351,
+and RP1 GPCLK. RP1 remains an explicit Experimental exact-source path; its
+route, drive, provider identity, operation authorization, and quiescence
+requirements cannot leak into GPIO or Si5351 plans.

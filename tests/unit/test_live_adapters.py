@@ -32,7 +32,12 @@ from wsprrypi_qualification.live_adapters import (
 )
 from wsprrypi_qualification.manifests import build_manifest, render_manifest, write_manifest
 from wsprrypi_qualification.offline import artifact
-from wsprrypi_qualification.real_capabilities import LaunchResult, ServiceState
+from wsprrypi_qualification.real_capabilities import (
+    LaunchResult,
+    RuntimeAuthorization,
+    ServiceState,
+    capability_plan_sha256,
+)
 from wsprrypi_qualification.real_session import RealSessionError, resolved_real_plan_sha256
 
 
@@ -508,6 +513,68 @@ def test_helper_revision_mismatch_reports_expected_and_observed(tmp_path: Path) 
         adapter.verify_helper(plan)
 
 
+def test_same_host_receiver_channel_inspects_shared_physical_service(tmp_path: Path) -> None:
+    adapter = bare_adapter(tmp_path)
+    plan = plan_document()
+    plan["topology"] = "same_host_roles"
+    plan["transport"] = "local_role_channels"
+    plan["receiver"]["host"] = plan["host"]
+    plan["services"]["receiver"] = []
+    inspected: list[tuple[str, str]] = []
+
+    class ServiceProvider:
+        def __init__(self, role: str) -> None:
+            self.role = role
+
+        def inspect(self, service: str) -> object:
+            inspected.append((self.role, service))
+            return object()
+
+    class Process:
+        def __init__(self, revision: str) -> None:
+            self.revision = revision
+
+        def wait(self, deadline_s: float, cancellation: object) -> LaunchResult:
+            return LaunchResult(0, self.revision + "\n", "", cleanup_verified=True)
+
+    revisions = iter((plan["source"]["parent_revision"], plan["source"]["submodule_revision"]))
+
+    class Launcher:
+        def begin(self, arguments: tuple[str, ...]) -> Process:
+            return Process(next(revisions))
+
+    adapter.tx_services = ServiceProvider("transmitter")
+    adapter.rx_services = ServiceProvider("receiver")
+    adapter.source_launcher = Launcher()
+
+    evidence = adapter.verify_helper(plan)
+
+    assert evidence["outcome"] == "passed"
+    assert inspected == [
+        ("transmitter", plan["services"]["transmitter"][0]),
+        ("receiver", plan["services"]["transmitter"][0]),
+    ]
+    assert plan["services"]["receiver"] == []
+
+
+def test_split_host_receiver_channel_requires_own_service(tmp_path: Path) -> None:
+    adapter = bare_adapter(tmp_path)
+    plan = plan_document()
+    plan["services"]["receiver"] = []
+
+    class ServiceProvider:
+        def inspect(self, service: str) -> object:
+            return object()
+
+    adapter.tx_services = ServiceProvider()
+    adapter.rx_services = ServiceProvider()
+
+    with pytest.raises(
+        RealSessionError, match="each live host requires an inspectable service binding"
+    ):
+        adapter.verify_helper(plan)
+
+
 def test_helper_suboperations_share_the_aggregate_verification_envelope(tmp_path: Path) -> None:
     adapter = bare_adapter(tmp_path)
     plan = plan_document()
@@ -878,6 +945,41 @@ def test_cleanup_restores_required_receiver_service_after_downstream_failure(
     assert adapter.rx_services.running is False
 
 
+def test_cleanup_uses_passive_route_contract_for_rp1(tmp_path: Path, monkeypatch) -> None:
+    class Client:
+        timeout_s = 1.0
+        transport = object()
+
+    adapter = bare_adapter(tmp_path)
+    adapter.tx_client = Client()
+    adapter.rx_client = Client()
+    adapter._initial_services = {}
+    adapter._changed_services = []
+    adapter._owned = []
+    adapter._capture_tasks = []
+    adapter._session_deadline = None
+    observed_authorizations: list[RuntimeAuthorization] = []
+    plan = plan_document()
+    plan["backend"] = "rp1_gpclk"
+    plan["output"] = "GPIO4"
+    plan["backend_contract"] = {"rp1_route": "gpio4"}
+
+    def quiescence(plan: dict[str, object], authorization: RuntimeAuthorization) -> bool:
+        observed_authorizations.append(authorization)
+        return True
+
+    monkeypatch.setattr(adapter, "_quiescence", quiescence)
+    monkeypatch.setattr(adapter, "close", lambda deadline_s=None: True)
+
+    cleanup = adapter.cleanup(plan)
+
+    assert cleanup["outcome"] == "verified"
+    assert len(observed_authorizations) == 1
+    assert observed_authorizations[0].plan_sha256 == capability_plan_sha256(
+        {"route": "gpio4", "read_only": True, "acquire_endpoint": False}
+    )
+
+
 def test_overall_deadline_is_cumulative_and_reserves_cleanup(tmp_path: Path, monkeypatch) -> None:
     adapter = bare_adapter(tmp_path)
     adapter._session_deadline = 100.0
@@ -973,6 +1075,52 @@ def test_tone_pattern_uses_absolute_deadlines_and_stops_every_cycle(
     assert all(timeout == plan["deadlines"]["transmitter_s"] for _, timeout in requests)
     assert sum(sleeps) == 8.0
     assert len([path for path in adapter._artifacts if "bounded-tone" in path.name]) == 3
+
+
+def test_rp1_tone_pattern_binds_development_confirmation_from_plan(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = bare_adapter(tmp_path)
+    requests = []
+
+    class Client:
+        def request_evidence(self, operation, payload, *, response_timeout_s=None):
+            requests.append(payload)
+            return _bounded_tone_envelope(plan, len(requests), payload["outer_timeout_s"])
+
+    adapter.tx_client = Client()
+    plan = tone_plan_document()
+    plan["backend"] = "rp1_gpclk"
+    plan["output"] = "GPIO4"
+    plan["backend_contract"] = {"rp1_route": "gpio4"}
+    plan["rf_path"] = {
+        "path_type": "conducted",
+        "antenna_connected": False,
+        "attenuation_db": 20,
+    }
+    plan["tone_schedule"]["cycles"] = 1
+
+    class Worker:
+        running = True
+
+        def is_alive(self):
+            return self.running
+
+        def join(self, timeout=None):
+            self.running = False
+
+    worker = Worker()
+    monkeypatch.setattr(adapter, "_sleep_until", lambda *args, **kwargs: None)
+    adapter._run_tone_pattern_cycles(plan, worker, threading.Event(), [{"capture": "complete"}], [])
+    assert requests[0]["rp1_development"] == {
+        "enabled": True,
+        "route": "GPIO4",
+        "physical_connection": True,
+        "attenuation_and_load": True,
+        "bounded_operation": True,
+        "non_radiating_topology": True,
+        "experimental_acknowledged": True,
+    }
 
 
 def test_tone_pattern_owns_one_revision_bound_loopback_server(tmp_path: Path, monkeypatch) -> None:

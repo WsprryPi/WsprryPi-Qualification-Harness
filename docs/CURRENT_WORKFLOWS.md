@@ -46,6 +46,39 @@ binds bus 1, address `0x60`, reference frequency 27 MHz, output CLK0, drive
 strength 1, and the deployed read-only Si5351 quiescence inspector into every
 subordinate plan. No backend fallback is permitted.
 
+RP1 development campaigns use `--transmitter-backend rp1_gpclk` with the
+required public route selector `--transmit-gpio 4|20` (the older
+`--rp1-route gpio4|gpio20` spelling remains accepted). `--gpio-manual-ppm PPM`
+binds the measured fixed host source independently from the residual Harness
+`--transmitter-ppm-offset`. Hardware-free `--rehearse --configuration CONFIG`
+composes five route-bound plans with distinct same-host transmitter and receiver
+roles, ABI-v4 finite TONE, exact PPM provenance, and receiver/RF-path identity.
+It constructs no production adapter, makes no external call, and is not
+deployment, target, GPIO, SDR, or qualification evidence.
+
+The maintained live RP1 form requires automatic exact-source deployment and an
+identical transmitter/receiver host. The receiver delegation enters that host
+once through the configured controller SSH alias. Inside the host, distinct,
+digest-bound local transmitter and receiver helper channels are used; self-SSH
+and agent forwarding are not part of the topology. The transmitter helper
+retains a schema-validated passive ABI-v4-capable snapshot before RF and after cleanup.
+The maintained `rp1_contracts` validators additionally define the strict input
+boundary for future passive preflight and operation-scoped lifecycle evidence.
+They validate review-facing schemas, exact route identity, authenticated
+process/lease/generation state, terminal timing, cancellation, operation-live-gate
+capability, endpoint closure, cleanup and GPIO/clock/DMA quiescence. A complete cleanup failure is
+valid unsuccessful evidence only when classified `cleanup_failed`; receiver
+blockage after authenticated launch remains `fixture_blocked`. The passive
+collector never acquires the endpoint or authorizes RF.
+
+The versioned helper protocol now reserves one fixed `rp1-inspect` request with
+an allowlisted route, `read_only=true`, and `acquire_endpoint=false`. The
+same-host collector binds that response to the exact plan, transmitter helper,
+helper binary, role configuration, and a separate receiver channel. It forbids
+RF authorization, agent forwarding, and self-SSH. Live RP1 `complete-test`
+extends this passive prerequisite with exact-source deployment and a separately
+authenticated, operation-scoped authorization for each bounded transmission.
+
 Every invocation creates an exclusive JSON Lines progress log and prints its
 absolute path to stderr before long-running work begins. By default it is kept
 in the invoking host's durable user-state directory, not temporary or remote

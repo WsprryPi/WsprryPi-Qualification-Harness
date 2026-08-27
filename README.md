@@ -157,6 +157,22 @@ schema changes.
 
 ## Safety boundary
 
+RP1-GPCLK development plans can be composed hardware-free with
+`complete-test --transmitter-backend rp1_gpclk --rp1-route gpio4|gpio20
+--rehearse --configuration CONFIG`. This validates five route-bound plans and
+does not contact a host, construct a production adapter, operate hardware, or
+authorize RF. Live RP1 complete-test execution remains unavailable.
+
+The packaged RP1 preflight and operation-lifecycle schemas and semantic
+validators are also hardware-free input boundaries. They reject incomplete,
+unknown, stale, contradictory, or wrong-route evidence and enforce cleanup
+precedence without collecting target evidence or enabling a live adapter.
+The helper protocol also defines a fixed passive `rp1-inspect` envelope and a
+same-host logical-role collector. It requires exact external-access
+authorization while rejecting RF authorization and endpoint acquisition. No
+production RP1 inspection provider is deployed or enabled by this repository
+slice, so live RP1 execution remains unavailable.
+
 Nothing in the repository, an example profile, or a prior evidence bundle
 authorizes RF transmission, GPIO/I2C activity, SDR access, service changes, or
 software installation. Live commands require their explicit enable flags,

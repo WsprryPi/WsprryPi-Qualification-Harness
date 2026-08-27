@@ -45,6 +45,7 @@
     "topology": {
       "enum": [
         "split_host_ssh",
+        "same_host_roles",
         "same_host_local"
       ]
     },
@@ -79,7 +80,7 @@
       "minLength": 1
     },
     "transmitter_backend": {
-      "enum": ["gpio", "si5351"]
+      "enum": ["gpio", "si5351", "rp1_gpclk"]
     },
     "transmitter_ppm_sources": {
       "type": "array",
@@ -93,7 +94,7 @@
           "source_location": {"type": "string", "minLength": 1},
           "value_ppm": {"type": "number", "minimum": -200, "maximum": 200},
           "host": {"type": "string", "minLength": 1},
-          "backend": {"enum": ["gpio", "si5351"]},
+          "backend": {"enum": ["gpio", "si5351", "rp1_gpclk"]},
           "acquired_utc": {"type": ["string", "null"], "format": "date-time"},
           "maximum_age_s": {"type": "integer", "minimum": 1}
         },

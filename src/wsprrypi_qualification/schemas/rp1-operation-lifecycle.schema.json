@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rp1-operation-lifecycle.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["plan_sha256", "process", "endpoint", "endpoint_device_identity", "route", "compatibility_id", "lease", "generation", "transitions", "terminal_reason", "current_event", "elapsed_ns", "remaining_ns", "cancellation_outcome", "bounded_drain", "lease_released", "endpoint_closed", "cleanup_verified", "cleanup_fault", "gpio_safe", "clock_quiescent", "dma_quiescent", "terminal_silence_verified", "duration_ns", "tone_operation", "capture_outcome", "measurement_outcome", "final_status"],
+  "properties": {
+    "plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pid", "executable_sha256", "started", "exited", "exit_code"],
+      "properties": {
+        "pid": {"type": "integer", "minimum": 1},
+        "executable_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "started": {"type": "boolean"},
+        "exited": {"type": "boolean"},
+        "exit_code": {"type": "integer"}
+      }
+    },
+    "endpoint": {"const": "/dev/rp1-gpclk"},
+    "endpoint_device_identity": {"type": "string", "minLength": 1},
+    "route": {"enum": ["gpio4", "gpio20"]},
+    "compatibility_id": {"type": "string", "minLength": 1},
+    "lease": {"type": "integer", "minimum": 1},
+    "generation": {"type": "integer", "minimum": 1},
+    "transitions": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"enum": ["RUNNING", "DRAINING", "COMPLETE", "CANCELLED"]}},
+    "terminal_reason": {"enum": ["COMPLETE", "CANCELLED"]},
+    "current_event": {"type": "string", "minLength": 1},
+    "elapsed_ns": {"type": "integer", "minimum": 0},
+    "remaining_ns": {"type": "integer", "minimum": 0},
+    "cancellation_outcome": {"enum": ["not_requested", "completed"]},
+    "bounded_drain": {"type": "boolean"},
+    "lease_released": {"type": "boolean"},
+    "endpoint_closed": {"type": "boolean"},
+    "cleanup_verified": {"type": "boolean"},
+    "cleanup_fault": {"type": "boolean"},
+    "gpio_safe": {"type": "boolean"},
+    "clock_quiescent": {"type": "boolean"},
+    "dma_quiescent": {"type": "boolean"},
+    "terminal_silence_verified": {"type": "boolean"},
+    "duration_ns": {"type": "integer", "minimum": 1000000, "maximum": 120000000000},
+    "tone_operation": {"enum": ["FINITE", "NOT_APPLICABLE"]},
+    "capture_outcome": {"enum": ["completed", "fixture_blocked", "not_run"]},
+    "measurement_outcome": {"enum": ["passed", "failed", "inconclusive", "not_run"]},
+    "final_status": {"enum": ["passed", "fixture_blocked", "transmitter_failed", "measurement_failed", "cleanup_failed", "inconclusive"]}
+  }
+}

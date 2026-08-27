@@ -89,6 +89,8 @@ DEFAULTS: dict[str, object] = {
     "keyed_observations": 3,
     "wspr_observations": 3,
     "carrier_offset_max_hz": 100.0,
+    "carrier_best_20hz_share_min": 0.5,
+    "gpio_manual_ppm": None,
     "transmitter_ppm_offset": 0.0,
 }
 
@@ -404,6 +406,8 @@ class CompleteTestOverrides:
     keyed_observations: int = 3
     wspr_observations: int = 3
     carrier_offset_max_hz: float = 100.0
+    carrier_best_20hz_share_min: float = 0.5
+    gpio_manual_ppm: float | None = None
     transmitter_ppm_offset: float = 0.0
 
     def validated(self) -> dict[str, object]:
@@ -449,6 +453,14 @@ class CompleteTestOverrides:
             raise CompleteTestError("dot durations and tone separations must be positive")
         if not math.isfinite(self.carrier_offset_max_hz) or self.carrier_offset_max_hz < 0:
             raise CompleteTestError("carrier-offset-max-hz must be finite and non-negative")
+        if not math.isfinite(self.carrier_best_20hz_share_min) or not (
+            0 <= self.carrier_best_20hz_share_min <= 1
+        ):
+            raise CompleteTestError("carrier-best-20hz-share-min must be between zero and one")
+        if self.gpio_manual_ppm is not None and (
+            not math.isfinite(self.gpio_manual_ppm) or not -200 <= self.gpio_manual_ppm <= 200
+        ):
+            raise CompleteTestError("gpio-manual-ppm must be finite and within +/-200")
         if (
             not math.isfinite(self.transmitter_ppm_offset)
             or not -200 <= self.transmitter_ppm_offset <= 200
@@ -512,8 +524,12 @@ def load_saved_configuration(
         raise CompleteTestError("deployment transmitter differs from TRANSMITTER_HOST")
     if document["receiver_host"] != receiver_host:
         raise CompleteTestError("deployment receiver differs from RECEIVER_HOST")
-    if document["topology"] != "split_host_ssh":
-        raise CompleteTestError("unsupported_topology: Track C supports split_host_ssh only")
+    if document["topology"] not in {"split_host_ssh", "same_host_roles"}:
+        raise CompleteTestError("unsupported_topology: complete-test topology is unavailable")
+    if (document["transmitter_host"] == document["receiver_host"]) != (
+        document["topology"] == "same_host_roles"
+    ):
+        raise CompleteTestError("complete-test topology contradicts physical host identity")
     if set(document["production_templates"]) != {"real_session", "keyed_session"}:
         raise CompleteTestError("saved configuration must bind both production template families")
     return path, document
@@ -597,7 +613,8 @@ def _fixed_gpio_ppm_arguments(arguments: list[str], ppm: object) -> list[str]:
     else:
         arguments.extend(("--gpio-manual-ppm", rendered))
     if "--no-system-clock-frequency-estimate" not in arguments:
-        arguments.insert(1, "--no-system-clock-frequency-estimate")
+        insert_at = 3 if len(arguments) >= 3 and arguments[1] == "-i" else 1
+        arguments.insert(insert_at, "--no-system-clock-frequency-estimate")
     return arguments
 
 
@@ -630,11 +647,6 @@ def _resolve_real(
     now: datetime,
 ) -> dict[str, Any]:
     plan = deepcopy(template)
-    if plan.get("backend") == "rp1_gpclk":
-        raise CompleteTestError(
-            "missing_capability: rp1_gpclk is not supported by the current "
-            "main production contracts"
-        )
     suffix = f"ct-{campaign_id.split('-')[1]}-{mode.lower()}"
     plan["run_id"] = f"{now.strftime('%Y%m%dT%H%M%SZ')}-{suffix}"
     plan["test_id"] = suffix
@@ -651,13 +663,14 @@ def _resolve_real(
     plan["mode"] = mode
     plan["calibration"]["ppm"] = values["effective_transmitter_ppm"]
     plan["carrier"]["offset_gate_hz"] = values["carrier_offset_max_hz"]
+    plan["carrier"]["best_20hz_share_min"] = values["carrier_best_20hz_share_min"]
     plan["frame_count"] = 0 if mode == "TONE" else values["wspr_observations"]
     if mode == "TONE":
         plan["session_kind"] = "cw_live_tone"
         arguments = plan["tone_server"]["arguments"]
         if "--socket-loopback-only" not in arguments:
             raise CompleteTestError("TONE server must use loopback-only control")
-        if plan["backend"] == "gpio":
+        if plan["backend"] in {"gpio", "rp1_gpclk"}:
             plan["tone_server"]["arguments"] = _fixed_gpio_ppm_arguments(
                 arguments, plan["calibration"]["ppm"]
             )
@@ -712,7 +725,7 @@ def _resolve_keyed(
     )
     secondary = None if separation is None else frequency - separation
     backend = plan["application_plan"]["backend"]
-    if backend not in {"gpio", "si5351"}:
+    if backend not in {"gpio", "si5351", "rp1_gpclk"}:
         raise CompleteTestError(f"unsupported backend for maintained application shim: {backend}")
     identity_doc = plan["application_plan"]["identity"]
     identity = ApplicationIdentity(**identity_doc)
@@ -722,16 +735,19 @@ def _resolve_keyed(
             "ppm": values["effective_transmitter_ppm"],
         }
     )
-    application = (
-        WsprryPiShim(identity, backend=backend, backend_config=backend_config)
-        .resolve_plan(
-            f"{plan['session_id']}-{mode.lower()}-application",
-            CwProtocol(
-                ProtocolMode(mode.lower()), str(values["message"]), dot, frequency, secondary
-            ),
+    try:
+        application = (
+            WsprryPiShim(identity, backend=backend, backend_config=backend_config)
+            .resolve_plan(
+                f"{plan['session_id']}-{mode.lower()}-application",
+                CwProtocol(
+                    ProtocolMode(mode.lower()), str(values["message"]), dot, frequency, secondary
+                ),
+            )
+            .to_document()
         )
-        .to_document()
-    )
+    except ValueError as error:
+        raise CompleteTestError(str(error)) from error
     plan["mode"] = mode
     plan["transmitter"]["frequency_hz"] = values["frequency_hz"]
     plan["receiver"]["center_frequency_hz"] = default_receiver_center_hz(frequency)
@@ -1137,7 +1153,7 @@ def compose_complete_test_plan(
         _mode_plan_path(config_path, config["production_templates"]["real_session"])
     )
     backend = str(real_template["backend"])
-    sources = config.get("transmitter_ppm_sources") or [
+    configured_sources = config.get("transmitter_ppm_sources") or [
         {
             "source_type": "manual_host_ppm",
             "source_location": "legacy resolved real-session calibration.ppm",
@@ -1147,6 +1163,23 @@ def compose_complete_test_plan(
             "acquired_utc": None,
         }
     ]
+    if values["gpio_manual_ppm"] is not None:
+        if backend not in {"gpio", "rp1_gpclk"}:
+            raise CompleteTestError("--gpio-manual-ppm is valid only for a GPIO backend")
+        sources = [
+            {
+                "source_type": "manual_host_ppm",
+                "source_location": (
+                    "operator-supplied measured RP1 source via complete-test --gpio-manual-ppm"
+                ),
+                "value_ppm": values["gpio_manual_ppm"],
+                "host": transmitter_host,
+                "backend": backend,
+                "acquired_utc": None,
+            }
+        ]
+    else:
+        sources = configured_sources
     try:
         ppm_resolution = resolve_transmitter_ppm(
             sources,
@@ -1196,6 +1229,9 @@ def compose_complete_test_plan(
         "transmitter_host": transmitter_host,
         "receiver_host": receiver_host,
         "sdr_selector": sdr_selector,
+        "transmitter_route": (
+            real_template["backend_contract"].get("rp1_route") if backend == "rp1_gpclk" else None
+        ),
         "sdr_discovery": discovered_sdr,
         "delegation_receipt": delegation_receipt,
         "execution_policy": "live" if live else "hardware_free",
@@ -1221,7 +1257,7 @@ def compose_complete_test_plan(
         "mode_order": list(MODE_ORDER),
         "mode_plans": bindings,
         "topology": config["topology"],
-        "transport": "ssh",
+        "transport": ("local_role_channels" if config["topology"] == "same_host_roles" else "ssh"),
         # The campaign owns exactly the sum of its five already-resolved child
         # envelopes.  No independent two-hour wall-clock guess can pre-empt a
         # legitimately bounded child or extend the authorized work.
@@ -1287,6 +1323,14 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
         raise CompleteTestError("derived frequency evidence contradicts resolved overrides")
     for entry in document["mode_plans"]:
         child = entry["plan"]
+        child_contract = (
+            child["backend_contract"]
+            if entry["mode"] in {"TONE", "WSPR"}
+            else child["application_plan"]["backend_contract"]
+        )
+        child_route = child_contract.get("rp1_route")
+        if child_route != document["transmitter_route"]:
+            raise CompleteTestError("subordinate RP1 route differs from the campaign route")
         child_ppm = (
             child["calibration"]["ppm"]
             if entry["mode"] in {"TONE", "WSPR"}
@@ -1299,6 +1343,11 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
             and child["carrier"]["offset_gate_hz"] != values["carrier_offset_max_hz"]
         ):
             raise CompleteTestError("subordinate carrier tolerance differs from the CLI value")
+        if (
+            entry["mode"] in {"TONE", "WSPR"}
+            and child["carrier"]["best_20hz_share_min"] != values["carrier_best_20hz_share_min"]
+        ):
+            raise CompleteTestError("subordinate carrier share gate differs from the CLI value")
     try:
         expected_tuning = ReceiverTuningGeometry(
             requested_frequency_hz=float(values["frequency_hz"]),
@@ -1316,10 +1365,11 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
         raise CompleteTestError(
             "complete-test subordinate plans are missing, duplicated, or reordered"
         )
-    if document["topology"] != "split_host_ssh" or document["transport"] != "ssh":
-        raise CompleteTestError(
-            "unsupported_topology: local production transport belongs to Track D"
-        )
+    expected_transport = (
+        "local_role_channels" if document["topology"] == "same_host_roles" else "ssh"
+    )
+    if document["transport"] != expected_transport:
+        raise CompleteTestError("complete-test topology and role transport disagree")
     minimum_campaign = sum(
         entry["plan"]["deadlines"]["overall_s"] for entry in document["mode_plans"]
     )
@@ -1670,6 +1720,7 @@ def _publish(
         "transmitter_host": plan["transmitter_host"],
         "receiver_host": plan["receiver_host"],
         "sdr_selector": plan["sdr_selector"],
+        "transmitter_route": plan["transmitter_route"],
         "transmitter_ppm_resolution": plan["transmitter_ppm_resolution"],
         "delegation_receipt": plan["delegation_receipt"],
         "authorization": plan["authorization"],
@@ -1699,6 +1750,7 @@ def _publish(
             "frequency_hz": plan["resolved_values"]["frequency_hz"],
             "modes": list(MODE_ORDER),
             "topology": plan["topology"],
+            "transmitter_route": plan["transmitter_route"],
         },
         "qualification_claim": final_status == "qualified" and len(statuses) == 5,
     }

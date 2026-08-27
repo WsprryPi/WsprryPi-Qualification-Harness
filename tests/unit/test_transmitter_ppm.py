@@ -106,3 +106,11 @@ def test_complete_overrides_reject_invalid_carrier_tolerances(carrier: float) ->
 
     with pytest.raises(CompleteTestError):
         CompleteTestOverrides(carrier_offset_max_hz=carrier).validated()
+
+
+@pytest.mark.parametrize("ppm", [float("nan"), float("inf"), -201.0, 201.0])
+def test_gpio_manual_ppm_rejects_nonfinite_or_out_of_range(ppm: float) -> None:
+    from wsprrypi_qualification.complete_test import CompleteTestError, CompleteTestOverrides
+
+    with pytest.raises(CompleteTestError, match="gpio-manual-ppm"):
+        CompleteTestOverrides(gpio_manual_ppm=ppm).validated()
