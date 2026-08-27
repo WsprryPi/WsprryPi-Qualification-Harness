@@ -1373,6 +1373,7 @@ class ProductionRealSessionAdapters:
                 _metadata_schema="cw-acquired-capture.schema.json",
                 _synthetic=False,
                 _artifact_root=self.paths.work_directory,
+                _acquisition_offset_gate_hz=float(plan["carrier"]["offset_gate_hz"]),
             )
             mode_gate = generated_gate["mode_gate"]
             self._artifacts.extend((observations, mode_gate_path))
