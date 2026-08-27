@@ -172,6 +172,7 @@ class WsprIdentity:
 @dataclass(frozen=True)
 class QualificationGates:
     carrier_offset_max_hz: float
+    frequency_acquisition_half_width_hz: float
     best_20hz_share_min: float
     required_consecutive_decodes: int
 

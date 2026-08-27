@@ -184,6 +184,13 @@ def plan_document(*, execution_mode: str = "hardware_free_validation") -> dict:
             "binding_extension": {},
         },
         "receiver_calibration": disabled_binding(),
+        "frequency_acquisition_half_width_hz": 500.0,
+        "frequency_contract": {
+            "nominal_frequency_hz": 1_838_100.0,
+            "requested_transmit_frequency_offset_hz": 0.0,
+            "effective_transmit_frequency_hz": 1_838_100.0,
+            "application": "exactly_once_before_child_plan_composition",
+        },
         "rf_path": {
             "path_type": "radiated",
             "antenna_connected": True,

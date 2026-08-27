@@ -103,6 +103,7 @@ def _plan(mode: str, *, message: str | None = None, repetitions: int | None = No
             "first_read_discarded": True,
         },
         "thresholds": {
+            "frequency_acquisition_half_width_hz": 500.0,
             "frequency_tolerance_hz": 1,
             "spacing_tolerance_hz": 1,
             "minimum_contrast_db": 10,

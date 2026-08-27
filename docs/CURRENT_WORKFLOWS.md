@@ -159,6 +159,20 @@ is emitted as `carrier_offset_max_hz` in generated test profiles and reaches
 `CarrierAnalysisParameters.offset_gate_hz` through the resolved real-session
 plan. It is analysis tolerance, not transmitter or receiver calibration.
 
+`--requested-transmit-frequency-offset-hz HZ` intentionally shifts the nominal
+`--frequency-hz` exactly once for TONE, WSPR, QRSS, FSKCW, and DFCW. The
+aggregate retains nominal, offset, and effective frequencies; every child plan,
+receiver center, protocol request, and derived keyed frequency uses the
+effective value. This setting is not transmitter PPM, receiver calibration,
+measured residual error, or analysis tolerance.
+
+`--frequency-acquisition-half-width-hz HZ` selects the positive symmetric
+receiver/analyzer search half-width for the complete campaign (default `1000`).
+It is authenticated in each keyed session and reference plan, used by live and
+replay analysis, retained in shifted and unshifted frequency-model evidence,
+and used for receiver tuning geometry. It is distinct from
+`--carrier-offset-max-hz`, which remains the carrier pass/fail criterion.
+
 ## Offline WSPR analysis
 
 The maintained sequence is:

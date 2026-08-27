@@ -251,8 +251,9 @@ exclusion and inside the usable receiver span. The maintained complete-test
 policy tunes the receiver 25 kHz below requested RF. Invalid tuning geometry is
 a preflight/configuration failure, not transmitter unqualification.
 
-Carrier qualification selects the strongest resolved feature only inside the
-500-Hz target window around requested RF, requires at least 10 dB RF-on/off
+Carrier acquisition selects the strongest resolved feature only inside the
+campaign's authenticated frequency-acquisition half-width around requested RF.
+Carrier qualification requires at least 10 dB RF-on/off
 contrast, and requires its absolute requested-frequency offset to be at or
 below the configured carrier tolerance (100 Hz by default). Record its
 requested-frequency offset, contrast, and target-window best-20-Hz share.
@@ -264,6 +265,14 @@ establishes calibrated power or spectral compliance.
 This target-window behavior is carrier-analysis schema version 2. Version-1
 evidence records the historical span-wide policy and is not silently
 reinterpreted or accepted as version-2 evidence.
+
+For a complete campaign, nominal protocol frequency, intentional requested
+transmit-frequency offset, transmitter PPM correction, receiver calibration,
+measured residual error, acquisition half-width, and qualification tolerance are
+independent authenticated values. The intentional offset is added exactly once
+before every mode plan is composed. The acquisition half-width is shared by
+receiver geometry and every keyed live/replay analyzer; it does not relax the
+separate carrier pass/fail tolerance or establish spectral compliance.
 
 When a frozen receiver calibration is applied, retain both the indicated and
 estimated-true frequency, expanded uncertainty, selected model segment,

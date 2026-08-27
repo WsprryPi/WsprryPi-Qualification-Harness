@@ -210,6 +210,7 @@ def load_test_profile(path: Path) -> TestProfile:
         identity=WsprIdentity(identity["callsign"], identity["grid"], identity["power_dbm"]),
         gates=QualificationGates(
             gates["carrier_offset_max_hz"],
+            gates["frequency_acquisition_half_width_hz"],
             gates["best_20hz_share_min"],
             gates["required_consecutive_decodes"],
         ),

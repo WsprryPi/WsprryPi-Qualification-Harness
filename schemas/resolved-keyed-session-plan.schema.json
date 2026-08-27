@@ -11,6 +11,8 @@
     "transmitter",
     "receiver",
     "receiver_calibration",
+    "frequency_acquisition_half_width_hz",
+    "frequency_contract",
     "rf_path",
     "reference",
     "application_plan",
@@ -177,6 +179,11 @@
     "receiver_calibration": {
       "type": "object"
     },
+    "frequency_acquisition_half_width_hz": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "frequency_contract": {"$ref": "#/$defs/frequencyContract"},
     "rf_path": {
       "type": "object",
       "additionalProperties": false,
@@ -357,6 +364,17 @@
     }
   },
   "$defs": {
+    "frequencyContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nominal_frequency_hz", "requested_transmit_frequency_offset_hz", "effective_transmit_frequency_hz", "application"],
+      "properties": {
+        "nominal_frequency_hz": {"type": "number", "exclusiveMinimum": 0},
+        "requested_transmit_frequency_offset_hz": {"type": "integer"},
+        "effective_transmit_frequency_hz": {"type": "number", "exclusiveMinimum": 0},
+        "application": {"const": "exactly_once_before_child_plan_composition"}
+      }
+    },
     "artifact": {
       "type": "object",
       "additionalProperties": false,

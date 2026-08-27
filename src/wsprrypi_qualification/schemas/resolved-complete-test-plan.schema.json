@@ -96,12 +96,18 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "nominal_frequency_hz",
+        "requested_transmit_frequency_offset_hz",
+        "effective_transmit_frequency_hz",
         "wspr_dial_frequency_hz",
         "wspr_audio_offset_hz",
         "fskcw_secondary_frequency_hz",
         "dfcw_secondary_frequency_hz"
       ],
       "properties": {
+        "nominal_frequency_hz": {"type": "number", "exclusiveMinimum": 0},
+        "requested_transmit_frequency_offset_hz": {"type": "integer"},
+        "effective_transmit_frequency_hz": {"type": "number", "exclusiveMinimum": 0},
         "wspr_dial_frequency_hz": {
           "type": "number",
           "exclusiveMinimum": 0
@@ -137,7 +143,7 @@
         "center_frequency_hz": {"type": "number", "exclusiveMinimum": 0},
         "tuning_offset_hz": {"const": 25000.0},
         "dc_exclusion_hz": {"const": 1000.0},
-        "target_search_half_width_hz": {"const": 500.0},
+        "target_search_half_width_hz": {"type": "number", "exclusiveMinimum": 0},
         "usable_half_span_hz": {"const": 100000.0}
       }
     },
@@ -359,7 +365,7 @@
         "dfcw_separation_hz",
         "keyed_observations",
         "wspr_observations"
-        ,"carrier_offset_max_hz", "carrier_best_20hz_share_min", "gpio_manual_ppm", "transmitter_ppm_offset"
+        ,"requested_transmit_frequency_offset_hz", "carrier_offset_max_hz", "frequency_acquisition_half_width_hz", "carrier_best_20hz_share_min", "gpio_manual_ppm", "transmitter_ppm_offset"
       ],
       "properties": {
         "band": {
@@ -370,6 +376,7 @@
           "type": "integer",
           "minimum": 1501
         },
+        "requested_transmit_frequency_offset_hz": {"type": "number"},
         "callsign": {
           "type": "string",
           "minLength": 1
@@ -412,6 +419,7 @@
           "const": 3
         },
         "carrier_offset_max_hz": {"type": "number", "minimum": 0},
+        "frequency_acquisition_half_width_hz": {"type": "number", "exclusiveMinimum": 0},
         "carrier_best_20hz_share_min": {"type": "number", "minimum": 0, "maximum": 1},
         "gpio_manual_ppm": {"type": ["number", "null"], "minimum": -200, "maximum": 200},
         "transmitter_ppm_offset": {"type": "number", "minimum": -200, "maximum": 200}

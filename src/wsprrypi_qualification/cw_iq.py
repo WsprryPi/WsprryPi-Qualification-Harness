@@ -20,7 +20,6 @@ from wsprrypi_qualification.offline import (
 
 ANALYZER_NAME = "wsprrypi-qualification-cw-iq"
 ANALYZER_VERSION = "5"
-RELATIVE_ACQUISITION_OFFSET_GATE_HZ = 500.0
 
 
 class CwIqError(OfflineAnalysisError):
@@ -113,7 +112,7 @@ def _shifted_frequency_model(
     plan: dict[str, Any],
     expected: dict[str, Any],
     measured: list[dict[str, Any]],
-    acquisition_offset_gate_hz: float = RELATIVE_ACQUISITION_OFFSET_GATE_HZ,
+    acquisition_offset_gate_hz: float,
 ) -> tuple[dict[str, float | int] | None, list[str]]:
     """Separate common linear drift from the commanded shifted-CW state."""
     if plan["mode"] not in {"fskcw", "dfcw"}:
@@ -192,6 +191,7 @@ def _shifted_frequency_model(
         "maximum_residual_hz": maximum_residual,
         "transition_count": transition_count,
         "correct_transition_count": correct_transition_count,
+        "acquisition_offset_gate_hz": acquisition_offset_gate_hz,
     }, sorted(set(causes))
 
 
@@ -199,7 +199,7 @@ def _unshifted_frequency_model(
     plan: dict[str, Any],
     expected: dict[str, Any],
     measured: list[dict[str, Any]],
-    acquisition_offset_gate_hz: float = RELATIVE_ACQUISITION_OFFSET_GATE_HZ,
+    acquisition_offset_gate_hz: float,
 ) -> tuple[dict[str, float | int] | None, list[str]]:
     """Center unshifted modes on a bounded common receiver-frequency offset."""
     if plan["mode"] in {"fskcw", "dfcw"}:
@@ -304,7 +304,7 @@ def _acquired_shifted_centers(
     primary: float,
     secondary: float,
     spacing_tolerance: float,
-    acquisition_offset_gate_hz: float = RELATIVE_ACQUISITION_OFFSET_GATE_HZ,
+    acquisition_offset_gate_hz: float,
 ) -> tuple[float, float] | None:
     """Acquire two coherent keyed tones before classifying their transitions."""
     spectrum = np.abs(np.fft.fft(samples)) ** 2
@@ -350,13 +350,10 @@ def analyze_synthetic_iq(
     _metadata_schema: str = "cw-synthetic-capture.schema.json",
     _synthetic: bool = True,
     _artifact_root: Path | None = None,
-    _acquisition_offset_gate_hz: float = RELATIVE_ACQUISITION_OFFSET_GATE_HZ,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Analyze authenticated synthetic IQ and write observations plus mode gate."""
     if observations_path.exists() or gate_path.exists():
         _fail("refusing to overwrite existing analysis output", FailureCause.OUTPUT_CONFLICT)
-    if not math.isfinite(_acquisition_offset_gate_hz) or _acquisition_offset_gate_hz <= 0:
-        _fail("acquisition offset gate must be finite and positive")
     if len(source_revision) != 40 or any(c not in "0123456789abcdef" for c in source_revision):
         _fail("source revision must be 40 lowercase hexadecimal characters")
     plan, expected = _load_inputs(plan_path, expected_path)
@@ -396,6 +393,9 @@ def analyze_synthetic_iq(
     ]
     frequency_resolution = rate / min(active_lengths)
     thresholds = plan["thresholds"]
+    acquisition_offset_gate_hz = float(thresholds["frequency_acquisition_half_width_hz"])
+    if not math.isfinite(acquisition_offset_gate_hz) or acquisition_offset_gate_hz <= 0:
+        _fail("acquisition offset gate must be finite and positive")
     if float(thresholds["timing_tolerance_s"]) < time_resolution:
         _fail("timing tolerance is tighter than analyzer resolution")
     if float(thresholds["maximum_transition_s"]) < time_resolution:
@@ -446,7 +446,7 @@ def analyze_synthetic_iq(
                 primary_center,
                 secondary_center,
                 float(thresholds["spacing_tolerance_hz"]),
-                _acquisition_offset_gate_hz,
+                acquisition_offset_gate_hz,
             )
             if acquired_centers is not None:
                 primary_center, secondary_center = acquired_centers
@@ -644,10 +644,10 @@ def analyze_synthetic_iq(
             measured[position + 1]["outcome"] = "failed"
             causes.append("carrier_interruption")
     shifted_model, shifted_causes = _shifted_frequency_model(
-        plan, expected, measured, _acquisition_offset_gate_hz
+        plan, expected, measured, acquisition_offset_gate_hz
     )
     unshifted_model, unshifted_causes = _unshifted_frequency_model(
-        plan, expected, measured, _acquisition_offset_gate_hz
+        plan, expected, measured, acquisition_offset_gate_hz
     )
     if not blocked and shifted_causes:
         causes.extend(shifted_causes)

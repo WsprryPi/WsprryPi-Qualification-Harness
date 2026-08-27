@@ -258,6 +258,13 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         },
         "receiver": receiver,
         "receiver_calibration": disabled_binding(),
+        "frequency_acquisition_half_width_hz": 1_000.0,
+        "frequency_contract": {
+            "nominal_frequency_hz": 14_097_100.0,
+            "requested_transmit_frequency_offset_hz": 0.0,
+            "effective_transmit_frequency_hz": 14_097_100.0,
+            "application": "exactly_once_before_child_plan_composition",
+        },
         "rf_path": rf_path,
         "frequency_hz": 14_097_100,
         "band": "20m",
@@ -492,6 +499,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "first_read_discarded": True,
         },
         "thresholds": {
+            "frequency_acquisition_half_width_hz": 1_000.0,
             "frequency_tolerance_hz": 2.0,
             "spacing_tolerance_hz": 2.0,
             "minimum_contrast_db": 10.0,
@@ -565,6 +573,13 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "binding_extension": {},
         },
         "receiver_calibration": disabled_binding(),
+        "frequency_acquisition_half_width_hz": 1_000.0,
+        "frequency_contract": {
+            "nominal_frequency_hz": 14_097_100.0,
+            "requested_transmit_frequency_offset_hz": 0.0,
+            "effective_transmit_frequency_hz": 14_097_100.0,
+            "application": "exactly_once_before_child_plan_composition",
+        },
         "rf_path": {
             "antenna_connected": False,
             "attenuation_db": 20,

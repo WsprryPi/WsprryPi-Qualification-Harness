@@ -63,7 +63,6 @@ from wsprrypi_qualification.real_session import (
 )
 from wsprrypi_qualification.receiver_tuning import (
     DEFAULT_DC_EXCLUSION_HZ,
-    DEFAULT_TARGET_SEARCH_HALF_WIDTH_HZ,
     ReceiverTuningError,
     ReceiverTuningGeometry,
     default_receiver_center_hz,
@@ -77,6 +76,7 @@ MODE_ORDER = ("TONE", "WSPR", "QRSS", "FSKCW", "DFCW")
 DEFAULTS: dict[str, object] = {
     "band": "20m",
     "frequency_hz": 14_097_100,
+    "requested_transmit_frequency_offset_hz": 0,
     "callsign": "Q0QQQ",
     "grid": "JJ00",
     "power_dbm": 0,
@@ -89,6 +89,7 @@ DEFAULTS: dict[str, object] = {
     "keyed_observations": 3,
     "wspr_observations": 3,
     "carrier_offset_max_hz": 100.0,
+    "frequency_acquisition_half_width_hz": 1_000.0,
     "carrier_best_20hz_share_min": 0.5,
     "gpio_manual_ppm": None,
     "transmitter_ppm_offset": 0.0,
@@ -394,6 +395,7 @@ def resolve_local_sdr(selector: str) -> dict[str, str]:
 class CompleteTestOverrides:
     band: str = "20m"
     frequency_hz: int = 14_097_100
+    requested_transmit_frequency_offset_hz: int = 0
     callsign: str = "Q0QQQ"
     grid: str = "JJ00"
     power_dbm: int = 0
@@ -406,6 +408,7 @@ class CompleteTestOverrides:
     keyed_observations: int = 3
     wspr_observations: int = 3
     carrier_offset_max_hz: float = 100.0
+    frequency_acquisition_half_width_hz: float = 1_000.0
     carrier_best_20hz_share_min: float = 0.5
     gpio_manual_ppm: float | None = None
     transmitter_ppm_offset: float = 0.0
@@ -414,6 +417,12 @@ class CompleteTestOverrides:
         values = asdict(self)
         if not self.band.strip() or self.frequency_hz <= 1_500:
             raise CompleteTestError("band must be non-empty and frequency must exceed 1500 Hz")
+        if isinstance(self.requested_transmit_frequency_offset_hz, bool) or not isinstance(
+            self.requested_transmit_frequency_offset_hz, int
+        ):
+            raise CompleteTestError("requested-transmit-frequency-offset-hz must be an integer")
+        if self.frequency_hz + self.requested_transmit_frequency_offset_hz <= 1_500:
+            raise CompleteTestError("effective transmit frequency must exceed 1500 Hz")
         if not self.callsign.strip() or self.callsign != self.callsign.upper():
             raise CompleteTestError("callsign must be non-empty canonical uppercase")
         if not self.grid.strip() or self.grid != self.grid.upper():
@@ -453,6 +462,13 @@ class CompleteTestOverrides:
             raise CompleteTestError("dot durations and tone separations must be positive")
         if not math.isfinite(self.carrier_offset_max_hz) or self.carrier_offset_max_hz < 0:
             raise CompleteTestError("carrier-offset-max-hz must be finite and non-negative")
+        if (
+            not math.isfinite(self.frequency_acquisition_half_width_hz)
+            or self.frequency_acquisition_half_width_hz <= 0
+        ):
+            raise CompleteTestError(
+                "frequency-acquisition-half-width-hz must be finite and positive"
+            )
         if not math.isfinite(self.carrier_best_20hz_share_min) or not (
             0 <= self.carrier_best_20hz_share_min <= 1
         ):
@@ -651,6 +667,7 @@ def _resolve_real(
     plan["run_id"] = f"{now.strftime('%Y%m%dT%H%M%SZ')}-{suffix}"
     plan["test_id"] = suffix
     plan["frequency_hz"] = values["frequency_hz"]
+    plan["frequency_contract"] = values["frequency_contract"]
     plan["receiver"]["center_frequency_hz"] = default_receiver_center_hz(
         float(cast(int, values["frequency_hz"]))
     )
@@ -663,6 +680,7 @@ def _resolve_real(
     plan["mode"] = mode
     plan["calibration"]["ppm"] = values["effective_transmitter_ppm"]
     plan["carrier"]["offset_gate_hz"] = values["carrier_offset_max_hz"]
+    plan["frequency_acquisition_half_width_hz"] = values["frequency_acquisition_half_width_hz"]
     plan["carrier"]["best_20hz_share_min"] = values["carrier_best_20hz_share_min"]
     plan["frame_count"] = 0 if mode == "TONE" else values["wspr_observations"]
     if mode == "TONE":
@@ -750,6 +768,7 @@ def _resolve_keyed(
         raise CompleteTestError(str(error)) from error
     plan["mode"] = mode
     plan["transmitter"]["frequency_hz"] = values["frequency_hz"]
+    plan["frequency_contract"] = values["frequency_contract"]
     plan["receiver"]["center_frequency_hz"] = default_receiver_center_hz(frequency)
     device_identity = _parse_sdr_selector(sdr_selector)["serial"]
     plan["receiver"]["device"] = device_identity
@@ -757,6 +776,7 @@ def _resolve_keyed(
         device_identity.encode("utf-8")
     ).hexdigest()
     plan["application_plan"] = application
+    plan["frequency_acquisition_half_width_hz"] = values["frequency_acquisition_half_width_hz"]
     plan["transaction_count"] = values["keyed_observations"]
     plan["message_repetitions_per_transaction"] = 1
     validate_resolved_keyed_plan(plan)
@@ -848,6 +868,7 @@ def _materialize_cw_reference(
             "tone_on_seconds": plan["tone_schedule"]["on_seconds"] if tone else None,
             "tone_off_seconds": plan["tone_schedule"]["off_seconds"] if tone else None,
         },
+        "frequency_contract": plan["frequency_contract"],
         "capture_contract": {
             "format": "CF32LE",
             "sample_rate_hz": plan["receiver"]["sample_rate_hz"],
@@ -864,6 +885,7 @@ def _materialize_cw_reference(
             "first_read_discarded": True,
         },
         "thresholds": {
+            "frequency_acquisition_half_width_hz": plan["frequency_acquisition_half_width_hz"],
             "frequency_tolerance_hz": 2.0,
             "spacing_tolerance_hz": 2.0,
             "minimum_contrast_db": 10.0,
@@ -997,6 +1019,7 @@ def _materialize_real_profiles(
         "identity": plan["identity"],
         "gates": {
             "carrier_offset_max_hz": plan["carrier"]["offset_gate_hz"],
+            "frequency_acquisition_half_width_hz": plan["frequency_acquisition_half_width_hz"],
             "best_20hz_share_min": plan["carrier"]["best_20hz_share_min"],
             "required_consecutive_decodes": 0 if tone else 3,
         },
@@ -1147,7 +1170,11 @@ def compose_complete_test_plan(
     if config["sdr_selector"] != sdr_selector:
         raise CompleteTestError("specified SDR differs from the deployed receiver binding")
     values = (overrides or CompleteTestOverrides()).validated()
-    requested_frequency = float(cast(int, values["frequency_hz"]))
+    nominal_frequency = float(cast(int, values["frequency_hz"]))
+    requested_frequency_offset = float(
+        cast(float, values["requested_transmit_frequency_offset_hz"])
+    )
+    requested_frequency = nominal_frequency + requested_frequency_offset
     composed_at = datetime.now(UTC) if now is None else now.astimezone(UTC)
     real_template = _load(
         _mode_plan_path(config_path, config["production_templates"]["real_session"])
@@ -1192,6 +1219,13 @@ def compose_complete_test_plan(
         raise CompleteTestError(str(error)) from error
     execution_values = {
         **values,
+        "frequency_hz": requested_frequency,
+        "frequency_contract": {
+            "nominal_frequency_hz": nominal_frequency,
+            "requested_transmit_frequency_offset_hz": requested_frequency_offset,
+            "effective_transmit_frequency_hz": requested_frequency,
+            "application": "exactly_once_before_child_plan_composition",
+        },
         "effective_transmitter_ppm": ppm_resolution["effective_correction_ppm"],
     }
     campaign_id = validate_manifest_name(
@@ -1241,11 +1275,14 @@ def compose_complete_test_plan(
         "resolved_values": values,
         "transmitter_ppm_resolution": ppm_resolution,
         "derived_frequencies": {
-            "wspr_dial_frequency_hz": int(cast(int, values["frequency_hz"])) - 1_500,
+            "nominal_frequency_hz": nominal_frequency,
+            "requested_transmit_frequency_offset_hz": requested_frequency_offset,
+            "effective_transmit_frequency_hz": requested_frequency,
+            "wspr_dial_frequency_hz": requested_frequency - 1_500,
             "wspr_audio_offset_hz": 1_500,
-            "fskcw_secondary_frequency_hz": float(cast(int, values["frequency_hz"]))
+            "fskcw_secondary_frequency_hz": requested_frequency
             - float(cast(float, values["fskcw_separation_hz"])),
-            "dfcw_secondary_frequency_hz": float(cast(int, values["frequency_hz"]))
+            "dfcw_secondary_frequency_hz": requested_frequency
             - float(cast(float, values["dfcw_separation_hz"])),
         },
         "receiver_tuning": ReceiverTuningGeometry(
@@ -1253,6 +1290,9 @@ def compose_complete_test_plan(
             center_frequency_hz=default_receiver_center_hz(requested_frequency),
             sample_rate_hz=250_000,
             bandwidth_hz=200_000,
+            target_search_half_width_hz=float(
+                cast(float, values["frequency_acquisition_half_width_hz"])
+            ),
         ).to_document(),
         "mode_order": list(MODE_ORDER),
         "mode_plans": bindings,
@@ -1312,11 +1352,21 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
         ):
             raise CompleteTestError("complete-test retained SDR discovery is invalid")
     expected_derived = {
-        "wspr_dial_frequency_hz": int(cast(int, values["frequency_hz"])) - 1_500,
+        "nominal_frequency_hz": float(values["frequency_hz"]),
+        "requested_transmit_frequency_offset_hz": float(
+            values["requested_transmit_frequency_offset_hz"]
+        ),
+        "effective_transmit_frequency_hz": float(values["frequency_hz"])
+        + float(values["requested_transmit_frequency_offset_hz"]),
+        "wspr_dial_frequency_hz": float(values["frequency_hz"])
+        + float(values["requested_transmit_frequency_offset_hz"])
+        - 1_500,
         "wspr_audio_offset_hz": 1_500,
         "fskcw_secondary_frequency_hz": float(values["frequency_hz"])
+        + float(values["requested_transmit_frequency_offset_hz"])
         - float(values["fskcw_separation_hz"]),
         "dfcw_secondary_frequency_hz": float(values["frequency_hz"])
+        + float(values["requested_transmit_frequency_offset_hz"])
         - float(values["dfcw_separation_hz"]),
     }
     if document["derived_frequencies"] != expected_derived:
@@ -1338,6 +1388,19 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
         )
         if child_ppm != ppm["effective_correction_ppm"]:
             raise CompleteTestError("subordinate plan transmitter PPM differs from provenance")
+        expected_frequency_contract = {
+            **{
+                key: expected_derived[key]
+                for key in (
+                    "nominal_frequency_hz",
+                    "requested_transmit_frequency_offset_hz",
+                    "effective_transmit_frequency_hz",
+                )
+            },
+            "application": "exactly_once_before_child_plan_composition",
+        }
+        if child["frequency_contract"] != expected_frequency_contract:
+            raise CompleteTestError("subordinate frequency provenance differs from campaign")
         if (
             entry["mode"] in {"TONE", "WSPR"}
             and child["carrier"]["offset_gate_hz"] != values["carrier_offset_max_hz"]
@@ -1345,17 +1408,41 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
             raise CompleteTestError("subordinate carrier tolerance differs from the CLI value")
         if (
             entry["mode"] in {"TONE", "WSPR"}
+            and child["frequency_acquisition_half_width_hz"]
+            != values["frequency_acquisition_half_width_hz"]
+        ):
+            raise CompleteTestError("subordinate acquisition window differs from the CLI value")
+        if (
+            entry["mode"] in {"TONE", "WSPR"}
             and child["carrier"]["best_20hz_share_min"] != values["carrier_best_20hz_share_min"]
         ):
             raise CompleteTestError("subordinate carrier share gate differs from the CLI value")
+        if entry["mode"] in {"QRSS", "FSKCW", "DFCW"}:
+            if (
+                child["frequency_acquisition_half_width_hz"]
+                != values["frequency_acquisition_half_width_hz"]
+            ):
+                raise CompleteTestError(
+                    "subordinate keyed acquisition window differs from the CLI value"
+                )
+            reference_plan = _load(Path(child["reference"]["plan"]["path"]))
+            if (
+                reference_plan["thresholds"]["frequency_acquisition_half_width_hz"]
+                != values["frequency_acquisition_half_width_hz"]
+            ):
+                raise CompleteTestError(
+                    "authenticated keyed analyzer window differs from the campaign value"
+                )
     try:
         expected_tuning = ReceiverTuningGeometry(
-            requested_frequency_hz=float(values["frequency_hz"]),
-            center_frequency_hz=default_receiver_center_hz(float(values["frequency_hz"])),
+            requested_frequency_hz=expected_derived["effective_transmit_frequency_hz"],
+            center_frequency_hz=default_receiver_center_hz(
+                expected_derived["effective_transmit_frequency_hz"]
+            ),
             sample_rate_hz=250_000,
             bandwidth_hz=200_000,
             dc_exclusion_hz=DEFAULT_DC_EXCLUSION_HZ,
-            target_search_half_width_hz=DEFAULT_TARGET_SEARCH_HALF_WIDTH_HZ,
+            target_search_half_width_hz=float(values["frequency_acquisition_half_width_hz"]),
         ).to_document()
     except ReceiverTuningError as error:
         raise CompleteTestError(str(error)) from error
@@ -1433,10 +1520,11 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
         receiver = child["receiver"]
         try:
             geometry = ReceiverTuningGeometry(
-                requested_frequency_hz=float(values["frequency_hz"]),
+                requested_frequency_hz=expected_derived["effective_transmit_frequency_hz"],
                 center_frequency_hz=float(receiver["center_frequency_hz"]),
                 sample_rate_hz=float(receiver["sample_rate_hz"]),
                 bandwidth_hz=float(receiver["bandwidth_hz"]),
+                target_search_half_width_hz=float(values["frequency_acquisition_half_width_hz"]),
             ).validate()
         except ReceiverTuningError as error:
             raise CompleteTestError(f"{mode} receiver tuning is invalid: {error}") from error
@@ -1489,6 +1577,10 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
             try:
                 reference = _load(reference_path)
                 validate_document(reference, "cw-mode-plan.schema.json")
+                if reference.get("frequency_contract") != child["frequency_contract"]:
+                    raise CompleteTestError(
+                        f"{mode} authenticated reference frequency provenance changed"
+                    )
                 validate_keyed_capture_margin(reference)
             except (OfflineAnalysisError, ValueError) as error:
                 raise CompleteTestError(f"{mode} capture margin is invalid: {error}") from error
@@ -1506,7 +1598,7 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
         if mode in {"TONE", "WSPR"}:
             validate_real_session_plan(child)
             if (
-                child["frequency_hz"] != values["frequency_hz"]
+                child["frequency_hz"] != expected_derived["effective_transmit_frequency_hz"]
                 or child["band"] != values["band"]
                 or child["identity"]
                 != {
@@ -1522,7 +1614,8 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
             if (
                 protocol["message"] != values["message"]
                 or protocol["dot_seconds"] != values[f"{mode.lower()}_dot_seconds"]
-                or protocol["primary_frequency_hz"] != values["frequency_hz"]
+                or protocol["primary_frequency_hz"]
+                != expected_derived["effective_transmit_frequency_hz"]
                 or protocol["secondary_frequency_hz"]
                 != (
                     None

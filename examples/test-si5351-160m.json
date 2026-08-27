@@ -26,6 +26,7 @@
   },
   "gates": {
     "carrier_offset_max_hz": 100,
+    "frequency_acquisition_half_width_hz": 500,
     "best_20hz_share_min": 0.5,
     "required_consecutive_decodes": 3
   },

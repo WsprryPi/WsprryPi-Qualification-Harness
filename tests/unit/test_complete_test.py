@@ -165,7 +165,7 @@ def test_exact_defaults_order_derivations_and_no_typed_digest(tmp_path: Path, ca
         "center_frequency_hz": 14_072_100.0,
         "tuning_offset_hz": 25_000.0,
         "dc_exclusion_hz": 1_000.0,
-        "target_search_half_width_hz": 500.0,
+        "target_search_half_width_hz": 1_000.0,
         "usable_half_span_hz": 100_000.0,
     }
     assert all(
@@ -488,6 +488,58 @@ def test_retained_defaults_values_and_sdr_binding_are_revalidated(tmp_path: Path
     changed_receiver["mode_plans"][2]["plan"]["receiver"]["device"] = f"{SDR}-other"
     with pytest.raises(CompleteTestError, match="retained SDR identity"):
         complete_test_sha256(changed_receiver)
+
+
+def test_frequency_contract_propagates_offset_window_and_explicit_ppm(tmp_path: Path) -> None:
+    plan = compose_complete_test_plan(
+        "wspr4.local",
+        "wspr5.local",
+        SDR,
+        configuration=_configuration(tmp_path),
+        overrides=CompleteTestOverrides(
+            requested_transmit_frequency_offset_hz=1_100,
+            frequency_acquisition_half_width_hz=1_000.0,
+            gpio_manual_ppm=3.903,
+        ),
+        live=False,
+    )
+    derived = plan["derived_frequencies"]
+    assert derived == {
+        "nominal_frequency_hz": 14_097_100.0,
+        "requested_transmit_frequency_offset_hz": 1_100.0,
+        "effective_transmit_frequency_hz": 14_098_200.0,
+        "wspr_dial_frequency_hz": 14_096_700.0,
+        "wspr_audio_offset_hz": 1_500,
+        "fskcw_secondary_frequency_hz": 14_098_195.0,
+        "dfcw_secondary_frequency_hz": 14_098_195.0,
+    }
+    assert plan["transmitter_ppm_resolution"]["effective_correction_ppm"] == 3.903
+    assert plan["receiver_tuning"]["target_search_half_width_hz"] == 1_000.0
+    for entry in plan["mode_plans"]:
+        child = entry["plan"]
+        assert child["frequency_contract"] == {
+            "nominal_frequency_hz": 14_097_100.0,
+            "requested_transmit_frequency_offset_hz": 1_100.0,
+            "effective_transmit_frequency_hz": 14_098_200.0,
+            "application": "exactly_once_before_child_plan_composition",
+        }
+        if entry["mode"] in {"TONE", "WSPR"}:
+            assert child["frequency_hz"] == 14_098_200.0
+            assert child["calibration"]["ppm"] == 3.903
+        else:
+            assert child["frequency_acquisition_half_width_hz"] == 1_000.0
+            assert (
+                child["application_plan"]["protocol_contract"]["primary_frequency_hz"]
+                == 14_098_200.0
+            )
+            reference = json.loads(Path(child["reference"]["plan"]["path"]).read_text())
+            assert reference["thresholds"]["frequency_acquisition_half_width_hz"] == 1_000.0
+            assert reference["frequency_contract"] == child["frequency_contract"]
+
+    tampered = deepcopy(plan)
+    tampered["mode_plans"][2]["plan"]["frequency_acquisition_half_width_hz"] = 500.0
+    with pytest.raises(CompleteTestError):
+        complete_test_sha256(tampered)
 
 
 def test_hardware_free_rehearsal_publishes_five_mode_immutable_bundle(tmp_path: Path) -> None:

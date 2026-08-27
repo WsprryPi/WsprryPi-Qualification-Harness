@@ -70,6 +70,13 @@ def _plan(mode: str = "QRSS", session_id: str = "fake-keyed-session") -> dict[st
             "binding_extension": {},
         },
         "receiver_calibration": disabled_binding(),
+        "frequency_acquisition_half_width_hz": 500.0,
+        "frequency_contract": {
+            "nominal_frequency_hz": 14_097_100.0,
+            "requested_transmit_frequency_offset_hz": 0.0,
+            "effective_transmit_frequency_hz": 14_097_100.0,
+            "application": "exactly_once_before_child_plan_composition",
+        },
         "rf_path": {
             "antenna_connected": False,
             "attenuation_db": 20,

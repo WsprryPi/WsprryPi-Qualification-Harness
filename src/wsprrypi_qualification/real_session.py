@@ -748,12 +748,21 @@ class RealQualificationSession:
 def validate_real_session_plan(document: dict[str, Any]) -> None:
     validate_document(document, "resolved-real-session-plan.schema.json")
     receiver = document["receiver"]
+    frequency_contract = document["frequency_contract"]
+    if (
+        frequency_contract["nominal_frequency_hz"]
+        + frequency_contract["requested_transmit_frequency_offset_hz"]
+        != frequency_contract["effective_transmit_frequency_hz"]
+        or frequency_contract["effective_transmit_frequency_hz"] != document["frequency_hz"]
+    ):
+        raise RealSessionError("frequency provenance contradicts the effective session frequency")
     try:
         ReceiverTuningGeometry(
             requested_frequency_hz=float(document["frequency_hz"]),
             center_frequency_hz=float(receiver["center_frequency_hz"]),
             sample_rate_hz=float(receiver["sample_rate_hz"]),
             bandwidth_hz=float(receiver["bandwidth_hz"]),
+            target_search_half_width_hz=float(document["frequency_acquisition_half_width_hz"]),
         ).validate()
     except ReceiverTuningError as error:
         raise RealSessionError(f"invalid receiver tuning geometry: {error}") from error
@@ -1438,9 +1447,13 @@ def _validate_carrier(document: dict[str, object], plan: dict[str, Any], digest:
     claimed = cast(str, details["gate_outcome"])
     if policy != "target_window_relative_carrier_acquisition_v2":
         raise RealSessionError("carrier evidence uses an unsupported gate policy")
+    if relative_offset_gate != plan["frequency_acquisition_half_width_hz"]:
+        raise RealSessionError("carrier acquisition window contradicts the resolved plan")
     carrier_derived = (
         "passed"
-        if abs(offset) <= relative_offset_gate and contrast >= relative_contrast_gate
+        if abs(offset) <= relative_offset_gate
+        and abs(offset) <= plan["carrier"]["offset_gate_hz"]
+        and contrast >= relative_contrast_gate
         else "failed"
     )
     mode_gate = details.get("mode_gate", "not_applicable")

@@ -137,6 +137,7 @@ def _chain(tmp_path: Path, mode: str) -> tuple[Path, Path, Path, Path, Path]:
             "first_read_discarded": True,
         },
         "thresholds": {
+            "frequency_acquisition_half_width_hz": 500.0,
             "frequency_tolerance_hz": 1.0,
             "spacing_tolerance_hz": 1.0,
             "minimum_contrast_db": 10.0,
@@ -336,6 +337,41 @@ def test_acquired_shifted_modes_resolve_one_common_frequency_offset(
     assert model is not None
     assert model["primary_frequency_hz"] == pytest.approx(137520.0, abs=0.25)
     assert abs(model["signed_spacing_hz"]) == pytest.approx(10.0, abs=0.25)
+
+
+@pytest.mark.parametrize("mode", ["fskcw", "dfcw"])
+def test_acquired_shifted_modes_use_authenticated_nondefault_window(
+    tmp_path: Path, mode: str
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, mode)
+    plan_document = json.loads(plan.read_text(encoding="utf-8"))
+    plan_document["thresholds"]["frequency_acquisition_half_width_hz"] = 25.0
+    _write(plan, plan_document)
+    expected_document = json.loads(expected.read_text(encoding="utf-8"))
+    expected_document["plan"] = _artifact(plan)
+    _write(expected, expected_document)
+    metadata_document = json.loads(metadata.read_text(encoding="utf-8"))
+    capture = source / metadata_document["capture"]["path"]
+    rate = float(metadata_document["sample_rate_hz"])
+    samples = np.fromfile(capture, dtype="<c8")
+    times = np.arange(samples.size, dtype=np.float64) / rate
+    samples *= np.exp(2j * np.pi * -20.0 * times).astype(np.complex64)
+    samples.astype("<c8").tofile(capture)
+    metadata_document["plan"] = _artifact(plan)
+    metadata_document["expected_events"] = _artifact(expected)
+    metadata_document["capture"] = _artifact(capture)
+    _write(metadata, metadata_document)
+
+    bundle = tmp_path / "bundle"
+    result = compose_acquired_replay(plan, expected, metadata, bundle, source_revision="e" * 40)
+    observations = json.loads((bundle / "observations.json").read_text(encoding="utf-8"))
+    model = observations["measurement_summary"]["shifted_frequency_model"]
+    assert result["measurement"]["mode_gate"] == "passed"
+    assert model["primary_frequency_hz"] == pytest.approx(137_480.0, abs=0.3)
+    assert model["acquisition_offset_gate_hz"] == 25.0
+    assert validate_replay_bundle(bundle, recompute=True)["valid"] is True
 
 
 def test_acquired_replay_is_byte_deterministic_and_portable(tmp_path: Path) -> None:
@@ -774,7 +810,21 @@ def _shifted_model_inputs(
 
 def test_shifted_frequency_model_separates_bounded_common_drift(tmp_path: Path) -> None:
     plan, expected, measured = _shifted_model_inputs(tmp_path)
-    model, causes = _shifted_frequency_model(plan, expected, measured)
+    _, causes = _shifted_frequency_model(plan, expected, measured, 500.0)
+    assert causes == []
+
+
+def test_shifted_frequency_model_accepts_observed_minus_704_85_hz_with_bound_window(
+    tmp_path: Path,
+) -> None:
+    plan, expected, measured = _shifted_model_inputs(tmp_path)
+    for observation in measured:
+        if observation["measured_frequency_hz"] is not None:
+            observation["measured_frequency_hz"] -= 704.85
+    model, causes = _shifted_frequency_model(plan, expected, measured, 1_000.0)
+    assert model is not None
+    assert model["primary_frequency_hz"] == pytest.approx(136_795.15, abs=0.05)
+    assert model["acquisition_offset_gate_hz"] == 1_000.0
     assert causes == []
     assert model is not None
     assert model["signed_spacing_hz"] == pytest.approx(-10.0)
@@ -801,7 +851,7 @@ def test_unshifted_frequency_model_uses_bounded_relative_centering(
             frequency += jitter_hz if active_index % 2 else -jitter_hz
             active_index += 1
         measured.append({"measured_frequency_hz": frequency})
-    model, causes = _unshifted_frequency_model(plan, expected, measured)
+    model, causes = _unshifted_frequency_model(plan, expected, measured, 500.0)
     assert model is not None
     assert model["common_offset_hz"] == pytest.approx(offset_hz, abs=jitter_hz + 1e-6)
     if expected_cause is None:
@@ -905,7 +955,7 @@ def test_shifted_frequency_model_rejects_wrong_state_spacing_or_excessive_drift(
     plan, expected, measured = _shifted_model_inputs(
         tmp_path, spacing_hz=spacing_hz, drift_hz_per_s=drift_hz_per_s
     )
-    _, causes = _shifted_frequency_model(plan, expected, measured)
+    _, causes = _shifted_frequency_model(plan, expected, measured, 500.0)
     assert expected_cause in causes
     if spacing_hz > 0:
         assert "transition_direction" in causes
@@ -916,7 +966,7 @@ def test_shifted_frequency_model_fails_closed_without_both_states(tmp_path: Path
     for event, observation in zip(expected["events"], measured, strict=True):
         if event["rf_state"] == "secondary":
             observation["measured_frequency_hz"] = None
-    model, causes = _shifted_frequency_model(plan, expected, measured)
+    model, causes = _shifted_frequency_model(plan, expected, measured, 500.0)
     assert model is None
     assert causes == ["unresolvable_frequency_model", "wrong_frequency"]
 

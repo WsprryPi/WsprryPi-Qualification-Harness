@@ -58,9 +58,10 @@
     "gates": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["carrier_offset_max_hz", "best_20hz_share_min", "required_consecutive_decodes"],
+      "required": ["carrier_offset_max_hz", "frequency_acquisition_half_width_hz", "best_20hz_share_min", "required_consecutive_decodes"],
       "properties": {
         "carrier_offset_max_hz": {"type": "number", "minimum": 0},
+        "frequency_acquisition_half_width_hz": {"type": "number", "exclusiveMinimum": 0},
         "best_20hz_share_min": {"type": "number", "minimum": 0, "maximum": 1},
         "required_consecutive_decodes": {"type": "integer", "minimum": 0}
       }

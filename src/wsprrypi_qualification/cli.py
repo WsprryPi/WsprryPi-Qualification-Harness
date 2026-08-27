@@ -466,6 +466,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     complete.add_argument("--band", default="20m")
     complete.add_argument("--frequency-hz", type=int, default=14_097_100)
+    complete.add_argument(
+        "--requested-transmit-frequency-offset-hz",
+        type=int,
+        default=0,
+        help=(
+            "intentional offset added once to the nominal --frequency-hz for every mode "
+            "(default: 0)"
+        ),
+    )
     complete.add_argument("--callsign", default="Q0QQQ")
     complete.add_argument("--grid", default="JJ00")
     complete.add_argument("--power-dbm", type=int, default=0)
@@ -482,6 +491,15 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "maximum absolute offset in Hz of the strongest acquired transmitter-added "
             "frequency (default: 100; zero is valid)"
+        ),
+    )
+    complete.add_argument(
+        "--frequency-acquisition-half-width-hz",
+        type=float,
+        default=1_000.0,
+        help=(
+            "receiver/analyzer acquisition half-width applied to every mode "
+            "(default: 1000; distinct from pass/fail carrier tolerance)"
         ),
     )
     complete.add_argument(
@@ -668,6 +686,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         args.band,
                         "--frequency-hz",
                         str(args.frequency_hz),
+                        "--requested-transmit-frequency-offset-hz",
+                        str(args.requested_transmit_frequency_offset_hz),
                         "--callsign",
                         args.callsign,
                         "--grid",
@@ -688,6 +708,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         str(args.dfcw_separation_hz),
                         "--carrier-offset-max-hz",
                         str(args.carrier_offset_max_hz),
+                        "--frequency-acquisition-half-width-hz",
+                        str(args.frequency_acquisition_half_width_hz),
                         "--carrier-best-20hz-share-min",
                         str(args.carrier_best_20hz_share_min),
                         *(
@@ -747,6 +769,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             overrides = CompleteTestOverrides(
                 band=args.band,
                 frequency_hz=args.frequency_hz,
+                requested_transmit_frequency_offset_hz=(
+                    args.requested_transmit_frequency_offset_hz
+                ),
                 callsign=args.callsign,
                 grid=args.grid,
                 power_dbm=args.power_dbm,
@@ -757,6 +782,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fskcw_separation_hz=args.fskcw_separation_hz,
                 dfcw_separation_hz=args.dfcw_separation_hz,
                 carrier_offset_max_hz=args.carrier_offset_max_hz,
+                frequency_acquisition_half_width_hz=(args.frequency_acquisition_half_width_hz),
                 carrier_best_20hz_share_min=args.carrier_best_20hz_share_min,
                 gpio_manual_ppm=args.gpio_manual_ppm,
                 transmitter_ppm_offset=args.transmitter_ppm_offset,

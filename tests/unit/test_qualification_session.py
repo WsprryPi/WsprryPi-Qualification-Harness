@@ -190,7 +190,7 @@ def session_plan(executable: Path = Path("/opt/Wsprry Pi/wsprrypi")) -> Qualific
         10_000,
         10,
         WsprIdentity("Q0QQQ", "JJ00", 0),
-        QualificationGates(100, 0.5, 3),
+        QualificationGates(100, 500, 0.5, 3),
         StoppingProcedure("bounded", "exact count", "cancel", "verify", "bench stop"),
         ppm=2.3536,
         frame_count=3,

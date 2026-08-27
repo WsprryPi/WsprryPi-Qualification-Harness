@@ -73,6 +73,14 @@ def validate_resolved_keyed_plan(document: dict[str, Any]) -> dict[str, Any]:
     application = document["application_plan"]
     validate_application_plan(application)
     transmitter = document["transmitter"]
+    frequency_contract = document["frequency_contract"]
+    if (
+        frequency_contract["nominal_frequency_hz"]
+        + frequency_contract["requested_transmit_frequency_offset_hz"]
+        != frequency_contract["effective_transmit_frequency_hz"]
+        or frequency_contract["effective_transmit_frequency_hz"] != transmitter["frequency_hz"]
+    ):
+        _fail("keyed frequency provenance contradicts the effective transmitter frequency")
     if "topology" in document:
         same_host = transmitter["host"] == document["receiver"]["host"]
         if same_host != (document["topology"] == "same_host_roles"):
@@ -108,6 +116,7 @@ def validate_resolved_keyed_plan(document: dict[str, Any]) -> dict[str, Any]:
             center_frequency_hz=float(receiver["center_frequency_hz"]),
             sample_rate_hz=float(receiver["sample_rate_hz"]),
             bandwidth_hz=float(receiver["bandwidth_hz"]),
+            target_search_half_width_hz=float(document["frequency_acquisition_half_width_hz"]),
         ).validate()
     except ReceiverTuningError as error:
         _fail(f"invalid keyed receiver tuning geometry: {error}")

@@ -359,7 +359,9 @@ def analyze_carrier_acquired(
         usable_half_span_hz=context.bench.receiver.bandwidth_hz / 2,
         offset_gate_hz=context.test.gates.carrier_offset_max_hz,
         share_gate=context.test.gates.best_20hz_share_min,
-        relative_acquisition_offset_gate_hz=context.test.gates.carrier_offset_max_hz,
+        relative_acquisition_offset_gate_hz=(
+            context.test.gates.frequency_acquisition_half_width_hz
+        ),
     )
     return analyze_carrier(
         rf_off_path,

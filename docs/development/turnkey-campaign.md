@@ -170,6 +170,16 @@ WSPR dial frequency from its maintained 1500 Hz audio offset and derives the
 FSKCW space and DFCW dash frequency below the primary according to the existing
 protocol ordering.
 
+Complete campaigns resolve two separate cross-mode frequency controls.
+`--requested-transmit-frequency-offset-hz` is added exactly once to the nominal
+frequency before all five child plans are composed; the aggregate retains the
+nominal, offset, and effective values. `--frequency-acquisition-half-width-hz`
+binds the symmetric receiver/analyzer search window into receiver geometry and
+every keyed reference, live analysis, and replay recomputation. Neither setting
+is transmitter PPM, receiver calibration, measured residual error, or formal
+spectral tolerance. `--carrier-offset-max-hz` remains the separate carrier
+pass/fail tolerance.
+
 The WSPR child deadline is calculated from its final slot schedule rather than
 a fixed campaign allowance. It includes receiver setup derived from the
 configured maximum read interval, the actual first-slot wait, the 370-second
