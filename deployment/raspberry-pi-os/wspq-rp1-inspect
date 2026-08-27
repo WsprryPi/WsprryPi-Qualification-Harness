@@ -121,6 +121,10 @@ def main() -> int:
             return fail()
         safe = values.get("gpio_safe") == "true"
         stable = values.get("stable") == "true"
+        operation_states = {0: "IDLE", 3: "COMPLETE"}
+        terminal_reasons = {0: "NONE", 1: "COMPLETE", 2: "STOPPED", 3: "OWNER_CLOSED"}
+        operation_state = operation_states.get(int(values["operation_state"]), "UNKNOWN")
+        terminal_reason = terminal_reasons.get(int(values["terminal_reason"]), "UNKNOWN")
         document = {
             "host": platform.node(),
             "endpoint": str(ENDPOINT),
@@ -157,8 +161,8 @@ def main() -> int:
             "operation_live_gate": bool(int(values["capabilities"]) & (1 << 11)),
             "cleanup_fault": values["cleanup_fault"] == "true",
             "generation": int(values["generation"]),
-            "operation_state": "IDLE" if values["operation_state"] == "0" else "UNKNOWN",
-            "terminal_reason": values["terminal_reason"],
+            "operation_state": operation_state,
+            "terminal_reason": terminal_reason,
             "current_event": "none",
             "elapsed_ns": 0,
             "remaining_ns": 0,

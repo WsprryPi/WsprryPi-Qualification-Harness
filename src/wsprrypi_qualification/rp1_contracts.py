@@ -129,7 +129,6 @@ def validate_preflight(document: dict[str, Any], *, route: str) -> dict[str, Any
         "owner_present": False,
         "lease_present": False,
         "cleanup_fault": False,
-        "operation_state": "IDLE",
         "gpio_safe": True,
         "clock_quiescent": True,
         "dma_quiescent": True,
@@ -139,6 +138,14 @@ def validate_preflight(document: dict[str, Any], *, route: str) -> dict[str, Any
     for name, value in equality.items():
         if document.get(name) != value:
             raise Rp1ContractError(f"RP1 preflight field {name} is unsafe or mismatched")
+    state_reason = (document.get("operation_state"), document.get("terminal_reason"))
+    if state_reason not in {
+        ("IDLE", "NONE"),
+        ("COMPLETE", "COMPLETE"),
+        ("COMPLETE", "STOPPED"),
+        ("COMPLETE", "OWNER_CLOSED"),
+    }:
+        raise Rp1ContractError("RP1 preflight operation state is not safely quiescent")
     if document.get("endpoint_mode") != "0600":
         raise Rp1ContractError("RP1 endpoint permissions must be exactly 0600")
     routes = document.get("route_state")

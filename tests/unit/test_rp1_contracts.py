@@ -87,6 +87,22 @@ def preflight(route: str = "gpio4") -> dict[str, object]:
     }
 
 
+@pytest.mark.parametrize("reason", ["COMPLETE", "STOPPED", "OWNER_CLOSED"])
+def test_preflight_accepts_stable_terminal_provider_state(reason: str) -> None:
+    document = preflight()
+    document["operation_state"] = "COMPLETE"
+    document["terminal_reason"] = reason
+    assert validate_preflight(document, route="gpio4") == document
+
+
+def test_preflight_rejects_contradictory_terminal_provider_state() -> None:
+    document = preflight()
+    document["operation_state"] = "COMPLETE"
+    document["terminal_reason"] = "NONE"
+    with pytest.raises(Rp1ContractError, match="not safely quiescent"):
+        validate_preflight(document, route="gpio4")
+
+
 def lifecycle(route: str = "gpio4") -> dict[str, object]:
     contract = route_contract(route)
     return {
