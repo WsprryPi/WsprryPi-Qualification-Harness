@@ -517,10 +517,13 @@ def test_keyed_capture_is_ready_before_process_is_armed(
     helper = tmp_path / "capture-helper"
     helper.write_text("helper", encoding="utf-8")
     resolved = plan()
+    resolved["transmitter"]["backend"] = "rp1_gpclk"  # type: ignore[index]
+    resolved["application_plan"]["backend_contract"]["rp1_route"] = "gpio4"  # type: ignore[index]
     resolved["reference"]["plan"] = artifact(mode_plan_path)  # type: ignore[index]
     resolved["capability_bindings"]["capture_helper"] = artifact(helper)  # type: ignore[index]
     release = threading.Event()
     calls: list[str] = []
+    prepared_arguments: list[tuple[str, ...]] = []
 
     class FakeCapture:
         def execute(self, capture_plan, authorization, cancellation):
@@ -590,6 +593,7 @@ def test_keyed_capture_is_ready_before_process_is_armed(
         def prepare(self, arguments):
             assert arguments
             assert calls == []
+            prepared_arguments.append(arguments)
             calls.append("process_prepared")
             return FakeProcess()
 
@@ -611,6 +615,18 @@ def test_keyed_capture_is_ready_before_process_is_armed(
     assert providers.start_process(("wsprrypi",), 1) == "process-1"
     assert time.monotonic() - started < 0.5
     assert calls == ["process_prepared", "capture_ready", "process_armed"]
+    option_index = prepared_arguments[0].index("--rp1-development-confirmation-json")
+    confirmation = json.loads(prepared_arguments[0][option_index + 1])
+    assert confirmation == {
+        "attenuation_and_load_confirmed": True,
+        "bounded_operation_confirmed": True,
+        "enabled": True,
+        "experimental_status_acknowledged": True,
+        "non_radiating_topology_confirmed": True,
+        "operation_id": "keyed-session-001-operation-1",
+        "physical_connection_confirmed": True,
+        "route": "GPIO4",
+    }
     release.set()
     assert providers.capture(resolved, 1) is not None
 

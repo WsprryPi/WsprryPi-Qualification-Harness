@@ -2292,6 +2292,28 @@ class KeyedCapabilityProviders:
         mode_plan = load_json_document(
             Path(self.plan["reference"]["plan"]["path"]), "cw-mode-plan.schema.json"
         )
+        effective_arguments = arguments
+        if self.plan["transmitter"]["backend"] == "rp1_gpclk":
+            if "--rp1-development-confirmation-json" in arguments:
+                self._retain_process_start_failure(number, "duplicate_rp1_confirmation")
+                return None
+            route = self.plan["application_plan"]["backend_contract"]["rp1_route"]
+            operation_id = f"{self.plan['session_id']}-operation-{number}"
+            confirmation = {
+                "enabled": True,
+                "route": route.upper(),
+                "physical_connection_confirmed": True,
+                "attenuation_and_load_confirmed": True,
+                "bounded_operation_confirmed": True,
+                "non_radiating_topology_confirmed": True,
+                "experimental_status_acknowledged": True,
+                "operation_id": operation_id,
+            }
+            effective_arguments = (
+                *arguments,
+                "--rp1-development-confirmation-json",
+                json.dumps(confirmation, sort_keys=True, separators=(",", ":")),
+            )
         pre_quiet = float(mode_plan["protocol"]["pre_quiet_seconds"])
         # Authenticate the process and repository state without arming it.
         # Capture readiness is then the causal RF-arm barrier, so neither
@@ -2299,7 +2321,7 @@ class KeyedCapabilityProviders:
         minimum_margin = pre_quiet / 2.0
         request_sent = datetime.now(UTC)
         try:
-            process = self.launcher.prepare(arguments)
+            process = self.launcher.prepare(effective_arguments)
         except Exception as error:
             self._retain_process_start_failure(number, "prepare", error=error)
             return None
@@ -2376,7 +2398,7 @@ class KeyedCapabilityProviders:
         process_path = directory / "process.json"
         write_json_new(
             process_path,
-            {"handle_id": process.handle_id, "arguments": list(arguments)},
+            {"handle_id": process.handle_id, "arguments": list(effective_arguments)},
         )
         schedule_path = directory / "process-schedule.json"
         write_json_new(
