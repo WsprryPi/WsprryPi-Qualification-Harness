@@ -253,7 +253,10 @@ def create_slot_wav_acquired(
     selected = (
         context.test.frequency_hz if selected_frequency_hz is None else float(selected_frequency_hz)
     )
-    if abs(selected - context.test.frequency_hz) > 500.0:
+    if (
+        abs(selected - context.test.frequency_hz)
+        > context.test.gates.frequency_acquisition_half_width_hz
+    ):
         raise OfflineAnalysisError("acquired RF frequency exceeds the bounded acquisition window")
     if abs(selected - context.test.receiver_center_hz) > half_bandwidth:
         raise OfflineAnalysisError("selected RF frequency is outside recorded receiver coverage")

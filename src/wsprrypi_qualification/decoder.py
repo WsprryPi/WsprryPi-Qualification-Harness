@@ -554,7 +554,10 @@ def _load_audio_evidence(path: Path, wav_path: Path) -> AcquiredAudioEvidence:
     }
     receiver = context.bench.receiver
     selected_frequency_hz = float(contract["selected_frequency_hz"])
-    if abs(selected_frequency_hz - context.test.frequency_hz) > 500.0:
+    if (
+        abs(selected_frequency_hz - context.test.frequency_hz)
+        > context.test.gates.frequency_acquisition_half_width_hz
+    ):
         raise OfflineAnalysisError(
             "audio selection exceeds the bounded carrier-acquisition window",
             cause=FailureCause.CONTRADICTORY_EVIDENCE,

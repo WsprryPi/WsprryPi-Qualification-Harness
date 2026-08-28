@@ -321,7 +321,7 @@ def test_acquired_audio_uses_capture_utc_and_canonical_name(
 
     monkeypatch.setattr(audio_module, "render_slot_pcm", stub_pcm)
     monkeypatch.setattr(decoder_module, "render_slot_pcm", stub_pcm)
-    rate, center, frequency = 1000, 10_000.0, 10_100.0
+    rate, center, frequency = 4000, 10_000.0, 10_100.0
     bench, test = profiles(tmp_path, rate=rate, center=center, frequency=frequency)
     iq = tmp_path / "coherent.cf32"
     n = np.arange(rate * 370)
@@ -329,6 +329,40 @@ def test_acquired_audio_uses_capture_utc_and_canonical_name(
     output = tmp_path / "wav output"
     output.mkdir()
     capture_metadata = metadata(tmp_path, "capture.json", iq, rate=rate, center=center)
+    test_document = json.loads(test.read_text(encoding="utf-8"))
+    test_document["gates"]["frequency_acquisition_half_width_hz"] = 1_000.0
+    test.write_text(json.dumps(test_document), encoding="utf-8")
+    widened_output = tmp_path / "widened acquisition output"
+    widened_output.mkdir()
+    widened = create_slot_wav_acquired(
+        iq,
+        capture_metadata,
+        bench,
+        test,
+        datetime(2026, 8, 11, 12, 2, tzinfo=UTC),
+        widened_output,
+        widened_output / "audio.json",
+        selected_frequency_hz=frequency - 719.452,
+    )
+    assert widened["contract"]["selected_frequency_hz"] == pytest.approx(frequency - 719.452)
+    widened_decoded = run_wsprd_acquired(
+        widened_output / "20260811T120200Z.wav",
+        widened_output / "audio.json",
+        widened_output / "decoder.json",
+        executable=Path(sys.executable),
+    )
+    assert widened_decoded["gate_outcome"] == "blocked"
+    with pytest.raises(OfflineAnalysisError, match="bounded acquisition window"):
+        create_slot_wav_acquired(
+            iq,
+            capture_metadata,
+            bench,
+            test,
+            datetime(2026, 8, 11, 12, 2, tzinfo=UTC),
+            widened_output,
+            tmp_path / "outside-window-audio.json",
+            selected_frequency_hz=frequency + 1_000.001,
+        )
     decoder_documents: list[Path] = []
     for index, minute in enumerate((2, 4, 6)):
         slot = datetime(2026, 8, 11, 12, minute, tzinfo=UTC)
