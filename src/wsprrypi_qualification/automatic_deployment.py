@@ -817,15 +817,12 @@ def _delegate_automatic_complete_test(
                 "work_directory": work_directory,
                 "output_parent": output_parent,
                 "rf_confirmation": {
-                    "path_type": "conducted",
-                    "antenna_connected": False,
-                    "termination": "50 ohm direct SDR input through attenuator",
-                    "attenuation_db": 20,
-                    "filter": "none",
-                    "safe_input_basis": (
-                        "explicit --enable-rf confirmation of the documented conducted "
-                        "20 dB default path"
-                    ),
+                    "path_type": "unknown",
+                    "antenna_connected": None,
+                    "termination": None,
+                    "attenuation_db": None,
+                    "filter": None,
+                    "safe_input_basis": "not provided",
                     "authorization_scope": "single_run",
                 },
                 "transmitter_backend": transmitter_backend,

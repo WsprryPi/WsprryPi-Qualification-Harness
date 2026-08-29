@@ -37,23 +37,13 @@
       "additionalProperties": false,
       "required": ["path_type", "antenna_connected", "attenuation_db", "filter_description", "safe_input_description"],
       "properties": {
-        "path_type": {"enum": ["conducted", "radiated"]},
-        "antenna_connected": {"type": "boolean"},
-        "termination_ohms": {"type": "number", "exclusiveMinimum": 0},
+        "path_type": {"enum": ["conducted", "radiated", "unknown", "other"]},
+        "antenna_connected": {"type": ["boolean", "null"]},
+        "termination_ohms": {"type": ["number", "null"], "exclusiveMinimum": 0},
         "attenuation_db": {"type": ["number", "null"], "minimum": 0},
         "filter_description": {"type": "string", "minLength": 1},
         "safe_input_description": {"type": "string", "minLength": 1}
-      },
-      "allOf": [
-        {
-          "if": {"properties": {"path_type": {"const": "conducted"}}},
-          "then": {
-            "properties": {"antenna_connected": {"const": false}},
-            "required": ["termination_ohms"],
-            "allOf": [{"properties": {"attenuation_db": {"type": "number"}}}]
-          }
-        }
-      ]
+      }
     }
   }
 }

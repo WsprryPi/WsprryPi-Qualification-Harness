@@ -244,31 +244,32 @@ def test_rp1_backend_is_route_bound_and_applies_ppm_once(
     validate_application_plan(plan.to_document())
 
 
-def test_rp1_backend_rejects_missing_or_cross_route_identity() -> None:
+def test_rp1_backend_rejects_missing_route_but_records_unfamiliar_identity() -> None:
     with pytest.raises(ApplicationPlanError, match="explicit route"):
         WsprryPiShim(
             identity(), backend="rp1_gpclk", backend_config=WsprryPiBackendConfig("GPIO4", 0)
         ).resolve_plan("missing-route", ToneProtocol(14_097_100))
-    with pytest.raises(ApplicationPlanError, match="mismatched"):
-        WsprryPiShim(
-            identity(),
-            backend="rp1_gpclk",
-            backend_config=WsprryPiBackendConfig(
-                "GPIO4",
-                0,
-                drive_or_power_level=0,
-                gpio_pin=4,
-                rp1_route="gpio4",
-                endpoint="/dev/rp1-gpclk",
-                compatibility_id="v1.1.2-pi5-gpio20-6.18.34-development-candidate-r4",
-                abi_version=4,
-                finite_tone_required=True,
-                development_enrollment="Experimental",
-                live_output_required=True,
-                operation_live_gate_required=True,
-                rp1_drive_ma=2,
-            ),
-        ).resolve_plan("wrong-route", ToneProtocol(14_097_100))
+    plan = WsprryPiShim(
+        identity(),
+        backend="rp1_gpclk",
+        backend_config=WsprryPiBackendConfig(
+            "GPIO4",
+            0,
+            drive_or_power_level=0,
+            gpio_pin=4,
+            rp1_route="gpio4",
+            endpoint="/dev/rp1-gpclk",
+            compatibility_id="unfamiliar-development-build",
+            abi_version=4,
+            finite_tone_required=True,
+            development_enrollment="not-enrolled",
+            live_output_required=True,
+            operation_live_gate_required=True,
+            rp1_drive_ma=2,
+        ),
+    ).resolve_plan("observed-identity", ToneProtocol(14_097_100))
+    assert plan.backend_contract is not None
+    assert plan.backend_contract["compatibility_id"] == "unfamiliar-development-build"
 
 
 def test_windows_path_with_spaces_is_preserved_as_one_argument() -> None:

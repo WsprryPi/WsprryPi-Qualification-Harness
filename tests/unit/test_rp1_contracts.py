@@ -181,7 +181,6 @@ def test_real_session_quiescence_stage_retains_typed_rp1_preflight() -> None:
     "field",
     [
         "endpoint_available",
-        "live_eligible",
         "operation_live_gate",
         "finite_tone",
         "drain_complete",
@@ -202,6 +201,17 @@ def test_rp1_preflight_rejects_output_enabled_before_operation_authorization() -
     evidence["live_output"] = True
     with pytest.raises(Rp1ContractError, match="live_output"):
         validate_preflight(evidence, route="gpio4")
+
+
+def test_rp1_preflight_records_unfamiliar_provenance_without_rejecting_it() -> None:
+    evidence = preflight()
+    evidence["compatibility_id"] = "development-branch-unfamiliar-label"
+    evidence["compatibility_state"] = "unreleased"
+    evidence["development_enrollment"] = "multiple-observed"
+    evidence["development_manifest_sha256"] = None
+    evidence["uapi_sha256"] = None
+    evidence["live_eligible"] = False
+    assert validate_preflight(evidence, route="gpio4") == evidence
 
 
 def test_rp1_route_and_generation_evidence_cannot_transfer() -> None:
@@ -370,6 +380,12 @@ def test_preflight_rejects_unknown_fields_and_wrong_route_state() -> None:
     wrong_route["route_state"]["active_overlay"] = "gpio20"
     with pytest.raises(Rp1ContractError, match="do not agree"):
         validate_preflight(wrong_route, route="gpio4")
+
+
+def test_preflight_accepts_unavailable_non_authoritative_route_observations() -> None:
+    evidence = preflight()
+    evidence["route_state"].update(saved=None, configured=None, reconciled=None)
+    validate_preflight(evidence, route="gpio4")
 
 
 def test_same_host_roles_are_distinct_and_ppm_is_route_bound() -> None:

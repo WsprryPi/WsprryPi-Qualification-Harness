@@ -107,9 +107,12 @@ plans, expected events, resolved profiles, and dispatch wrapper inputs are place
 `OUTPUT_PARENT/complete-test-inputs/CAMPAIGN_ID`; they are neither deployment
 scratch nor result-bundle contents. The resolved campaign retains that store
 while its aggregate or subordinate results exist, and only an explicit manual
-retention action may remove it. `--enable-rf`
-confirms the documented conducted default: antenna disconnected and a direct
-50-ohm SDR input through 20 dB attenuation. The receiver uniquely resolves the
+retention action may remove it. `--enable-rf` authorizes the bounded RF run; it
+does not manufacture a physical-path assertion. Physical path, equipment,
+software, firmware, module, overlay, clock, route, revision, and hash facts are
+recorded when observable and may remain unknown. They are descriptive evidence,
+not provenance whitelists. Runtime preflight still rejects incompatible ABI or
+capability and unsafe, busy, unbounded, or unclean state. The receiver uniquely resolves the
 selected SDR through SoapySDR, validates all five generated subordinate plans, then
 routes TONE, WSPR, QRSS, FSKCW, and DFCW in that order. Both named hosts may be
 remote to the controller; execution is delegated to the receiver host.

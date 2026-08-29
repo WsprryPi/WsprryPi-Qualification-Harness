@@ -96,6 +96,12 @@ The separate production live-keyed coordinator uses that contract and binds the
 application-shim argv, executable identity, parent and component target
 revisions, receiver identity and settings,
 RF path, analyzer revision, external capability artifacts, and named services.
+Software and hardware provenance and the physical transmitter-to-receiver path
+are observations, not approval contracts: retain versions, types, routes,
+clock facts, revisions, and hashes when available, and state unknown when they
+are not. Eligibility gates are limited to required runtime ABI/capability and
+safe bounded ownership, operation, and cleanup state; unfamiliar provenance is
+not itself a failure.
 The public command requires both live/RF enable flags, a non-empty operator, and
 an exact typed digest confirmation before production adapters are constructed.
 Helper deployment configuration is an immutable input to that plan: the plan

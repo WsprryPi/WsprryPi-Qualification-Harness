@@ -52,12 +52,50 @@ def run(arguments: list[str]) -> str:
     return result.stdout.strip()
 
 
-def enrollment_manifest_sha256(manifest: dict[str, object]) -> str:
-    canonical = dict(manifest)
-    canonical["developmentState"] = "development-loaded"
-    canonical["parameters"] = {"live_output": 0}
-    encoded = (json.dumps(canonical, indent=2, sort_keys=True) + "\n").encode()
-    return hashlib.sha256(encoded).hexdigest()
+def optional_text(path: pathlib.Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8").rstrip("\x00\n")
+    except OSError:
+        return None
+
+
+def observed_enrollments(
+    root: pathlib.Path = pathlib.Path("/etc/rp1-gpclk-dkms/development"),
+) -> list[dict[str, object]]:
+    observations: list[dict[str, object]] = []
+    for path in sorted(root.glob("*.json")):
+        entry: dict[str, object] = {"path": str(path), "sha256": sha256(path)}
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+            entry.update(
+                status="parsed",
+                source_commit=document.get("sourceCommit"),
+                route=document.get("route"),
+                module_version=document.get("moduleVersion"),
+                manifest_sha256=document.get("sourceManifestSha256"),
+            )
+        except (OSError, json.JSONDecodeError):
+            entry["status"] = "unreadable"
+        observations.append(entry)
+    return observations
+
+
+def observed_device_tree(node: str) -> dict[str, object]:
+    matches = sorted(
+        path for path in pathlib.Path("/proc/device-tree").rglob(node) if path.is_dir()
+    )
+    if len(matches) != 1:
+        return {"status": "unavailable", "matching_node_count": len(matches)}
+    path = matches[0]
+    clocks = path / "clocks"
+    clock_names = optional_text(path / "clock-names")
+    return {
+        "status": "observed",
+        "path": str(path),
+        "compatible": optional_text(path / "compatible"),
+        "clock_names": [] if clock_names is None else clock_names.split("\x00"),
+        "clock_specifiers_hex": None if not clocks.is_file() else clocks.read_bytes().hex(),
+    }
 
 
 def main() -> int:
@@ -80,26 +118,6 @@ def main() -> int:
         endpoint_stat = ENDPOINT.stat()
         if not stat.S_ISCHR(endpoint_stat.st_mode):
             return fail()
-        enrollment_paths = sorted(pathlib.Path("/etc/rp1-gpclk-dkms/development").glob("*.json"))
-        if len(enrollment_paths) != 1:
-            return fail()
-        enrollment = json.loads(enrollment_paths[0].read_text(encoding="utf-8"))
-        manifest_digest = enrollment["sourceManifestSha256"]
-        manifest_paths = sorted(
-            path
-            for root in (pathlib.Path("/home/pi"), pathlib.Path("/var/tmp"))
-            for path in root.rglob("DEVELOPMENT_MANIFEST.json")
-        )
-        matching_manifests = []
-        for path in manifest_paths:
-            candidate = json.loads(path.read_text(encoding="utf-8"))
-            if enrollment_manifest_sha256(candidate) == manifest_digest:
-                matching_manifests.append(candidate)
-        if len(matching_manifests) != 1:
-            return fail()
-        manifest = matching_manifests[0]
-        if enrollment.get("route") != route or manifest.get("route") != route:
-            return fail()
         kernel = platform.release()
         modules = sorted(pathlib.Path(f"/lib/modules/{kernel}/updates/dkms").glob(f"{MODULE}.ko*"))
         if len(modules) != 1:
@@ -109,18 +127,16 @@ def main() -> int:
             field: run(["/usr/sbin/modinfo", "-F", field, str(module)])
             for field in ("version", "vermagic", "signer")
         }
-        configured = manifest.get("route")
         live = pathlib.Path(f"/sys/module/{MODULE}/parameters/live_output").read_text().strip()
-        if manifest.get("developmentState") != "development-loaded" or manifest.get(
-            "parameters"
-        ) != {"live_output": 0}:
-            return fail()
         compatibility_id = values["compatibility_id"]
-        expected_id = f"v1.1.2-pi5-{route}-6.18.34-development-candidate-r4"
-        if compatibility_id != expected_id or live not in {"N", "0"}:
+        if not compatibility_id or live not in {"N", "0"}:
             return fail()
         safe = values.get("gpio_safe") == "true"
         stable = values.get("stable") == "true"
+        active_device_tree = observed_device_tree(node)
+        if active_device_tree.get("status") != "observed":
+            return fail()
+        clock_names = active_device_tree.get("clock_names")
         operation_states = {0: "IDLE", 3: "COMPLETE"}
         terminal_reasons = {0: "NONE", 1: "COMPLETE", 2: "STOPPED", 3: "OWNER_CLOSED"}
         operation_state = operation_states.get(int(values["operation_state"]), "UNKNOWN")
@@ -142,7 +158,7 @@ def main() -> int:
             "module": MODULE,
             "module_version": modinfo["version"],
             "module_build_id": values["build_id"],
-            "uapi_sha256": manifest["uapiIdentity"]["sha256"],
+            "uapi_sha256": None,
             "vermagic": modinfo["vermagic"],
             "signer": modinfo["signer"] or "unsigned-development-module",
             "installed_module_sha256": sha256(module),
@@ -153,10 +169,10 @@ def main() -> int:
             "route": route,
             "endpoint_node": node,
             "compatibility_id": compatibility_id,
-            "compatibility_state": "Experimental",
+            "compatibility_state": values.get("compatibility_state", "observed"),
             "compatibility_reason": values["compatibility_reason"],
-            "development_enrollment": "Experimental",
-            "development_manifest_sha256": manifest_digest,
+            "development_enrollment": "observed-not-required",
+            "development_manifest_sha256": None,
             "live_eligible": values["live_eligible"] == "true",
             "operation_live_gate": bool(int(values["capabilities"]) & (1 << 11)),
             "cleanup_fault": values["cleanup_fault"] == "true",
@@ -172,15 +188,43 @@ def main() -> int:
             "dma_quiescent": values["dma_quiescent"] == "true",
             "unresolved_route_transaction": False,
             "route_state": {
-                name: configured
-                for name in (
-                    "requested",
-                    "saved",
-                    "configured",
-                    "active_overlay",
-                    "module_reported",
-                    "reconciled",
-                )
+                "requested": route,
+                "saved": None,
+                "configured": None,
+                "active_overlay": route,
+                "module_reported": None,
+                "reconciled": None,
+            },
+            "observed_platform": {
+                "observation_policy": "record_not_approve",
+                "kernel": kernel,
+                "board_model": optional_text(pathlib.Path("/proc/device-tree/model")),
+                "module_srcversion": optional_text(
+                    pathlib.Path(f"/sys/module/{MODULE}/srcversion")
+                ),
+                "module_file": str(module),
+                "module_file_sha256": sha256(module),
+                "enrollments": observed_enrollments(),
+                "overlay": {
+                    "path": f"/boot/firmware/overlays/rp1-gpclk-{route}.dtbo",
+                    "sha256": (
+                        sha256(pathlib.Path(f"/boot/firmware/overlays/rp1-gpclk-{route}.dtbo"))
+                        if pathlib.Path(
+                            f"/boot/firmware/overlays/rp1-gpclk-{route}.dtbo"
+                        ).is_file()
+                        else None
+                    ),
+                },
+                "active_device_tree": active_device_tree,
+                "parent_clock": {
+                    "identity": (
+                        clock_names[0]
+                        if isinstance(clock_names, list) and clock_names
+                        else None
+                    ),
+                    "rate_hz": None,
+                    "status": "device-tree-observed-runtime-rate-unavailable",
+                },
             },
         }
         print(json.dumps(document, sort_keys=True))
