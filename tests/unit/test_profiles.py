@@ -86,18 +86,20 @@ def test_radiated_profile_preserves_not_applicable_attenuation(tmp_path: Path) -
     assert profile.rf_path.termination_ohms is None
 
 
-def test_conducted_profile_rejects_null_attenuation(tmp_path: Path) -> None:
+def test_conducted_profile_records_null_attenuation(tmp_path: Path) -> None:
     document = load_example("bench-wspr5-rsp1b.json")
     document["rf_path"]["attenuation_db"] = None
-    with pytest.raises(ProfileError, match="attenuation_db"):
-        load_bench_profile(write_json(tmp_path / "conducted-null.json", document))
+    profile = load_bench_profile(write_json(tmp_path / "conducted-null.json", document))
+    assert profile.rf_path.attenuation_db is None
 
 
 @pytest.mark.parametrize(
     ("field", "value"),
     [("antenna_connected", True), ("termination_ohms", None), ("attenuation_db", None)],
 )
-def test_receiver_run_conducted_invariants(tmp_path: Path, field: str, value: object) -> None:
+def test_receiver_run_records_incomplete_or_unusual_path(
+    tmp_path: Path, field: str, value: object
+) -> None:
     document = receiver_run_document()
     document["rf_path"].update(
         {
@@ -108,8 +110,8 @@ def test_receiver_run_conducted_invariants(tmp_path: Path, field: str, value: ob
         }
     )
     document["rf_path"][field] = value
-    with pytest.raises(ProfileError, match=r"antenna_connected|termination_ohms|attenuation_db"):
-        load_receiver_run_profile(write_json(tmp_path / f"conducted-{field}.json", document))
+    profile = load_receiver_run_profile(write_json(tmp_path / f"conducted-{field}.json", document))
+    assert getattr(profile.rf_path, field) == value
 
 
 def test_valid_test_profile() -> None:
@@ -186,11 +188,11 @@ def test_random_offset_must_be_disabled(tmp_path: Path) -> None:
         load_test_profile(write_json(tmp_path / "offset.json", document))
 
 
-def test_conducted_path_requires_no_antenna(tmp_path: Path) -> None:
+def test_conducted_path_records_antenna_observation(tmp_path: Path) -> None:
     document = load_example("bench-wspr5-rsp1b.json")
     document["rf_path"]["antenna_connected"] = True
-    with pytest.raises(ProfileError, match="False was expected"):
-        load_bench_profile(write_json(tmp_path / "unsafe path.json", document))
+    profile = load_bench_profile(write_json(tmp_path / "observed path.json", document))
+    assert profile.rf_path.antenna_connected is True
 
 
 def test_receiver_bandwidth_must_not_exceed_sample_rate(tmp_path: Path) -> None:

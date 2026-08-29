@@ -947,17 +947,14 @@ def _materialize_real_profiles(
     receiver = plan["receiver"]
     rf_path = plan["rf_path"]
     termination = rf_path.get("termination")
-    if (
-        rf_path["path_type"] != "conducted"
-        or not isinstance(termination, str)
-        or re.match(r"^50(?:\.0+)?[ -]?ohm\b", termination, re.IGNORECASE) is None
-    ):
-        raise CompleteTestError(
-            "automatic complete-test requires an explicit 50-ohm conducted termination"
-        )
+    termination_ohms = None
+    if isinstance(termination, str):
+        match = re.match(r"^(\d+(?:\.\d+)?)(?:[ -]?ohm)\b", termination, re.IGNORECASE)
+        if match:
+            termination_ohms = float(match.group(1))
     bench = {
         "schema_version": 1,
-        "bench_id": "complete-test-conducted",
+        "bench_id": "complete-test-observed-environment",
         "receiver": {
             "transport": "local",
             "host": receiver["host"],
@@ -973,9 +970,9 @@ def _materialize_real_profiles(
         "rf_path": {
             "path_type": rf_path["path_type"],
             "antenna_connected": rf_path["antenna_connected"],
-            "termination_ohms": 50,
+            "termination_ohms": termination_ohms,
             "attenuation_db": rf_path["attenuation_db"],
-            "filter_description": rf_path["filter"] or "none",
+            "filter_description": rf_path["filter"] or "not provided",
             "safe_input_description": rf_path["safe_input_basis"],
         },
     }

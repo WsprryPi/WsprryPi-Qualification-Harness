@@ -23,6 +23,8 @@ class Backend(StrEnum):
 class PathType(StrEnum):
     CONDUCTED = "conducted"
     RADIATED = "radiated"
+    UNKNOWN = "unknown"
+    OTHER = "other"
 
 
 class AuthorizationScope(StrEnum):
@@ -97,7 +99,7 @@ class ReceiverConfig:
 @dataclass(frozen=True)
 class RfPathConfig:
     path_type: PathType
-    antenna_connected: bool
+    antenna_connected: bool | None
     termination_ohms: float | None
     attenuation_db: float | None
     filter_description: str

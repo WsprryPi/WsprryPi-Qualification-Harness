@@ -57,10 +57,9 @@ copies the installed WsprryPi executable and configuration, stages the required
 runtime, discovers the selected SDR immediately, and derives all five mode plans
 rather than accepting five operator-authored mode plans. Each host receives an
 independently owned durable per-campaign executable; temporary stages are removed,
-and the retained aggregate is revalidated afterward. `--enable-rf` also confirms
-the documented conducted
-default: antenna disconnected and a direct 50-ohm SDR input through 20 dB
-attenuation. Both endpoints
+and the retained aggregate is revalidated afterward. `--enable-rf` authorizes
+the bounded RF run without asserting a physical path. Unspecified environment
+facts are retained as unknown. Both endpoints
 may be remote to the controller; the controller delegates execution to the
 receiver. `--configuration PATH` remains an advanced development override:
 
@@ -95,17 +94,19 @@ An explicit `--transmitter-backend rp1_gpclk --transmit-gpio 4|20
 --gpio-manual-ppm PPM --rehearse --configuration CONFIG` selects the sealed RP1 hardware-free
 composer. The corresponding live form omits `--rehearse` and requires automatic
 exact-source deployment on one same-host transmitter/receiver target. Both bind
-two distinct logical roles on the named host, the canonical
-endpoint/module, ABI v4, finite TONE, route-specific r4 compatibility identity,
-`Experimental` enrollment, operation-live-gate capability, exact WsprryPi/component revisions,
-receiver/RF-path identity, and one provenance-bound PPM source. The WsprryPi
+two distinct logical roles on the named host, the canonical endpoint/module,
+ABI v4, finite TONE, the selected active route, operation-live-gate capability,
+observed WsprryPi/component/module/overlay/clock provenance, descriptive
+receiver/RF-path observations, and one provenance-bound PPM source. Unfamiliar
+build labels, revisions, hashes, or enrollment records are retained but are not
+eligibility gates. The WsprryPi
 argv uses its reviewed Pi-5 `--backend rp1-gpclk --transmit-gpio 4|20` interface,
 while the Harness retains `rp1_gpclk` as the authenticated backend identity.
 The complete route contract prevents legacy fallback. Live RP1 additionally
 requires authenticated same-host helper channels and a separately bound,
 operation-scoped development authorization for each transmission.
 
-Live RP1 preflight requires the enrolled provider to remain in its safe idle
+Live RP1 preflight requires the runtime provider to remain in its safe idle
 state with `live_output=0`, no endpoint owner or lease, and quiescent GPIO,
 clock, and DMA state. The exact bounded request and its development confirmation
 authorize output only through an ABI-v4 lease bound to that exact operation;

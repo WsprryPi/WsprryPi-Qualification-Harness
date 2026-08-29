@@ -118,9 +118,7 @@ def test_both_routes_compose_ten_independent_hardware_free_plans(tmp_path: Path)
 def test_route_substitution_tone_and_digest_tampering_fail(tmp_path: Path) -> None:
     campaign = compose_rp1_rehearsal(configuration(tmp_path, "gpio4"), "gpio4")
     wrong = deepcopy(campaign)
-    wrong["plans"][0]["application_plan"]["backend_contract"]["compatibility_id"] = route_contract(
-        "gpio20"
-    )["compatibility_id"]
+    wrong["plans"][0]["application_plan"]["backend_contract"]["rp1_route"] = "gpio20"
     with pytest.raises((Rp1CampaignError, ValueError)):
         validate_rp1_rehearsal(wrong)
     continuous = deepcopy(campaign)

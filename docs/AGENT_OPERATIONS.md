@@ -400,9 +400,10 @@ per-campaign executables, places generated campaign and dispatch inputs under
 `OUTPUT_PARENT/complete-test-inputs/CAMPAIGN_ID`, removes temporary stages, and
 revalidates the aggregate after cleanup. The invoking host's default progress
 JSONL is likewise durable user-state, not stage scratch, and remains until
-explicitly reviewed and removed. `--enable-rf` confirms the documented
-conducted default of an antenna-disconnected, direct 50-ohm SDR input through
-20 dB attenuation; per-run current state is rechecked by production preflight.
+explicitly reviewed and removed. `--enable-rf` authorizes the bounded RF run;
+it does not confirm a physical path. Record supplied or observable environment
+facts and use explicit unknown values for the rest. Runtime safety is rechecked
+by production preflight.
 If both endpoints are
 remote to the controller, execution is delegated to the receiver host, which
 coordinates the transmitter. The SDR selector must uniquely match receiver-side

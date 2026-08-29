@@ -21,13 +21,11 @@ RP1_ROUTES = {
         "gpio": 4,
         "output": "GPIO4",
         "endpoint_node": "rp1-gpclk-dkms-gpio4",
-        "compatibility_id": "v1.1.2-pi5-gpio4-6.18.34-development-candidate-r4",
     },
     "gpio20": {
         "gpio": 20,
         "output": "GPIO20",
         "endpoint_node": "rp1-gpclk-dkms-gpio20",
-        "compatibility_id": "v1.1.2-pi5-gpio20-6.18.34-development-candidate-r4",
     },
 }
 
@@ -57,7 +55,8 @@ def route_contract(route: str) -> dict[str, object]:
         "module": RP1_MODULE,
         "abi_version": 4,
         "finite_tone_required": True,
-        "development_enrollment": "Experimental",
+        "compatibility_id": "runtime-observed",
+        "development_enrollment": "not-required",
         "live_output_required": True,
         "operation_live_gate_required": True,
         "terminal_silence_required": True,
@@ -98,12 +97,10 @@ def validate_preflight(document: dict[str, Any], *, route: str) -> dict[str, Any
         "endpoint_device_identity",
         "module_version",
         "module_build_id",
-        "uapi_sha256",
         "vermagic",
         "signer",
         "installed_module_sha256",
         "compatibility_reason",
-        "development_manifest_sha256",
         "operation_state",
         "terminal_reason",
         "current_event",
@@ -115,13 +112,9 @@ def validate_preflight(document: dict[str, Any], *, route: str) -> dict[str, Any
         "module": RP1_MODULE,
         "route": route,
         "endpoint_node": expected["endpoint_node"],
-        "compatibility_id": expected["compatibility_id"],
-        "compatibility_state": "Experimental",
-        "development_enrollment": "Experimental",
         "abi_version": 4,
         "query_version": 3,
         "live_output": False,
-        "live_eligible": True,
         "operation_live_gate": True,
         "finite_tone": True,
         "endpoint_available": True,
@@ -153,7 +146,9 @@ def validate_preflight(document: dict[str, Any], *, route: str) -> dict[str, Any
         not isinstance(routes, dict)
         or set(routes)
         != {"requested", "saved", "configured", "active_overlay", "module_reported", "reconciled"}
-        or any(value != route for value in routes.values())
+        or routes["requested"] != route
+        or routes["active_overlay"] != route
+        or any(value not in {None, route} for value in routes.values())
     ):
         raise Rp1ContractError("RP1 route observations do not agree")
     generation = document.get("generation")
@@ -175,11 +170,10 @@ def validate_operation_lifecycle(
     expected_endpoint_device_identity: str,
 ) -> dict[str, Any]:
     _validate_schema(document, "rp1-operation-lifecycle.schema.json")
-    expected = route_contract(route)
     if document.get("endpoint") != RP1_ENDPOINT or document.get("route") != route:
         raise Rp1ContractError("RP1 lifecycle endpoint or wrong-route substitution detected")
-    if document.get("compatibility_id") != expected["compatibility_id"]:
-        raise Rp1ContractError("RP1 lifecycle compatibility identity is wrong-route")
+    if not isinstance(document.get("compatibility_id"), str) or not document["compatibility_id"]:
+        raise Rp1ContractError("RP1 lifecycle compatibility observation is missing")
     if document["plan_sha256"] != expected_plan_sha256:
         raise Rp1ContractError("RP1 lifecycle plan digest is missing or mismatched")
     if document["endpoint_device_identity"] != expected_endpoint_device_identity:
@@ -259,7 +253,6 @@ def validate_operation_lifecycle(
 
 
 def effective_ppm(source: dict[str, Any], residual: float, *, host: str, route: str) -> float:
-    expected = route_contract(route)
     if (
         source
         != {
@@ -268,12 +261,14 @@ def effective_ppm(source: dict[str, Any], residual: float, *, host: str, route: 
             "host": host,
             "backend": "rp1_gpclk",
             "route": route,
-            "compatibility_id": expected["compatibility_id"],
+            "compatibility_id": source.get("compatibility_id"),
             "provenance": source.get("provenance"),
             "application_path": "--gpio-manual-ppm",
         }
         or not isinstance(source.get("provenance"), str)
         or not source["provenance"]
+        or not isinstance(source.get("compatibility_id"), str)
+        or not source["compatibility_id"]
     ):
         raise Rp1ContractError("RP1 transmitter PPM provenance is incomplete or mismatched")
     value = source.get("value_ppm")

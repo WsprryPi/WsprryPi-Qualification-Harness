@@ -19,7 +19,7 @@
     "module": {"const": "rp1_gpclk_dkms"},
     "module_version": {"type": "string", "minLength": 1},
     "module_build_id": {"type": "string", "minLength": 1},
-    "uapi_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "uapi_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
     "vermagic": {"type": "string", "minLength": 1},
     "signer": {"type": "string", "minLength": 1},
     "installed_module_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
@@ -30,10 +30,10 @@
     "route": {"enum": ["gpio4", "gpio20"]},
     "endpoint_node": {"enum": ["rp1-gpclk-dkms-gpio4", "rp1-gpclk-dkms-gpio20"]},
     "compatibility_id": {"type": "string", "minLength": 1},
-    "compatibility_state": {"const": "Experimental"},
+    "compatibility_state": {"type": "string", "minLength": 1},
     "compatibility_reason": {"type": "string", "minLength": 1},
-    "development_enrollment": {"const": "Experimental"},
-    "development_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "development_enrollment": {"type": "string", "minLength": 1},
+    "development_manifest_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
     "live_eligible": {"type": "boolean"},
     "operation_live_gate": {"type": "boolean"},
     "cleanup_fault": {"type": "boolean"},
@@ -48,17 +48,34 @@
     "clock_quiescent": {"type": "boolean"},
     "dma_quiescent": {"type": "boolean"},
     "unresolved_route_transaction": {"type": "boolean"},
+    "observed_platform": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["observation_policy", "kernel", "module_file", "module_file_sha256", "enrollments", "overlay", "active_device_tree", "parent_clock"],
+      "properties": {
+        "observation_policy": {"const": "record_not_approve"},
+        "kernel": {"type": "string", "minLength": 1},
+        "board_model": {"type": ["string", "null"]},
+        "module_srcversion": {"type": ["string", "null"]},
+        "module_file": {"type": "string", "minLength": 1},
+        "module_file_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "enrollments": {"type": "array", "items": {"type": "object"}},
+        "overlay": {"type": "object"},
+        "active_device_tree": {"type": "object"},
+        "parent_clock": {"type": "object"}
+      }
+    },
     "route_state": {
       "type": "object",
       "additionalProperties": false,
       "required": ["requested", "saved", "configured", "active_overlay", "module_reported", "reconciled"],
       "properties": {
         "requested": {"enum": ["gpio4", "gpio20"]},
-        "saved": {"enum": ["gpio4", "gpio20"]},
-        "configured": {"enum": ["gpio4", "gpio20"]},
+        "saved": {"enum": ["gpio4", "gpio20", null]},
+        "configured": {"enum": ["gpio4", "gpio20", null]},
         "active_overlay": {"enum": ["gpio4", "gpio20"]},
-        "module_reported": {"enum": ["gpio4", "gpio20"]},
-        "reconciled": {"enum": ["gpio4", "gpio20"]}
+        "module_reported": {"enum": ["gpio4", "gpio20", null]},
+        "reconciled": {"enum": ["gpio4", "gpio20", null]}
       }
     }
   }

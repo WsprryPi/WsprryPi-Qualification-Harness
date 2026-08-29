@@ -57,12 +57,12 @@ def _ppm(
                 "provenance": "operator-supplied measured RP1 source via --gpio-manual-ppm",
             }
         )
-    expected = route_contract(route)
     if (
         source["host"] != configuration["host"]
         or source["backend"] != "rp1_gpclk"
         or source["route"] != route
-        or source["compatibility_id"] != expected["compatibility_id"]
+        or not isinstance(source.get("compatibility_id"), str)
+        or not source["compatibility_id"]
         or source["application_path"] != "--gpio-manual-ppm"
     ):
         raise Rp1CampaignError("RP1 transmitter PPM provenance is wrong-host or wrong-route")

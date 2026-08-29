@@ -343,9 +343,7 @@ def test_same_host_rp1_route_and_manual_ppm_are_bound(tmp_path: Path, transmit_g
         )
         assert contract["rp1_route"] == f"gpio{transmit_gpio}"
         assert contract["gpio_pin"] == transmit_gpio
-        assert contract["compatibility_id"].endswith(
-            f"gpio{transmit_gpio}-6.18.34-development-candidate-r4"
-        )
+        assert contract["compatibility_id"] == "runtime-observed"
         if entry["mode"] != "WSPR":
             arguments = (
                 child["tone_server"]["arguments"]
