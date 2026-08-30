@@ -93,7 +93,10 @@ falls back to GPIO or to the installed INI backend default.
 An explicit `--transmitter-backend rp1_gpclk --transmit-gpio 4|20
 --gpio-manual-ppm PPM --rehearse --configuration CONFIG` selects the sealed RP1 hardware-free
 composer. The corresponding live form omits `--rehearse` and requires automatic
-exact-source deployment on one same-host transmitter/receiver target. Both bind
+exact-source deployment or the installed-binary development path on one
+same-host transmitter/receiver target. The installed path builds only a passive
+administrative probe from a disposable clone of `/home/pi/WsprryPi`; it does not
+establish that the installed binary was built from that checkout. Both bind
 two distinct logical roles on the named host, the canonical endpoint/module,
 ABI v4, finite TONE, the selected active route, operation-live-gate capability,
 observed WsprryPi/component/module/overlay/clock provenance, descriptive
@@ -253,6 +256,6 @@ at spawn and compares the post-process repository state with its exact original
 baseline, including pre-existing dirty work. Mutation fails cleanup and is
 reported without automatic repair.
 The current production application/quiescence contracts support GPIO, Si5351,
-and RP1 GPCLK. RP1 remains an explicit Experimental exact-source path; its
+and RP1 GPCLK. RP1 remains an explicit Experimental development path; its
 route, drive, provider identity, operation authorization, and quiescence
 requirements cannot leak into GPIO or Si5351 plans.

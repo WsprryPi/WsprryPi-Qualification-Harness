@@ -56,9 +56,14 @@ roles, ABI-v4 finite TONE, exact PPM provenance, and receiver/RF-path identity.
 It constructs no production adapter, makes no external call, and is not
 deployment, target, GPIO, SDR, or qualification evidence.
 
-The maintained live RP1 form requires automatic exact-source deployment and an
-identical transmitter/receiver host. The receiver delegation enters that host
-once through the configured controller SSH alias. Inside the host, distinct,
+The maintained live RP1 form accepts either automatic exact-source deployment or
+the installed WsprryPi binary/configuration development path and requires an
+identical transmitter/receiver host. The installed path copies and authenticates
+the installed runtime bytes and builds only the passive RP1 administrative probe
+from a disposable clone of `/home/pi/WsprryPi`; it does not rebuild WsprryPi.
+That path is rapid-development evidence and does not prove that the installed
+binary was produced by the observed checkout. The receiver delegation enters
+that host once through the configured controller SSH alias. Inside the host, distinct,
 digest-bound local transmitter and receiver helper channels are used; self-SSH
 and agent forwarding are not part of the topology. The transmitter helper
 retains a schema-validated passive ABI-v4-capable snapshot before RF and after cleanup.
@@ -76,7 +81,7 @@ an allowlisted route, `read_only=true`, and `acquire_endpoint=false`. The
 same-host collector binds that response to the exact plan, transmitter helper,
 helper binary, role configuration, and a separate receiver channel. It forbids
 RF authorization, agent forwarding, and self-SSH. Live RP1 `complete-test`
-extends this passive prerequisite with exact-source deployment and a separately
+extends this passive prerequisite with the selected deployment path and a separately
 authenticated, operation-scoped authorization for each bounded transmission.
 
 Every invocation creates an exclusive JSON Lines progress log and prints its

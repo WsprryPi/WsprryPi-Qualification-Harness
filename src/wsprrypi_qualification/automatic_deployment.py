@@ -240,10 +240,6 @@ def _prepare_transmitter(
     token = stage.root.rsplit("-", 1)[-1]
     deployment = f"/home/pi/wsprrypi-qualification-runs/complete-test-deployment-{token}"
     if installed_binary is not None:
-        if transmitter_backend == "rp1_gpclk":
-            raise AutomaticDeploymentError(
-                "RP1 automatic deployment requires an exact WsprryPi source selection"
-            )
         if not PurePosixPath(installed_binary).is_absolute():
             raise AutomaticDeploymentError("installed WsprryPi binary must be absolute")
         if not PurePosixPath(installed_configuration).is_absolute():
@@ -272,7 +268,8 @@ def _prepare_transmitter(
             "assert hashlib.sha256(config.read_bytes()).hexdigest()=="
             "hashlib.sha256(config_data).hexdigest();"
             "(pathlib.Path(sys.argv[1])/'gpio-inspect').chmod(0o700);"
-            "(pathlib.Path(sys.argv[1])/'si5351-inspect').chmod(0o700);print(str(binary))"
+            "(pathlib.Path(sys.argv[1])/'si5351-inspect').chmod(0o700);"
+            "(pathlib.Path(sys.argv[1])/'rp1-inspect').chmod(0o700);print(str(binary))"
         )
         result = stage.run_python(
             program,
@@ -281,9 +278,27 @@ def _prepare_transmitter(
             installed_binary,
             installed_configuration,
         )
+        _require(result, "installed WsprryPi runtime staging")
         source_path = "/home/pi/WsprryPi"
         tone_configuration_source = installed_configuration
         tone_configuration = f"{deployment}/wsprrypi.ini"
+        if transmitter_backend == "rp1_gpclk":
+            probe_result = stage.run_python_to_completion(
+                "import os,subprocess;source=pathlib.Path(sys.argv[2]);"
+                "deployment=pathlib.Path(sys.argv[3]);build_source=deployment/'probe-source';"
+                "r=subprocess.run(['/usr/bin/git','clone',str(source),str(build_source)],"
+                "capture_output=True,text=True);assert r.returncode==0,r.stderr;"
+                "r=subprocess.run(['/usr/bin/make','-C',str(build_source/'src'),'-j2',"
+                "'BACKENDS=rp1-gpclk','rp1-gpclk-admin-probe'],capture_output=True,text=True)\n"
+                "assert r.returncode==0,r.stdout+r.stderr\n"
+                "probe_source=build_source/'src/build/bin/rp1_gpclk_admin_probe';"
+                "data=probe_source.read_bytes();target=deployment/'rp1-admin-probe';"
+                "fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o700);"
+                "os.write(fd,data);os.fsync(fd);os.close(fd);print(str(target))",
+                source_path,
+                deployment,
+            )
+            _require(probe_result, "installed RP1 administrative probe build")
     else:
         program = (
             "import hashlib,os,shutil,subprocess,zipfile;root=pathlib.Path(sys.argv[1]);"

@@ -1,4 +1,6 @@
+import ast
 import base64
+import inspect
 import subprocess
 from pathlib import Path
 
@@ -81,6 +83,72 @@ def test_rp1_source_build_selects_the_rp1_provider_profile() -> None:
     deployment = "/home/pi/wsprrypi-qualification-runs/complete-test-deployment-stage"
     assert stage.calls[0][1] == (deployment, stage.owner_token, "rp1-gpclk")
     assert "sys.argv[4]!='rp1-gpclk' or probe_data" in stage.calls[0][0]
+
+
+def test_rp1_installed_binary_builds_only_the_ephemeral_admin_probe() -> None:
+    stage = _InstalledTransmitterStage()
+
+    paths = automatic_deployment._prepare_transmitter(
+        stage,
+        installed_binary="/usr/local/bin/wsprrypi",
+        transmitter_backend="rp1_gpclk",
+        transmit_gpio=20,
+    )
+
+    assert len(stage.calls) == 4
+    assert stage.calls[0][1][-2:] == (
+        "/usr/local/bin/wsprrypi",
+        "/usr/local/etc/wsprrypi.ini",
+    )
+    assert stage.calls[1][1] == ("/home/pi/WsprryPi", paths["deployment_root"])
+    assert "BACKENDS=rp1-gpclk" in stage.calls[1][0]
+    assert "rp1-gpclk-admin-probe" in stage.calls[1][0]
+    assert "source=pathlib.Path(sys.argv[2])" in stage.calls[1][0]
+    compile(stage.calls[1][0], "<installed-rp1-probe-build>", "exec")
+    assert stage.calls[2][1] == (
+        f"{paths['deployment_root']}/rp1-admin-probe",
+        paths["rp1_probe"],
+    )
+    assert paths["source"] == "/home/pi/WsprryPi"
+
+
+def test_automatic_rf_authorization_does_not_assert_physical_path() -> None:
+    tree = ast.parse(inspect.getsource(automatic_deployment._delegate_automatic_complete_test))
+    confirmations = [
+        ast.literal_eval(value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Dict)
+        for key, value in zip(node.keys, node.values, strict=True)
+        if isinstance(key, ast.Constant) and key.value == "rf_confirmation"
+    ]
+    assert confirmations == [
+        {
+            "path_type": "unknown",
+            "antenna_connected": None,
+            "termination": None,
+            "attenuation_db": None,
+            "filter": None,
+            "safe_input_basis": "not provided",
+            "authorization_scope": "single_run",
+        }
+    ]
+
+
+def test_failed_installed_runtime_staging_does_not_build_probe() -> None:
+    class FailedStage(_InstalledTransmitterStage):
+        def run_python(self, program, *arguments, timeout_s=None):
+            super().run_python(program, *arguments, timeout_s=timeout_s)
+            return subprocess.CompletedProcess([], 1, "", "copy failed")
+
+    stage = FailedStage()
+    with pytest.raises(automatic_deployment.AutomaticDeploymentError, match="runtime staging"):
+        automatic_deployment._prepare_transmitter(
+            stage,
+            installed_binary="/usr/local/bin/wsprrypi",
+            transmitter_backend="rp1_gpclk",
+            transmit_gpio=20,
+        )
+    assert len(stage.calls) == 1
 
 
 def test_installed_configuration_is_staged_byte_for_byte_without_normalization() -> None:
