@@ -364,3 +364,12 @@ does not turn missing receiver evidence into transmitter unqualification.
 The harness does not keep these bundles in Git. Use a temporary or external
 output directory, then move records selected for preservation to the target
 project or another approved evidence store.
+
+Legacy GPIO campaigns accept `--transmitter-backend gpio --transmit-gpio 4|20`.
+Omitting the pin preserves the GPIO4 default. The selection binds every mode's
+output, GPIO backend contract, transmitter arguments, and quiescence inspection.
+TONE explicitly overrides the installed INI backend, pin, and drive in its
+campaign-owned process; the installed INI is not edited. RP1 still requires an
+explicit pin, and `--rp1-route` remains RP1-only. Si5351 rejects GPIO selectors.
+When a configuration is supplied, its mode plans must agree with an explicit
+pin selector; the harness does not silently rewrite an authenticated plan.

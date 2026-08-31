@@ -105,11 +105,20 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         raise AutomaticConfigurationError("transmitter backend is unsupported")
     si5351 = backend == "si5351"
     rp1 = backend == "rp1_gpclk"
+    gpio_pin = facts.get("transmit_gpio")
+    if backend == "gpio" and gpio_pin is None:
+        gpio_pin = 4
+    if backend != "si5351" and (type(gpio_pin) is not int or gpio_pin not in {4, 20}):
+        raise AutomaticConfigurationError("GPIO route must be exactly GPIO4 or GPIO20")
+    if si5351 and gpio_pin is not None:
+        raise AutomaticConfigurationError("Si5351 does not accept a transmit GPIO")
     rp1_route = None if not rp1 else f"gpio{facts.get('transmit_gpio')}"
     if rp1 and rp1_route not in {"gpio4", "gpio20"}:
         raise AutomaticConfigurationError("RP1 route must be exactly GPIO4 or GPIO20")
     rp1_identity = None if not rp1 else route_contract(cast(str, rp1_route))
-    output = "CLK0" if si5351 else str(rp1_identity["output"]) if rp1_identity else "GPIO4"
+    output = (
+        "CLK0" if si5351 else str(rp1_identity["output"]) if rp1_identity else f"GPIO{gpio_pin}"
+    )
     drive = 1 if si5351 else 0
     quiescence = (
         artifacts["tx_si5351"] if si5351 else artifacts["tx_rp1"] if rp1 else artifacts["tx_gpio"]
@@ -151,7 +160,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
         else {
             "backend": "gpio",
             "output": output,
-            "gpio_pin": 4,
+            "gpio_pin": gpio_pin,
             "drive_or_power_level": drive,
             "quiescence_provider_sha256": quiescence["sha256"],
         }
@@ -371,7 +380,14 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
                         "0",
                     ]
                     if rp1
-                    else []
+                    else [
+                        "--backend",
+                        "gpio",
+                        "--transmit-gpio",
+                        str(gpio_pin),
+                        "--gpio-power-level",
+                        "0",
+                    ]
                 ),
                 "--socket-port",
                 "31416",
@@ -428,7 +444,7 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
                 if si5351
                 else [
                     "--transmit-gpio",
-                    str(cast(dict[str, Any], rp1_identity)["gpio"]) if rp1 else "4",
+                    str(gpio_pin),
                     "--gpio-power-level",
                     "0",
                     "--gpio-manual-ppm",

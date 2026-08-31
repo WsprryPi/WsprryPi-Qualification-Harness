@@ -284,3 +284,12 @@ not the remote temporary deployment stage. A five-mode run retains a coherent
 740 MB capture plus keyed captures and derived artifacts, so a small RAM-backed `/tmp` is not
 a suitable capture store. These work files are operational evidence outside
 Git and remain until an explicit retention/cleanup action.
+
+Legacy GPIO campaigns accept `--transmitter-backend gpio --transmit-gpio 4|20`.
+Omitting the pin preserves the GPIO4 default. The selection binds every mode's
+output, GPIO backend contract, transmitter arguments, and quiescence inspection.
+TONE explicitly overrides the installed INI backend, pin, and drive in its
+campaign-owned process; the installed INI is not edited. RP1 still requires an
+explicit pin, and `--rp1-route` remains RP1-only. Si5351 rejects GPIO selectors.
+When a configuration is supplied, its mode plans must agree with an explicit
+pin selector; the harness does not silently rewrite an authenticated plan.

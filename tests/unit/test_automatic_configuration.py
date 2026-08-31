@@ -8,7 +8,10 @@ from wsprrypi_qualification.complete_test import CompleteTestOverrides, compose_
 from wsprrypi_qualification.offline import artifact
 
 
-def test_discovered_facts_create_all_five_production_plans(tmp_path: Path) -> None:
+@pytest.mark.parametrize("transmit_gpio", [None, 4, 20])
+def test_discovered_facts_create_all_five_production_plans(
+    tmp_path: Path, transmit_gpio: int | None
+) -> None:
     names = (
         "ssh",
         "ssh_keygen",
@@ -79,6 +82,7 @@ def test_discovered_facts_create_all_five_production_plans(tmp_path: Path) -> No
             "qualification": launcher,
         },
     }
+    facts["transmit_gpio"] = transmit_gpio
     facts_path = tmp_path / "facts.json"
     facts_path.write_text(json.dumps(facts))
     configuration = write_automatic_configuration(facts_path, tmp_path / "configuration")
@@ -96,6 +100,25 @@ def test_discovered_facts_create_all_five_production_plans(tmp_path: Path) -> No
         "FSKCW",
         "DFCW",
     ]
+    selected_gpio = 4 if transmit_gpio is None else transmit_gpio
+    for entry in plan["mode_plans"]:
+        child = entry["plan"]
+        contract = (
+            child["backend_contract"]
+            if entry["mode"] in {"TONE", "WSPR"}
+            else child["application_plan"]["backend_contract"]
+        )
+        assert contract["output"] == f"GPIO{selected_gpio}"
+        assert contract["gpio_pin"] == selected_gpio
+        if entry["mode"] == "WSPR":
+            continue
+        arguments = (
+            child["tone_server"]["arguments"]
+            if entry["mode"] == "TONE"
+            else child["application_plan"]["arguments"]
+        )
+        assert arguments.count("--transmit-gpio") == 1
+        assert arguments[arguments.index("--transmit-gpio") + 1] == str(selected_gpio)
     assert all(entry["plan"]["rf_path"]["attenuation_db"] == 20 for entry in plan["mode_plans"])
     assert all(
         entry["plan"]["receiver"]["clipping_threshold"] == 0.999 for entry in plan["mode_plans"][2:]

@@ -956,7 +956,22 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
                 "--gpio-manual-ppm",
                 format(float(document["calibration"]["ppm"]), ".15g"),
             ]
-            accepted_arguments = [expected_arguments]
+            contract = document["backend_contract"]
+            explicit_arguments = [
+                *expected_arguments[:4],
+                "--backend",
+                "gpio",
+                "--transmit-gpio",
+                str(contract["gpio_pin"]),
+                "--gpio-power-level",
+                str(contract["drive_or_power_level"]),
+                *expected_arguments[4:],
+            ]
+            # Historical GPIO4 plans relied on their pinned INI. GPIO20 must
+            # select its output explicitly so an installed GPIO4 default cannot leak in.
+            accepted_arguments = [explicit_arguments]
+            if contract["gpio_pin"] == 4:
+                accepted_arguments.append(expected_arguments)
         elif document["backend"] == "rp1_gpclk":
             contract = document["backend_contract"]
             accepted_arguments = [

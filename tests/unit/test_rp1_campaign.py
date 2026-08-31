@@ -240,7 +240,7 @@ def test_cli_requires_route_exactly_for_rp1(tmp_path: Path, capsys) -> None:
         )
         == 2
     )
-    assert "--transmit-gpio" in capsys.readouterr().err
+    assert "--rp1-route requires --transmitter-backend rp1_gpclk" in capsys.readouterr().err
 
 
 def test_cli_rejects_conflicting_route_spellings(tmp_path: Path, capsys) -> None:

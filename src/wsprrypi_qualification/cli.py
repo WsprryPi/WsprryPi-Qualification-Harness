@@ -479,7 +479,7 @@ def _parser() -> argparse.ArgumentParser:
         "--transmit-gpio",
         type=int,
         choices=(4, 20),
-        help="explicit RP1 GPCLK transmitter route; only GPIO4 and GPIO20 are supported",
+        help="GPIO or RP1 transmitter pin: 4 or 20; GPIO defaults to 4, RP1 requires a selection",
     )
     complete.add_argument("--band", default="20m")
     complete.add_argument("--frequency-hz", type=int, default=14_097_100)
@@ -613,18 +613,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             if args.rf_path is not None and (args.configuration is not None or args.rehearse):
                 raise CompleteTestError("--rf-path applies only to automatic live deployment")
-            selected_rp1_route = None if args.transmit_gpio is None else f"gpio{args.transmit_gpio}"
-            if (
-                selected_rp1_route is not None
-                and args.rp1_route is not None
-                and selected_rp1_route != args.rp1_route
-            ):
-                raise CompleteTestError("--transmit-gpio and --rp1-route disagree")
-            selected_rp1_route = selected_rp1_route or args.rp1_route
-            if (args.transmitter_backend == "rp1_gpclk") != (selected_rp1_route is not None):
-                raise CompleteTestError(
-                    "--transmit-gpio is required exactly for --transmitter-backend rp1_gpclk"
-                )
+            if args.rp1_route is not None and args.transmitter_backend != "rp1_gpclk":
+                raise CompleteTestError("--rp1-route requires --transmitter-backend rp1_gpclk")
+            selected_gpio = args.transmit_gpio
+            if args.rp1_route is not None:
+                route_gpio = int(args.rp1_route.removeprefix("gpio"))
+                if selected_gpio is not None and selected_gpio != route_gpio:
+                    raise CompleteTestError("--transmit-gpio and --rp1-route disagree")
+                selected_gpio = route_gpio
+            if args.transmitter_backend == "si5351" and selected_gpio is not None:
+                raise CompleteTestError("--transmit-gpio is not supported by Si5351")
+            selected_rp1_route = (
+                f"gpio{selected_gpio}"
+                if args.transmitter_backend == "rp1_gpclk" and selected_gpio is not None
+                else None
+            )
+            if args.transmitter_backend == "rp1_gpclk" and selected_rp1_route is None:
+                raise CompleteTestError("--transmit-gpio is required for RP1")
             if args.transmitter_backend == "rp1_gpclk":
                 assert selected_rp1_route is not None
                 if args.rehearse and args.configuration is None:
@@ -755,8 +760,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         str(args.transmitter_ppm_offset),
                     )
                 )
-                if selected_rp1_route is not None:
-                    forwarded.extend(("--transmit-gpio", selected_rp1_route.removeprefix("gpio")))
+                if selected_gpio is not None:
+                    forwarded.extend(("--transmit-gpio", str(selected_gpio)))
                 if args.configuration is None:
                     delegated = delegate_automatic_complete_test(
                         args.transmitter_host,
@@ -771,11 +776,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         allow_unqualified_frequency=args.allow_unqualified_frequency,
                         wsprrypi_source=args.wsprrypi_source,
                         transmitter_backend=args.transmitter_backend,
-                        transmit_gpio=(
-                            None
-                            if selected_rp1_route is None
-                            else int(selected_rp1_route.removeprefix("gpio"))
-                        ),
+                        transmit_gpio=selected_gpio,
                         progress=reporter,
                     )
                 else:
@@ -833,6 +834,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                 delegation_receipt=delegation_receipt,
                 live=not args.rehearse,
             )
+            if selected_gpio is not None:
+                for entry in complete_plan["mode_plans"]:
+                    child = entry["plan"]
+                    contract = (
+                        child["backend_contract"]
+                        if entry["mode"] in {"TONE", "WSPR"}
+                        else child["application_plan"]["backend_contract"]
+                    )
+                    backend = (
+                        child["backend"]
+                        if entry["mode"] in {"TONE", "WSPR"}
+                        else child["application_plan"]["backend"]
+                    )
+                    if (
+                        backend != args.transmitter_backend
+                        or contract["output"] != f"GPIO{selected_gpio}"
+                    ):
+                        raise CompleteTestError("configured plans disagree with --transmit-gpio")
             execution = complete_plan["execution_paths"]
             output_parent = Path(execution["output_parent"])
             if args.rehearse:

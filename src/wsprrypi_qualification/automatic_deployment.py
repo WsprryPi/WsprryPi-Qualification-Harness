@@ -592,8 +592,14 @@ def _delegate_automatic_complete_test(
 ) -> dict[str, Any]:
     if transmitter_backend not in {"gpio", "si5351", "rp1_gpclk"}:
         raise AutomaticDeploymentError("automatic deployment backend is unsupported")
-    if (transmitter_backend == "rp1_gpclk") != (transmit_gpio in {4, 20}):
-        raise AutomaticDeploymentError("RP1 automatic deployment requires GPIO4 or GPIO20")
+    if transmitter_backend == "gpio" and transmit_gpio is None:
+        transmit_gpio = 4
+    if transmitter_backend != "si5351" and (
+        type(transmit_gpio) is not int or transmit_gpio not in {4, 20}
+    ):
+        raise AutomaticDeploymentError("GPIO automatic deployment requires GPIO4 or GPIO20")
+    if transmitter_backend == "si5351" and transmit_gpio is not None:
+        raise AutomaticDeploymentError("Si5351 does not accept a transmit GPIO")
     source = _validate_runtime_selection(wsprrypi_binary, wsprrypi_configuration, wsprrypi_source)
     root = Path(__file__).resolve().parents[1]
     discovered_ssh = shutil.which("ssh")

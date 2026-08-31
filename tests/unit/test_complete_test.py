@@ -982,6 +982,7 @@ def test_complete_test_source_build_is_explicit_and_mutually_exclusive(tmp_path:
         (("--wsprrypi-source", "."), None, Path(".")),
     ),
 )
+@pytest.mark.parametrize("gpio", [None, 4, 20])
 def test_remote_complete_test_forwards_explicit_runtime_selection(
     tmp_path: Path,
     monkeypatch,
@@ -989,12 +990,14 @@ def test_remote_complete_test_forwards_explicit_runtime_selection(
     runtime_arguments: tuple[str, ...],
     expected_binary: str | None,
     expected_source: Path | None,
+    gpio: int | None,
 ) -> None:
     monkeypatch.setenv("WSPQ_PROGRESS_DIR", str(tmp_path / "progress"))
     observed = {}
 
     def delegated(*args, **kwargs):
         observed.update(kwargs)
+        observed["forwarded"] = args[3]
         return {
             "bundle": "/retained/campaign",
             "result": {
@@ -1015,11 +1018,16 @@ def test_remote_complete_test_forwards_explicit_runtime_selection(
         SDR,
         "--enable-rf",
         *runtime_arguments,
+        *([] if gpio is None else ["--transmit-gpio", str(gpio)]),
     ]
     assert main(arguments) == 0
     assert observed["wsprrypi_binary"] == expected_binary
     assert observed["wsprrypi_source"] == expected_source
     assert observed["wsprrypi_configuration"] == "/usr/local/etc/wsprrypi.ini"
+    assert observed["transmit_gpio"] == gpio
+    if gpio is not None:
+        forwarded = observed["forwarded"]
+        assert forwarded[forwarded.index("--transmit-gpio") + 1] == str(gpio)
     capsys.readouterr()
 
 
@@ -1175,3 +1183,46 @@ def test_measurement_result_does_not_gate_later_modes(tmp_path, failed_mode, mea
     assert entries[2]["state"] == "attempted_unverified"
     assert entries[3]["state"] == entries[4]["state"] == "not_attempted"
     assert outcome["result"]["final_status"] == "cleanup_failed"
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["--transmitter-backend", "si5351", "--transmit-gpio", "20"],
+        ["--transmitter-backend", "gpio", "--rp1-route", "gpio20"],
+        ["--transmitter-backend", "rp1_gpclk"],
+        ["--transmitter-backend", "rp1_gpclk", "--transmit-gpio", "4", "--rp1-route", "gpio20"],
+    ],
+)
+def test_invalid_gpio_selector_combinations_block_before_deployment(tmp_path, monkeypatch, options):
+    monkeypatch.setenv("WSPQ_PROGRESS_DIR", str(tmp_path / "progress"))
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("invalid GPIO selection must not contact a host")
+
+    monkeypatch.setattr(cli_module, "delegate_automatic_complete_test", forbidden)
+    assert main(["complete-test", "wspr4", "wspr5", "--sdr", SDR, "--enable-rf", *options]) == 2
+
+
+@pytest.mark.parametrize("gpio,expected", [(4, 0), (20, 2)])
+def test_explicit_gpio_must_match_supplied_mode_plans(tmp_path, monkeypatch, gpio, expected):
+    monkeypatch.setenv("WSPQ_PROGRESS_DIR", str(tmp_path / "progress"))
+    monkeypatch.setattr(cli_module, "receiver_is_local", lambda host: True)
+    config = _configuration(tmp_path)
+    assert (
+        main(
+            [
+                "complete-test",
+                "wspr4.local",
+                "wspr5.local",
+                "--sdr",
+                SDR,
+                "--configuration",
+                str(config),
+                "--rehearse",
+                "--transmit-gpio",
+                str(gpio),
+            ]
+        )
+        == expected
+    )
