@@ -421,3 +421,49 @@ def test_separated_shifted_states_acquire_inside_either_authenticated_window(
     assert d["issues"] == []
     assert min(abs(d["acquired_frequency_hz"] - f) for f in [10100, 10600]) <= 50
     assert np.all(active[int(1.1 * rate) : int(2.9 * rate)])
+
+
+@pytest.mark.parametrize("shift", [-0.25, 0.0, 0.194, 0.6, 0.9])
+def test_tone_temporal_interiors_follow_bounded_common_latency(tmp_path: Path, shift: float):
+    from wsprrypi_qualification.carrier import _aligned_tone_intervals, _temporal_carrier_guard
+
+    rate = 8000
+    t = np.arange(14 * rate) / rate
+    rng = np.random.default_rng(492)
+    values = 0.001 * (rng.normal(size=t.size) + 1j * rng.normal(size=t.size))
+    for start in (2, 6, 10):
+        values += (
+            0.2 * np.exp(2j * np.pi * 1000 * t) * ((t >= start + shift) & (t < start + 2 + shift))
+        )
+    path = tmp_path / "tone.cf32"
+    values.astype("<c8").tofile(path)
+    plan = {
+        "mode": "tone",
+        "capture_contract": {"sample_rate_hz": rate, "center_frequency_hz": 10000},
+        "protocol": {"primary_frequency_hz": 11000, "pre_quiet_seconds": 2},
+        "thresholds": {
+            "timing_tolerance_s": 0.15,
+            "maximum_alignment_shift_s": 0.75,
+            "frequency_acquisition_half_width_hz": 200,
+            "minimum_contrast_db": 10,
+        },
+    }
+    expected = {"events": [{"start_s": s, "end_s": s + 2, "rf_state": "on"} for s in (2, 6, 10)]}
+    if shift > 0.75:
+        from wsprrypi_qualification.offline import OfflineAnalysisError
+
+        with pytest.raises(OfflineAnalysisError, match="bounded alignment"):
+            _aligned_tone_intervals(path, plan, expected)
+        return
+    intervals = _aligned_tone_intervals(path, plan, expected)
+    assert intervals[0][0] == pytest.approx(2 + shift + 0.15, abs=0.01)
+    params = CarrierParameters(rate, 10000, 11000, temporal_on_intervals_s=intervals)
+    assert _temporal_carrier_guard(path, params, 11000)["below_contrast_window_count"] == 0
+    # A real interior dropout must not disappear through independently fitted edges.
+    values[(t >= 6.8 + shift) & (t < 6.85 + shift)] = 0
+    values.astype("<c8").tofile(path)
+    assert _temporal_carrier_guard(path, params, 11000)["below_contrast_window_count"] > 0
+    from wsprrypi_qualification.offline import OfflineAnalysisError
+
+    with pytest.raises(OfflineAnalysisError, match="bounded alignment"):
+        _aligned_tone_intervals(path, plan, expected)

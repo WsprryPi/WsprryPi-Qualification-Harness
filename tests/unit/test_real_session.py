@@ -1106,3 +1106,32 @@ def test_publication_failure_rolls_back_and_retry_succeeds(tmp_path: Path, monke
     assert not any(tmp_path.iterdir())
     monkeypatch.setattr(module, "write_manifest", original)
     assert run(tmp_path, FakeAdapters())["final_status"] == "inconclusive"
+
+
+@pytest.mark.parametrize("tone, guard", [(False, "noise"), (True, "noise"), (True, "cadence")])
+@pytest.mark.parametrize("failure", [None, "cleanup_outcome", "quiescence_outcome"])
+def test_authenticated_inconclusive_carrier_publishes_and_stops(
+    tmp_path: Path, tone: bool, guard: str, failure
+):
+    class NoisyCarrier(FakeAdapters):
+        def analyze_carrier(self, plan, rf_off, rf_on):
+            result = super().analyze_carrier(plan, rf_off, rf_on)
+            key = "noise_guard_outcome" if guard == "noise" else "cadence_gate"
+            result["details"][key] = "inconclusive"
+            return result
+
+    plan = ResolvedRealSessionPlan(tone_plan_document() if tone else plan_document())
+    adapters = NoisyCarrier(carrier="inconclusive", fail=failure)
+    external, rf = authorizations(plan)
+    result = RealQualificationSession(plan, adapters, now=NOW).run(external, rf, tmp_path)
+    assert result["final_status"] == ("cleanup_failed" if failure else "inconclusive")
+    if failure is None:
+        assert result["cleanup"]["outcome"] == "verified"
+        assert result["quiescence"]["outcome"] == "verified"
+    assert "frames" not in adapters.calls and "decode" not in adapters.calls
+
+
+def test_forged_inconclusive_carrier_is_rejected(tmp_path: Path):
+    result = run(tmp_path, FakeAdapters(carrier="inconclusive"))
+    assert result["final_status"] == "aborted"
+    assert any("carrier gate contradicts" in c for c in result["failure_causes"])

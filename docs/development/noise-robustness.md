@@ -118,13 +118,17 @@ Continuous-carrier input covers the complete retained capture, including its
 FFT tail. TONE cadence uses `analyze-carrier --cw-mode-plan PLAN
 --cw-expected-events EVENTS`; both inputs are required together, authenticated,
 and checked against capture count, rate, center, and requested frequency. The
-guard checks every expected ON interior, excluding only the plan's existing
-timing tolerance at its boundaries. The separate full cadence analyzer checks
+guard checks every expected ON interior after the cadence detector's bounded
+common-latency alignment, excluding only the plan's existing timing tolerance
+at its boundaries. Individual pulses are never independently realigned.
+Unsupported alignment, contaminated references, or excessive edge uncertainty
+stop analysis. Aligned intervals and `bounded_common_latency_v1` are retained;
+older unaligned TONE evidence requires its original analyzer. The separate full cadence analyzer checks
 edges, gaps, silence, and capture tail. A cadence failure now prevents campaign
 progression; this strengthens the historical diagnostic-only TONE behavior.
 FFT evidence is retained unchanged and `mode_gate` remains `not_applicable`.
 
-The extra RF-on projection read is included explicitly in the TONE analysis
+The extra RF-on projection and alignment reads are included explicitly in the TONE analysis
 workload bound. No timeout reserve or RF-duration allowance is introduced.
 
 ## Evidence compatibility
@@ -173,3 +177,7 @@ Background references: [SciPy FIR design](https://docs.scipy.org/doc/scipy/refer
 [CFAR assumptions](https://www.mathworks.com/help/radar/ug/constant-false-alarm-rate-cfar-detection.html),
 and [GNU Radio hysteresis](https://wiki.gnuradio.org/index.php/Threshold).
 These explain mechanisms, not validated settings for this harness.
+
+Authenticated inconclusive carrier evidence can publish a bounded inconclusive
+session only with retained RF-off/RF-on evidence and verified cleanup and
+quiescence. It never advances to frames; cleanup failure retains precedence.

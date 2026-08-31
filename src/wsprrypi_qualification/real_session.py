@@ -116,7 +116,7 @@ def tone_analysis_deadline(plan: dict[str, Any]) -> int:
     carrier_work = (
         _tone_capture_bytes(plan, "rf_off") + _tone_capture_bytes(plan, "rf_on")
     ) * TONE_CARRIER_ANALYSIS_CAPTURE_PASSES
-    carrier_work += _tone_capture_bytes(plan, "rf_on")  # Version-3 temporal projection pass.
+    carrier_work += 2 * _tone_capture_bytes(plan, "rf_on")  # Projection and bounded alignment.
     mode_work = _tone_capture_bytes(plan, "rf_on") * TONE_MODE_ANALYSIS_RF_ON_PASSES
     return math.ceil(
         (carrier_work + mode_work) / MINIMUM_OFFLINE_IO_BYTES_PER_SECOND
@@ -1311,7 +1311,20 @@ def validate_real_session_document(document: dict[str, Any]) -> None:
         and document["decode_gate"] == "not_run"
         and "carrier_only_session" in causes
     )
-    if status == "inconclusive" and not (hardware_free_complete or carrier_only_complete):
+    bounded_carrier_inconclusive = (
+        carrier_gate == "inconclusive"
+        and decode_gate == "not_run"
+        and "carrier" in evidence
+        and "rf_off" in evidence
+        and "rf_on" in evidence
+        and document["cleanup"] is not None
+        and document["cleanup"]["outcome"] == "verified"
+        and document["quiescence"] is not None
+        and document["quiescence"]["outcome"] == "verified"
+    )
+    if status == "inconclusive" and not (
+        hardware_free_complete or carrier_only_complete or bounded_carrier_inconclusive
+    ):
         raise RealSessionError("inconclusive status lacks its required bounded evidence")
 
 
@@ -1478,7 +1491,7 @@ def _validate_carrier(document: dict[str, object], plan: dict[str, Any], digest:
         if mode_gate != "not_applicable" or details["cadence_gate"] != "not_applicable":
             raise RealSessionError("WSPR carrier evidence cannot claim a CW mode gate")
         derived = carrier_derived
-    if claimed in {"passed", "failed"} and claimed != derived:
+    if claimed in {"passed", "failed", "inconclusive"} and claimed != derived:
         raise RealSessionError("carrier gate contradicts the maintained relative acquisition")
     return claimed
 
