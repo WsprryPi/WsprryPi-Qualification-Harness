@@ -299,7 +299,10 @@ one percent of dot duration (capped at 10 ms, minimum four samples) for individu
 bursts, and one percent occupancy in sliding dot-length quiet windows for
 accumulated activity. Short isolated events are diagnostic-only. The recorded
 policy and assessment must reproduce from retained evidence; timing, drift,
-spacing, WSPR, TONE, and cleanup requirements remain unchanged.
+spacing, WSPR, TONE, and cleanup requirements remain unchanged for analyzer 9.
+Analyzer 10 extends quiet significance to scheduled TONE OFF intervals using
+the commanded ON duration instead of dot duration. It retains all events and
+leaves TONE ON-carrier/cadence checks and WSPR continuous-carrier checks unchanged.
 
 For a complete campaign, nominal protocol frequency, intentional requested
 transmit-frequency offset, transmitter PPM correction, receiver calibration,

@@ -20,7 +20,7 @@ from wsprrypi_qualification.offline import (
 )
 
 ANALYZER_NAME = "wsprrypi-qualification-cw-iq"
-ANALYZER_VERSION = "9"
+ANALYZER_VERSION = "10"
 
 
 class CwIqError(OfflineAnalysisError):
@@ -717,9 +717,10 @@ def analyze_synthetic_iq(
                 qend,
                 noise_power,
                 float(thresholds["minimum_contrast_db"]),
-                dot_seconds=float(plan["protocol"]["dot_seconds"])
-                if plan["mode"] != "tone"
-                else None,
+                dot_seconds=float(
+                    plan["protocol"]["tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds"]
+                ),
+                timing_basis="tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds",
                 channel_half_width_hz=max(
                     float(detector["reference_search_half_width_hz"]),
                     abs(float(secondary) - float(plan["protocol"]["primary_frequency_hz"]))

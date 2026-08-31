@@ -113,9 +113,9 @@ def analyze_case(tmp_path: Path, mode: str, defect: str, edge_delta: float = 0.2
         mask = (t >= start) & (t < stop)
         samples[mask] += 0.2 * np.exp(2j * np.pi * frequency * t[mask])
     last_off = expected["events"][-1]["start_s"]
-    if defect in {"extra_pulse", "tail_pulse"}:
+    if defect in {"extra_pulse", "tail_pulse", "brief_pulse"}:
         start = last_off + 0.3 if defect == "extra_pulse" else end + 0.3
-        mask = (t >= start) & (t < start + 0.020)
+        mask = (t >= start) & (t < start + (0.002 if defect == "brief_pulse" else 0.020))
         samples[mask] += 0.2 * np.exp(2j * np.pi * 100 * t[mask])
     if defect == "stuck":
         mask = t >= last_off
@@ -601,10 +601,11 @@ def test_repeated_short_events_accumulate_across_fixed_window_boundaries():
     assert all(b["qualification_effect"] == "diagnostic_only" for b in assessed["bursts"])
 
 
-def test_slow_quiet_policy_tampering_is_rejected(tmp_path: Path):
+@pytest.mark.parametrize("mode", ["qrss", "tone"])
+def test_slow_quiet_policy_tampering_is_rejected(tmp_path: Path, mode: str):
     from wsprrypi_qualification.cw_contracts import CwContractError, _validate_observations
 
-    obs = analyze_case(tmp_path, "qrss", "clean")
+    obs = analyze_case(tmp_path, mode, "clean")
     obs["measurement_summary"]["quiet_windows"][0]["qualification_policy"]["occupancy_limit"] = 0.5
     with pytest.raises(CwContractError, match="quiet significance"):
         _validate_observations(
@@ -670,3 +671,48 @@ def test_carrier_confirmation_deadline_boundary(tmp_path: Path, bound: float, on
     if passed:
         assert guard["startup_excluded_windows"] == round(onset / 0.02)
         assert guard["below_contrast_window_count"] == 0
+
+
+def test_tone_retains_brief_off_period_event_without_failing(tmp_path: Path):
+    obs = analyze_case(tmp_path, "tone", "brief_pulse")
+    assert obs["analyzer"]["version"] == "10"
+    assert obs["analysis_outcome"] == "passed"
+    quiet = obs["measurement_summary"]["quiet_windows"]
+    bursts = [b for q in quiet for b in q["bursts"]]
+    assert bursts
+    assert all(b["qualification_effect"] == "diagnostic_only" for b in bursts)
+    for q in quiet:
+        assert q["qualification_policy"]["name"] == "tone_quiet_significance"
+        assert "tone_on_seconds" in q["qualification_policy"]
+        assert "dot_seconds" not in q["qualification_policy"]
+
+
+@pytest.mark.parametrize("duration, issues", [(0.009, []), (0.01, ["false_silence"])])
+def test_tone_material_boundary_and_accumulation(duration, issues):
+    from wsprrypi_qualification.noise import assess_quiet_significance
+
+    rate = 250000
+    burst = {
+        "start_s": 0.1,
+        "end_s": 0.1 + duration,
+        "duration_s": duration,
+        "classification": "coherent_in_band",
+    }
+    evidence = {
+        "start_s": 0,
+        "end_s": 2,
+        "occupancy": duration / 2,
+        "bursts": [burst],
+        "issues": [],
+    }
+    result = assess_quiet_significance(evidence, rate, 2, timing_basis="tone_on_seconds")
+    assert result["issues"] == issues
+    assert result["qualification_policy"]["material_samples"] == 2500
+    evidence["bursts"] = [
+        {**burst, "start_s": 0.05 + i * 0.1, "end_s": 0.05 + i * 0.1 + 0.001, "duration_s": 0.001}
+        for i in range(20)
+    ]
+    evidence["occupancy"] = 0.01
+    result = assess_quiet_significance(evidence, rate, 2, timing_basis="tone_on_seconds")
+    assert result["issues"] == ["ambiguous_quiet_contamination"]
+    assert result["qualification_assessment"]["significant_burst_count"] == 0

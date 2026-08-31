@@ -1,6 +1,6 @@
 # Noise robustness and measurement limits
 
-CW IQ analyzer **9** and carrier-analysis schema **3** introduce independent
+CW IQ analyzer **10** and carrier-analysis schema **3** introduce independent
 carrier-presence, timing, and interference checks. They do not relax a plan's
 timing, frequency, spacing, drift, transition, contrast, decoding, clipping,
 overflow, or lifecycle requirements. Campaign timing tolerance remains 150 ms.
@@ -104,7 +104,12 @@ individual event is material at one percent of the commanded dot duration,
 capped at 10 ms and bounded below by four samples. At a 0.7-second dot and
 250 ksps, this is 7 ms. Shorter events retain `diagnostic_only` qualification
 effect. Material carrier-like events fail silence; material unresolved events
-make it inconclusive. TONE retains the earlier strict raw-transient policy.
+make it inconclusive. Analyzer 10 applies the same significance rules to TONE OFF intervals, using
+`tone_quiet_significance` version 1 and the commanded `tone_on_seconds`
+in place of dot duration. For two-second ON intervals, individual bursts become
+material at 10 ms; sliding occupancy uses two-second windows (or the complete
+quiet interval if shorter). Every event remains recorded. TONE ON interiors,
+cadence timing, and WSPR continuous-carrier checks remain unchanged.
 
 The policy also checks accumulated retained-event occupancy in every sliding
 window of one dot duration, shortening the window only when the entire quiet
@@ -114,7 +119,7 @@ prevents repeated short bursts from escaping at fixed-bin boundaries or being
 diluted by a long capture tail. Individually uncertain frequency estimates do
 not become proof of carrier identity merely through accumulation.
 
-Every keyed quiet record binds the policy parameters and SHA-256, per-event
+Every significance-assessed quiet record binds the policy parameters and SHA-256, per-event
 qualification effect, peak rolling occupancy and its interval, and count of
 material events. Semantic validation regenerates the assessment from retained
 events; full replay also regenerates events from IQ. These are explicit
@@ -170,7 +175,7 @@ workload bound. No timeout reserve or RF-duration allowance is introduced.
 
 ## Evidence compatibility
 
-Source and packaged schemas must match byte-for-byte. Version-8 and version-9 CW observations
+Source and packaged schemas must match byte-for-byte. Version-8, version-9, and version-10 CW observations
 require the detector specification and quiet-window records. Semantic validation
 checks specification identity and timing budgets; replay recomputation compares
 the complete detector evidence, not only pass/fail fields. Carrier schema 3

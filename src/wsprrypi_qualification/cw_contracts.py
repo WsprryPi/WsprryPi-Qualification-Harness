@@ -199,7 +199,7 @@ def _validate_observations(
     if capture["overflow_count"] > contract["overflow_max"]:
         _fail("capture overflow exceeds the resolved plan")
     analyzer = observations["analyzer"]
-    if analyzer["version"] in {"8", "9"}:
+    if analyzer["version"] in {"8", "9", "10"}:
         from wsprrypi_qualification.noise import filter_width, specification
 
         detector = observations["measurement_summary"]["noise_detector"]
@@ -257,7 +257,7 @@ def _validate_observations(
             or any(q["issues"] for q in observations["measurement_summary"]["quiet_windows"])
         ):
             _fail("passing observations contain unresolved noise evidence")
-    if analyzer["version"] == "9" and plan["mode"] != "tone":
+    if analyzer["version"] == "10" or (analyzer["version"] == "9" and plan["mode"] != "tone"):
         from wsprrypi_qualification.noise import assess_quiet_significance
 
         quiet_windows = observations["measurement_summary"]["quiet_windows"]
@@ -271,7 +271,14 @@ def _validate_observations(
                 _fail("quiet significance interval escapes its capture")
             try:
                 recomputed = assess_quiet_significance(
-                    quiet, float(capture["sample_rate_hz"]), float(plan["protocol"]["dot_seconds"])
+                    quiet,
+                    float(capture["sample_rate_hz"]),
+                    float(
+                        plan["protocol"][
+                            "tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds"
+                        ]
+                    ),
+                    timing_basis="tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds",
                 )
             except (ValueError, KeyError, TypeError) as error:
                 _fail(f"quiet significance evidence is invalid: {error}")
@@ -281,7 +288,7 @@ def _validate_observations(
     if thresholds["frequency_tolerance_hz"] < analyzer["frequency_resolution_hz"]:
         _fail("frequency tolerance is tighter than analyzer resolution")
     excessive_uncertainty = (
-        analyzer["version"] in {"8", "9"}
+        analyzer["version"] in {"8", "9", "10"}
         and "excessive_timing_uncertainty"
         in observations["measurement_summary"]["noise_detector"]["issues"]
     )

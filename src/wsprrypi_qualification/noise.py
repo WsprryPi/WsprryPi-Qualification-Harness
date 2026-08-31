@@ -258,14 +258,20 @@ def detect(
     return baseband / oscillator, active, result
 
 
-def quiet_qualification_policy(dot_seconds: float, rate: float) -> dict[str, Any]:
+def quiet_qualification_policy(
+    dot_seconds: float, rate: float, *, timing_basis: str = "dot_seconds"
+) -> dict[str, Any]:
     """Versioned engineering significance policy, not a statistical RF claim."""
     if not math.isfinite(dot_seconds) or dot_seconds <= 0 or not math.isfinite(rate) or rate <= 0:
         raise ValueError("quiet qualification requires positive finite dot duration and rate")
+    if timing_basis not in {"dot_seconds", "tone_on_seconds"}:
+        raise ValueError("unsupported quiet significance timing basis")
     policy = {
-        "name": "slow_cw_quiet_significance",
+        "name": "tone_quiet_significance"
+        if timing_basis == "tone_on_seconds"
+        else "slow_cw_quiet_significance",
         "version": 1,
-        "dot_seconds": dot_seconds,
+        timing_basis: dot_seconds,
         "duration_fraction": 0.01,
         "duration_cap_s": 0.01,
         "occupancy_limit": 0.01,
@@ -277,11 +283,11 @@ def quiet_qualification_policy(dot_seconds: float, rate: float) -> dict[str, Any
 
 
 def assess_quiet_significance(
-    evidence: dict[str, Any], rate: float, dot_seconds: float
+    evidence: dict[str, Any], rate: float, dot_seconds: float, *, timing_basis: str = "dot_seconds"
 ) -> dict[str, Any]:
     """Retain all events; assess duration and sliding-window accumulated activity."""
     result = {**evidence, "bursts": [dict(b) for b in evidence["bursts"]]}
-    policy = quiet_qualification_policy(dot_seconds, rate)
+    policy = quiet_qualification_policy(dot_seconds, rate, timing_basis=timing_basis)
     start = round(float(evidence["start_s"]) * rate)
     end = round(float(evidence["end_s"]) * rate)
     if end <= start:
@@ -346,6 +352,7 @@ def quiet_evidence(
     minimum_contrast: float,
     channel_half_width_hz: float | None = None,
     dot_seconds: float | None = None,
+    timing_basis: str = "dot_seconds",
 ) -> dict[str, Any]:
     """Assess raw quiet-window transients independently of edge persistence.
 
@@ -402,7 +409,9 @@ def quiet_evidence(
         "issues": sorted(issues),
     }
     return (
-        assess_quiet_significance(result, rate, dot_seconds) if dot_seconds is not None else result
+        assess_quiet_significance(result, rate, dot_seconds, timing_basis=timing_basis)
+        if dot_seconds is not None
+        else result
     )
 
 
