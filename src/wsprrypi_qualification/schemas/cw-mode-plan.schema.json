@@ -100,7 +100,7 @@
       "additionalProperties": false,
       "required": ["attenuation_db", "filter_state", "termination", "antenna_state", "safe_input_basis"],
       "properties": {
-        "attenuation_db": {"type": "number", "minimum": 0},
+        "attenuation_db": {"type": ["number", "null"], "minimum": 0},
         "filter_state": {"type": "string", "minLength": 1},
         "termination": {"type": "string", "minLength": 1},
         "antenna_state": {"type": "string", "minLength": 1},

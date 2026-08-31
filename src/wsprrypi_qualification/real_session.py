@@ -966,6 +966,11 @@ def validate_real_session_plan(document: dict[str, Any]) -> None:
                     "--no-system-clock-frequency-estimate",
                     "--backend",
                     "rp1-gpclk",
+                    *(
+                        ["--allow-unqualified-frequency"]
+                        if contract.get("allow_unqualified_frequency") is True
+                        else []
+                    ),
                     "--transmit-gpio",
                     str(contract["gpio_pin"]),
                     "--gpio-power-level",

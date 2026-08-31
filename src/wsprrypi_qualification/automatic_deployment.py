@@ -13,7 +13,7 @@ from contextlib import ExitStack
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
-from wsprrypi_qualification.offline import artifact
+from wsprrypi_qualification.offline import artifact, validate_document
 from wsprrypi_qualification.remote_staging import (
     RemoteStage,
     StagedFile,
@@ -513,12 +513,16 @@ def delegate_automatic_complete_test(
     wsprrypi_binary: str | None = DEFAULT_WSPRRRYPI_BINARY,
     wsprrypi_configuration: str = DEFAULT_WSPRRRYPI_CONFIGURATION,
     wsprrypi_source: Path | None = None,
+    rf_path: dict[str, Any] | None = None,
+    allow_unqualified_frequency: bool = False,
     transmitter_backend: str = "gpio",
     transmit_gpio: int | None = None,
     timeout_s: float | None = None,
     progress: Any | None = None,
 ) -> dict[str, Any]:
     """Stage current runtimes, execute on the receiver, validate, and clean both hosts."""
+    if rf_path is not None:
+        validate_document(rf_path, "rf-path-observation.schema.json")
     selected_source = _validate_runtime_selection(
         wsprrypi_binary, wsprrypi_configuration, wsprrypi_source
     )
@@ -537,6 +541,8 @@ def delegate_automatic_complete_test(
             wsprrypi_binary=wsprrypi_binary,
             wsprrypi_configuration=wsprrypi_configuration,
             wsprrypi_source=selected_source,
+            rf_path=rf_path,
+            allow_unqualified_frequency=allow_unqualified_frequency,
             transmitter_backend=transmitter_backend,
             transmit_gpio=transmit_gpio,
             timeout_s=timeout_s,
@@ -577,6 +583,8 @@ def _delegate_automatic_complete_test(
     wsprrypi_binary: str | None = DEFAULT_WSPRRRYPI_BINARY,
     wsprrypi_configuration: str = DEFAULT_WSPRRRYPI_CONFIGURATION,
     wsprrypi_source: Path | None = None,
+    rf_path: dict[str, Any] | None = None,
+    allow_unqualified_frequency: bool = False,
     transmitter_backend: str,
     transmit_gpio: int | None,
     timeout_s: float | None,
@@ -788,7 +796,10 @@ def _delegate_automatic_complete_test(
             )
             rx_records.update(_remote_records(rx, {"rx_helper_config": rx_helper_config}))
             output_parent = "/home/pi/wsprrypi-qualification-runs"
-            work_directory = f"{rx.root}/work"
+            # Coherent IQ plus keyed captures can exceed a RAM-backed /tmp.
+            # Keep work outside temporary deployment stages and source repositories.
+            work_token = rx.root.rsplit("-", 1)[-1]
+            work_directory = f"{output_parent}/complete-test-work-{work_token}"
             launcher_identity = {
                 "launcher": rx_records["rx_helper"],
                 "module": rx_records["rx_helper_config"],
@@ -831,7 +842,9 @@ def _delegate_automatic_complete_test(
                 "transmitter_source_path": tx_paths["source"],
                 "work_directory": work_directory,
                 "output_parent": output_parent,
-                "rf_confirmation": {
+                "rf_confirmation": rf_path
+                if rf_path is not None
+                else {
                     "path_type": "unknown",
                     "antenna_connected": None,
                     "termination": None,
@@ -840,6 +853,7 @@ def _delegate_automatic_complete_test(
                     "safe_input_basis": "not provided",
                     "authorization_scope": "single_run",
                 },
+                "allow_unqualified_frequency": allow_unqualified_frequency,
                 "transmitter_backend": transmitter_backend,
                 "transmit_gpio": transmit_gpio,
                 "receiver_delegation": {

@@ -115,7 +115,7 @@ def test_rp1_installed_binary_builds_only_the_ephemeral_admin_probe() -> None:
 def test_automatic_rf_authorization_does_not_assert_physical_path() -> None:
     tree = ast.parse(inspect.getsource(automatic_deployment._delegate_automatic_complete_test))
     confirmations = [
-        ast.literal_eval(value)
+        ast.literal_eval(value.orelse if isinstance(value, ast.IfExp) else value)
         for node in ast.walk(tree)
         if isinstance(node, ast.Dict)
         for key, value in zip(node.keys, node.values, strict=True)

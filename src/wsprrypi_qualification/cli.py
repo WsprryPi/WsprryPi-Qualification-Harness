@@ -404,10 +404,7 @@ def _parser() -> argparse.ArgumentParser:
     complete.add_argument(
         "--enable-rf",
         action="store_true",
-        help=(
-            "authorize one bounded run and confirm the default conducted path: antenna "
-            "disconnected, direct 50-ohm SDR input through 20 dB attenuation"
-        ),
+        help=("authorize one bounded RF run; unspecified physical-path facts remain unknown"),
     )
     complete.add_argument("--receiver-local", action="store_true", help=argparse.SUPPRESS)
     complete.add_argument("--delegated-output", action="store_true", help=argparse.SUPPRESS)
@@ -416,6 +413,16 @@ def _parser() -> argparse.ArgumentParser:
         "--rehearse", action="store_true", help="hardware-free plan and routing rehearsal"
     )
     complete.add_argument("--configuration", type=Path)
+    complete.add_argument(
+        "--allow-unqualified-frequency",
+        action="store_true",
+        help="explicitly opt in to experimental amateur-band RP1 qualification",
+    )
+    complete.add_argument(
+        "--rf-path",
+        type=Path,
+        help="JSON physical-path observations for automatic deployment; not RF authorization",
+    )
     wsprrypi_runtime = complete.add_mutually_exclusive_group()
     wsprrypi_runtime.add_argument(
         "--wsprrypi-binary",
@@ -586,6 +593,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             reporter.emit("command", "started", "complete-test command accepted")
             if args.rehearse and args.enable_rf:
                 raise CompleteTestError("--rehearse conflicts with --enable-rf")
+            if args.allow_unqualified_frequency and (
+                args.transmitter_backend != "rp1_gpclk"
+                or args.configuration is not None
+                or args.rehearse
+            ):
+                raise CompleteTestError(
+                    "--allow-unqualified-frequency requires automatic live RP1 deployment"
+                )
+            if args.rf_path is not None and (args.configuration is not None or args.rehearse):
+                raise CompleteTestError("--rf-path applies only to automatic live deployment")
             selected_rp1_route = None if args.transmit_gpio is None else f"gpio{args.transmit_gpio}"
             if (
                 selected_rp1_route is not None
@@ -636,6 +653,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                     reporter.close()
                     return 0
+            rf_path = (
+                None
+                if args.rf_path is None
+                else load_json_document(args.rf_path, "rf-path-observation.schema.json")
+            )
             if (
                 args.wsprrypi_source is not None
                 and args.wsprrypi_config != "/usr/local/etc/wsprrypi.ini"
@@ -654,6 +676,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             if not args.rehearse and not args.enable_rf:
                 raise CompleteTestError("live complete-test requires explicit --enable-rf")
             receiver_local = receiver_is_local(args.receiver_host)
+            if receiver_local and (args.rf_path is not None or args.allow_unqualified_frequency):
+                raise CompleteTestError("automatic deployment inputs require a remote receiver")
             if args.receiver_local and not receiver_local:
                 raise CompleteTestError(
                     "remote receiver delegation landed on a host with the wrong identity"
@@ -733,6 +757,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                             None if args.wsprrypi_source is not None else args.wsprrypi_binary
                         ),
                         wsprrypi_configuration=args.wsprrypi_config,
+                        rf_path=rf_path,
+                        allow_unqualified_frequency=args.allow_unqualified_frequency,
                         wsprrypi_source=args.wsprrypi_source,
                         transmitter_backend=args.transmitter_backend,
                         transmit_gpio=(

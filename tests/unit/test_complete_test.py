@@ -448,6 +448,9 @@ def test_every_override_is_bound_and_changes_digest(tmp_path: Path) -> None:
     assert changed["resolved_values"] == override.validated()
     assert complete_test_sha256(changed) != complete_test_sha256(baseline)
     keyed = {entry["mode"]: entry["plan"] for entry in changed["mode_plans"][2:]}
+    for child in keyed.values():
+        reference = json.loads(Path(child["reference"]["plan"]["path"]).read_text())
+        assert reference["band"] == "30m"
     assert all(
         entry["plan"]["carrier"]["best_20hz_share_min"] == 0.1
         for entry in changed["mode_plans"][:2]
@@ -460,6 +463,14 @@ def test_every_override_is_bound_and_changes_digest(tmp_path: Path) -> None:
         keyed["DFCW"]["application_plan"]["protocol_contract"]["secondary_frequency_hz"]
         == 10_140_093.0
     )
+    # Re-hashing a mislabeled reference must not make it acceptable.
+    reference_path = Path(keyed["QRSS"]["reference"]["plan"]["path"])
+    reference = json.loads(reference_path.read_text())
+    reference["band"] = "20m"
+    reference_path.write_text(json.dumps(reference))
+    keyed["QRSS"]["reference"]["plan"] = artifact(reference_path)
+    with pytest.raises(CompleteTestError, match="reference band contradicts"):
+        validate_complete_test_plan(changed)
 
 
 def test_retained_defaults_values_and_sdr_binding_are_revalidated(tmp_path: Path) -> None:
@@ -1047,3 +1058,59 @@ def test_receiver_delegation_returns_full_machine_result(
         == 0
     )
     assert json.loads(capsys.readouterr().out) == expected
+
+
+def test_explicit_rf_path_reaches_deployment_and_invalid_input_blocks_it(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setenv("WSPQ_PROGRESS_DIR", str(tmp_path / "progress"))
+    monkeypatch.setattr(cli_module, "receiver_is_local", lambda host: False)
+    observed = []
+
+    def delegated(*args, **kwargs):
+        observed.append(kwargs["rf_path"])
+        assert kwargs["allow_unqualified_frequency"] is True
+        return {
+            "bundle": "/retained/campaign",
+            "result": {
+                "final_status": "inconclusive",
+                "transmitter_host": "wspr5",
+                "receiver_host": "wspr5",
+                "sdr_selector": SDR,
+            },
+        }
+
+    monkeypatch.setattr(cli_module, "delegate_automatic_complete_test", delegated)
+    path = tmp_path / "path facts.json"
+    facts = {
+        "path_type": "conducted",
+        "antenna_connected": False,
+        "termination": "SDR input via combiner",
+        "attenuation_db": 20,
+        "filter": None,
+        "safe_input_basis": "operator reported attenuated bench path",
+        "authorization_scope": "single_run",
+    }
+    path.write_text(json.dumps(facts))
+    arguments = [
+        "complete-test",
+        "wspr5",
+        "wspr5",
+        "--sdr",
+        SDR,
+        "--enable-rf",
+        "--transmitter-backend",
+        "rp1_gpclk",
+        "--allow-unqualified-frequency",
+        "--transmit-gpio",
+        "20",
+        "--rf-path",
+        str(path),
+    ]
+    main(arguments)
+    assert observed == [facts]
+    facts["attenuation_db"] = -20
+    path.write_text(json.dumps(facts))
+    assert main(arguments) == 2
+    assert len(observed) == 1
+    capsys.readouterr()

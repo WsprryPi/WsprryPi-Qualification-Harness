@@ -1,0 +1,4 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "resolved-real-session-plan.schema.json#/properties/rf_path"
+}

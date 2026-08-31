@@ -1509,3 +1509,40 @@ def test_plausible_but_mutated_timeline_is_rejected_by_regeneration(tmp_path: Pa
     _refresh_chain(paths)
     with pytest.raises(CwContractError, match="independent reference encoder"):
         load_cw_contract_chain(*paths)
+
+
+@pytest.mark.parametrize("resolvable_activity", [False, True])
+def test_trailing_quiet_ignores_only_subresolution_threshold_excursions(
+    tmp_path: Path, resolvable_activity: bool
+) -> None:
+    plan_path, expected_path, metadata_path = _acquired_inputs(tmp_path, "qrss")
+    plan = json.loads(plan_path.read_text())
+    expected = json.loads(expected_path.read_text())
+    metadata = json.loads(metadata_path.read_text())
+    capture = tmp_path / metadata["capture"]["path"]
+    samples = np.fromfile(capture, dtype="<c8")
+    rate = plan["capture_contract"]["sample_rate_hz"]
+    powers = np.abs(samples.astype(np.complex128)) ** 2
+    quiet = np.concatenate(
+        [
+            powers[round(event["start_s"] * rate) : round(event["end_s"] * rate)]
+            for event in expected["events"]
+            if event["rf_state"] == "off"
+        ]
+    )
+    threshold = np.median(quiet) * 10
+    position = round((expected["events"][-1]["start_s"] + 0.3) * rate)
+    width = 25 if resolvable_activity else 4
+    samples[position - 4 : position + width + 4] = 0
+    # Four barely-threshold samples produce one above-threshold smoothed sample,
+    # below the declared four-sample timing resolution. A real pulse must fail.
+    samples[position : position + width] = 0.3 if resolvable_activity else np.sqrt(threshold * 1.05)
+    samples.tofile(capture)
+    metadata["capture"] = _artifact(capture)
+    _write(metadata_path, metadata)
+    bundle = tmp_path / "replay"
+    result = compose_acquired_replay(
+        plan_path, expected_path, metadata_path, bundle, source_revision="e" * 40
+    )
+    assert result["measurement"]["carrier_gate"] == ("failed" if resolvable_activity else "passed")
+    assert result["qualification_claim"] is False

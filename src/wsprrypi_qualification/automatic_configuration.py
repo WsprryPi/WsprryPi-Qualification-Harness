@@ -140,6 +140,11 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "operation_live_gate_required": True,
             "drive_or_power_level": drive,
             "rp1_drive_ma": 2,
+            **(
+                {"allow_unqualified_frequency": True}
+                if facts.get("allow_unqualified_frequency") is True
+                else {}
+            ),
             "quiescence_provider_sha256": quiescence["sha256"],
         }
         if rp1
@@ -355,6 +360,11 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
                     else [
                         "--backend",
                         "rp1-gpclk",
+                        *(
+                            ["--allow-unqualified-frequency"]
+                            if facts.get("allow_unqualified_frequency") is True
+                            else []
+                        ),
                         "--transmit-gpio",
                         str(cast(dict[str, Any], rp1_identity)["gpio"]),
                         "--gpio-power-level",
@@ -463,10 +473,16 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "device_identity": facts["sdr_selector"],
         },
         "rf_path": {
-            "attenuation_db": 20,
-            "filter_state": "none",
-            "termination": rf_path["termination"],
-            "antenna_state": "disconnected",
+            "attenuation_db": rf_path["attenuation_db"],
+            "filter_state": rf_path["filter"] or "unknown",
+            "termination": rf_path["termination"] or "unknown",
+            "antenna_state": (
+                "unknown"
+                if rf_path["antenna_connected"] is None
+                else "connected"
+                if rf_path["antenna_connected"]
+                else "disconnected"
+            ),
             "safe_input_basis": rf_path["safe_input_basis"],
         },
         "protocol": {
@@ -579,11 +595,11 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "application": "exactly_once_before_child_plan_composition",
         },
         "rf_path": {
-            "antenna_connected": False,
-            "attenuation_db": 20,
-            "termination": rf_path["termination"],
-            "filter_state": "none",
-            "routing": "user-confirmed conducted connection",
+            "antenna_connected": rf_path["antenna_connected"],
+            "attenuation_db": rf_path["attenuation_db"],
+            "termination": rf_path["termination"] or "unknown",
+            "filter_state": rf_path["filter"] or "unknown",
+            "routing": rf_path["path_type"],
             "safe_input_basis": rf_path["safe_input_basis"],
         },
         "reference": {

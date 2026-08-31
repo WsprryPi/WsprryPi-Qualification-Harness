@@ -69,9 +69,7 @@ def test_discovered_facts_create_all_five_production_plans(tmp_path: Path) -> No
             "termination": "50 ohm direct SDR input through attenuator",
             "attenuation_db": 20,
             "filter": "none",
-            "safe_input_basis": (
-                "explicit --enable-rf confirmation of the documented conducted 20 dB default path"
-            ),
+            "safe_input_basis": "operator-described conducted path through 23 dB attenuation",
             "authorization_scope": "single_run",
         },
         "receiver_delegation": {
@@ -255,7 +253,10 @@ def test_discovered_si5351_facts_create_si5351_plans(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("transmit_gpio", [4, 20])
-def test_same_host_rp1_route_and_manual_ppm_are_bound(tmp_path: Path, transmit_gpio: int) -> None:
+@pytest.mark.parametrize("unknown_path", [False, True])
+def test_same_host_rp1_route_and_manual_ppm_are_bound(
+    tmp_path: Path, transmit_gpio: int, unknown_path: bool
+) -> None:
     names = (
         "ssh",
         "ssh_keygen",
@@ -294,6 +295,7 @@ def test_same_host_rp1_route_and_manual_ppm_are_bound(tmp_path: Path, transmit_g
         "receiver_hostname": "wspr5",
         "transmitter_backend": "rp1_gpclk",
         "transmit_gpio": transmit_gpio,
+        "allow_unqualified_frequency": not unknown_path,
         "sdr": {"driver": "sdrplay", "serial": "2404058C60", "label": "RSP1B"},
         "sdr_selector": "driver=sdrplay,serial=2404058C60",
         "artifacts": artifacts,
@@ -306,8 +308,8 @@ def test_same_host_rp1_route_and_manual_ppm_are_bound(tmp_path: Path, transmit_g
             "path_type": "conducted",
             "antenna_connected": False,
             "termination": "50 ohm direct SDR input through attenuator",
-            "attenuation_db": 20,
-            "filter": "none",
+            "attenuation_db": 23,
+            "filter": "operator-described low-pass filter",
             "safe_input_basis": (
                 "explicit --enable-rf confirmation of the documented conducted 20 dB default path"
             ),
@@ -320,6 +322,8 @@ def test_same_host_rp1_route_and_manual_ppm_are_bound(tmp_path: Path, transmit_g
             "qualification": launcher,
         },
     }
+    if unknown_path:
+        facts.pop("rf_confirmation")
     facts_path = tmp_path / "facts.json"
     facts_path.write_text(json.dumps(facts), encoding="utf-8")
     configuration = write_automatic_configuration(facts_path, tmp_path / "configuration")
@@ -336,6 +340,20 @@ def test_same_host_rp1_route_and_manual_ppm_are_bound(tmp_path: Path, transmit_g
     assert plan["transmitter_ppm_resolution"]["host_correction_ppm"] == 3.560
     for entry in plan["mode_plans"]:
         child = entry["plan"]
+        if unknown_path:
+            assert child["rf_path"]["attenuation_db"] is None
+            assert child["rf_path"]["antenna_connected"] is None
+            if entry["mode"] in {"QRSS", "FSKCW", "DFCW"}:
+                assert child["rf_path"]["termination"] == "unknown"
+                reference = json.loads(Path(child["reference"]["plan"]["path"]).read_text())
+                assert reference["rf_path"]["antenna_state"] == "unknown"
+                assert reference["rf_path"]["attenuation_db"] is None
+        else:
+            assert child["rf_path"]["attenuation_db"] == 23
+            assert (
+                child["rf_path"].get("filter", child["rf_path"].get("filter_state"))
+                == "operator-described low-pass filter"
+            )
         contract = (
             child["backend_contract"]
             if entry["mode"] in {"TONE", "WSPR"}
@@ -359,6 +377,8 @@ def test_same_host_rp1_route_and_manual_ppm_are_bound(tmp_path: Path, transmit_g
                 ]
                 assert backend_index > 2
             assert "gpio" not in arguments[backend_index : backend_index + 2]
+            assert ("--allow-unqualified-frequency" in arguments) is not unknown_path
+            assert "--allow-non-amateur-frequency" not in arguments
             assert arguments.count("--transmit-gpio") == 1
             assert arguments[arguments.index("--transmit-gpio") + 1] == str(transmit_gpio)
             assert arguments.count("--gpio-manual-ppm") == 1

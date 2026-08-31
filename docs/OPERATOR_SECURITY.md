@@ -17,7 +17,10 @@ For the maintained split-host `complete-test` workflow:
    transmitter during each mode.
 
 The third path is required even when the execution host can reach both systems.
-Same-host operation and other initiation topologies remain future roadmap work.
+RP1 same-host campaigns use distinct authenticated local transmitter and receiver
+role channels on the delegated host. They do not require receiver-to-self SSH;
+the controller still requires strict SSH trust to that host. Other same-host
+backends and arbitrary initiation topologies are not implied by this support.
 
 ## Key and host setup
 

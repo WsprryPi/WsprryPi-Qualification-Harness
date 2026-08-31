@@ -203,8 +203,9 @@ def test_wspr_requires_application_supported_identity_power_and_offset() -> None
         ("gpio20", 20, "GPIO20", "v1.1.2-pi5-gpio20-6.18.34-development-candidate-r4"),
     ),
 )
+@pytest.mark.parametrize("allow_unqualified", [None, True])
 def test_rp1_backend_is_route_bound_and_applies_ppm_once(
-    route: str, pin: int, output: str, compatibility_id: str
+    route: str, pin: int, output: str, compatibility_id: str, allow_unqualified: bool | None
 ) -> None:
     config = WsprryPiBackendConfig(
         output,
@@ -220,14 +221,16 @@ def test_rp1_backend_is_route_bound_and_applies_ppm_once(
         live_output_required=True,
         operation_live_gate_required=True,
         rp1_drive_ma=2,
+        allow_unqualified_frequency=allow_unqualified,
     )
     plan = WsprryPiShim(identity(), backend="rp1_gpclk", backend_config=config).resolve_plan(
         f"rp1-{route}", WsprProtocol("Q0QQQ", "JJ00", 0, 10_140_200, 3, 1500)
     )
-    assert plan.arguments[:13] == (
+    assert plan.arguments[: 13 + bool(allow_unqualified)] == (
         "/opt/Wsprry Pi/wsprrypi",
         "--backend",
         "rp1-gpclk",
+        *(("--allow-unqualified-frequency",) if allow_unqualified else ()),
         "--transmit-gpio",
         str(pin),
         "--gpio-power-level",
@@ -242,6 +245,12 @@ def test_rp1_backend_is_route_bound_and_applies_ppm_once(
     assert plan.arguments.count("--gpio-manual-ppm") == 1
     assert plan.arguments.count("--no-system-clock-frequency-estimate") == 1
     validate_application_plan(plan.to_document())
+    assert "--allow-non-amateur-frequency" not in plan.arguments
+    if allow_unqualified:
+        tampered = plan.to_document()
+        tampered["backend_contract"].pop("allow_unqualified_frequency")
+        with pytest.raises(ApplicationPlanError):
+            validate_application_plan(tampered)
 
 
 def test_rp1_backend_rejects_missing_route_but_records_unfamiliar_identity() -> None:

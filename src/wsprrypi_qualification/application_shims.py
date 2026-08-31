@@ -78,6 +78,7 @@ class WsprryPiBackendConfig:
     live_output_required: bool | None = None
     operation_live_gate_required: bool | None = None
     rp1_drive_ma: int | None = None
+    allow_unqualified_frequency: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -186,6 +187,11 @@ class WsprryPiShim:
             if config.drive_or_power_level is None or not 0 <= config.drive_or_power_level <= 7:
                 raise ApplicationPlanError("RP1 power level must be within 0 through 7")
             return (
+                *(
+                    ("--allow-unqualified-frequency",)
+                    if config.allow_unqualified_frequency is True
+                    else ()
+                ),
                 "--transmit-gpio",
                 str(pin),
                 "--gpio-power-level",

@@ -197,10 +197,10 @@
       ],
       "properties": {
         "antenna_connected": {
-          "const": false
+          "type": ["boolean", "null"]
         },
         "attenuation_db": {
-          "type": "number",
+          "type": ["number", "null"],
           "minimum": 0
         },
         "termination": {

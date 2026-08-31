@@ -19,7 +19,7 @@ from wsprrypi_qualification.offline import (
 )
 
 ANALYZER_NAME = "wsprrypi-qualification-cw-iq"
-ANALYZER_VERSION = "6"
+ANALYZER_VERSION = "7"
 
 
 class CwIqError(OfflineAnalysisError):
@@ -452,6 +452,13 @@ def analyze_synthetic_iq(
     active_threshold = noise_power * 10.0 ** (float(thresholds["minimum_contrast_db"]) / 10.0)
     detected_states = np.zeros(count, dtype=np.int8)
     active = smoothed_power >= active_threshold
+    # A threshold excursion shorter than the declared timing resolution cannot
+    # define a carrier edge. Otherwise one noise sample can split a quiet run
+    # and manufacture a much larger timing error. Resolvable pulses remain.
+    edges = np.diff(np.concatenate(([False], active, [False])).astype(np.int8))
+    for start, end in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1), strict=True):
+        if end - start < smoothing_samples:
+            active[start:end] = False
     detected_states[active] = 1
     secondary = plan["protocol"]["secondary_frequency_hz"]
     if secondary is not None:

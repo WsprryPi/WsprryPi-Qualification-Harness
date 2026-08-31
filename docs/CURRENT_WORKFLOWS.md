@@ -122,9 +122,9 @@ selected SDR through SoapySDR, validates all five generated subordinate plans, t
 routes TONE, WSPR, QRSS, FSKCW, and DFCW in that order. Both named hosts may be
 remote to the controller; execution is delegated to the receiver host.
 `--rehearse` is deterministic and hardware-free and conflicts with
-`--enable-rf`. Same-host local production transport remains unsupported and
-fails before production adapter construction; support is scoped in
-[`ROADMAP.md`](ROADMAP.md).
+`--enable-rf`. RP1 same-host production uses distinct authenticated local role channels.
+Generic same-host local transport remains unsupported and fails before
+production adapter construction.
 
 The composed WSPR outer deadline follows the final three-slot schedule. It
 contains receiver setup derived from the configured read bound, the exact wait

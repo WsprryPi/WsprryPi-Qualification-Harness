@@ -59,7 +59,20 @@ rather than accepting five operator-authored mode plans. Each host receives an
 independently owned durable per-campaign executable; temporary stages are removed,
 and the retained aggregate is revalidated afterward. `--enable-rf` authorizes
 the bounded RF run without asserting a physical path. Unspecified environment
-facts are retained as unknown. Both endpoints
+facts are retained as unknown. Supply `--rf-path PATH.json` for explicit physical
+observations in the `rf-path-observation.schema.json` format. This input is
+validated before host access and bound into every generated plan; it does not
+authorize RF. Live RP1 requires an explicitly conducted, attenuated,
+antenna-disconnected path for its operation-scoped confirmation. The path input
+is available only with automatic live deployment; explicit configurations
+already contain their path observations. To qualify previously unqualified RP1
+amateur bands, explicitly add `--allow-unqualified-frequency`. This opt-in is
+bound into the RP1 backend contract and all five mode launches, defaults off,
+and never adds `--allow-non-amateur-frequency` or changes the installed INI.
+For installed WsprryPi versions whose TONE daemon reloads frequency policy from
+INI, also supply `--wsprrypi-config` pointing to a separately prepared external
+INI with `Experimental.Allow Unqualified Frequency = true`. The Harness copies
+that input byte-for-byte and binds it; it does not silently rewrite the policy. Both endpoints
 may be remote to the controller; the controller delegates execution to the
 receiver. `--configuration PATH` remains an advanced development override:
 
@@ -259,3 +272,15 @@ The current production application/quiescence contracts support GPIO, Si5351,
 and RP1 GPCLK. RP1 remains an explicit Experimental development path; its
 route, drive, provider identity, operation authorization, and quiescence
 requirements cannot leak into GPIO or Si5351 plans.
+
+Generated keyed reference plans bind the resolved campaign band as well as its
+numeric frequency. Validation rejects a reference band that differs from the
+campaign, including older non-20m bundles that retained a template's `20m`
+label. Preserve those original bundles; do not relabel or re-sign them as a
+substitute for fresh qualification.
+
+Automatic campaign work files live under `OUTPUT_PARENT/complete-test-work-TOKEN`,
+not the remote temporary deployment stage. A five-mode run retains a coherent
+740 MB capture plus keyed captures and derived artifacts, so a small RAM-backed `/tmp` is not
+a suitable capture store. These work files are operational evidence outside
+Git and remain until an explicit retention/cleanup action.

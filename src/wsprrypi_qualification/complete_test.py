@@ -784,7 +784,7 @@ def _resolve_keyed(
 
 
 def _materialize_cw_reference(
-    plan: dict[str, Any], mode: str, destination: Path, *, now: datetime
+    plan: dict[str, Any], mode: str, destination: Path, *, now: datetime, band: str
 ) -> None:
     destination.mkdir(parents=True, exist_ok=False)
     tone = mode == "TONE"
@@ -813,7 +813,7 @@ def _materialize_cw_reference(
         "mode": normalized_mode,
         "backend": plan["backend"] if tone else plan["transmitter"]["backend"],
         "hardware_profile": "complete-test-resolved-campaign",
-        "band": plan.get("band", "20m"),
+        "band": band,
         "source": {
             "parent_revision": source_revision,
             "submodule_revision": submodule_revision,
@@ -835,10 +835,14 @@ def _materialize_cw_reference(
             "attenuation_db": plan["rf_path"].get("attenuation_db"),
             "filter_state": plan["rf_path"].get("filter")
             or plan["rf_path"].get("filter_state")
-            or "not specified for radiated path",
-            "termination": plan["rf_path"].get("termination") or "radiated receiver path",
+            or "unknown",
+            "termination": plan["rf_path"].get("termination") or "unknown",
             "antenna_state": (
-                "connected" if plan["rf_path"].get("antenna_connected") else "disconnected"
+                "unknown"
+                if plan["rf_path"].get("antenna_connected") is None
+                else "connected"
+                if plan["rf_path"]["antenna_connected"]
+                else "disconnected"
             ),
             "safe_input_basis": plan["rf_path"]["safe_input_basis"],
         },
@@ -1103,7 +1107,9 @@ def _compose_complete_mode_plans(
             )
         )
         if mode != "WSPR":
-            _materialize_cw_reference(plan, mode, input_path / mode.lower(), now=composed_at)
+            _materialize_cw_reference(
+                plan, mode, input_path / mode.lower(), now=composed_at, band=str(values["band"])
+            )
         if mode in {"TONE", "WSPR"}:
             _materialize_real_profiles(
                 plan,
@@ -1574,6 +1580,8 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
             try:
                 reference = _load(reference_path)
                 validate_document(reference, "cw-mode-plan.schema.json")
+                if reference["band"] != values["band"]:
+                    raise CompleteTestError(f"{mode} reference band contradicts campaign band")
                 if reference.get("frequency_contract") != child["frequency_contract"]:
                     raise CompleteTestError(
                         f"{mode} authenticated reference frequency provenance changed"

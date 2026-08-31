@@ -836,6 +836,7 @@ class ProductionRealSessionAdapters:
             live_output_required=contract.get("live_output_required"),
             operation_live_gate_required=contract.get("operation_live_gate_required"),
             rp1_drive_ma=contract.get("rp1_drive_ma"),
+            allow_unqualified_frequency=contract.get("allow_unqualified_frequency"),
         )
         shim = WsprryPiShim(
             ApplicationIdentity(
