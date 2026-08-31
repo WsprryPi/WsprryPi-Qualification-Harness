@@ -595,7 +595,8 @@ def test_acquired_audio_uses_capture_utc_and_canonical_name(
         os.chdir(previous)
 
 
-def test_startup_policy_is_replay_bound_and_tampering_rejected(tmp_path: Path):
+@pytest.mark.parametrize("bound", ["1", "1.1"])
+def test_startup_policy_is_replay_bound_and_tampering_rejected(tmp_path: Path, bound: str):
     rate, center, frequency = 8000, 10000, 11000
     bench, test = profiles(tmp_path, rate=rate, center=center, frequency=frequency)
     t = np.arange(3 * rate) / rate
@@ -625,7 +626,7 @@ def test_startup_policy_is_replay_bound_and_tampering_rejected(tmp_path: Path):
         "--dc-exclusion-hz",
         "100",
         "--startup-acquisition-max-s",
-        "1",
+        bound,
     ]
     assert main(args) == 0
     loaded = load_acquired_carrier_evidence(evidence)

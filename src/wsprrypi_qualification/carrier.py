@@ -235,10 +235,12 @@ def analyze_carrier(
 ) -> dict[str, Any]:
     if (
         not math.isfinite(parameters.startup_acquisition_max_s)
-        or not 0 <= parameters.startup_acquisition_max_s <= 1
+        or not 0 <= parameters.startup_acquisition_max_s <= 1.1
         or (parameters.startup_acquisition_max_s and parameters.temporal_on_intervals_s is not None)
     ):
-        raise OfflineAnalysisError("startup acquisition requires 0..1 seconds and continuous input")
+        raise OfflineAnalysisError(
+            "startup acquisition requires 0..1.1 seconds and continuous input"
+        )
     if parameters.sample_rate_hz <= 0 or parameters.fft_size < 16:
         raise OfflineAnalysisError("sample rate and FFT size must be positive")
     if not 0 <= parameters.share_gate <= 1:

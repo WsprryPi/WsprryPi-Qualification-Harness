@@ -469,10 +469,13 @@ def test_tone_temporal_interiors_follow_bounded_common_latency(tmp_path: Path, s
         _aligned_tone_intervals(path, plan, expected)
 
 
+@pytest.mark.parametrize("bound", [1.0, 1.1])
 @pytest.mark.parametrize(
     "case", ["delayed", "immediate", "late", "absent", "dropout", "early_dropout", "tail", "short"]
 )
-def test_bounded_carrier_startup_never_reacquires_or_trims_tail(tmp_path: Path, case: str):
+def test_bounded_carrier_startup_never_reacquires_or_trims_tail(
+    tmp_path: Path, case: str, bound: float
+):
     rate = 8000
     t = np.arange(int((1.3 if case == "short" else 3) * rate)) / rate
     rng = np.random.default_rng(807)
@@ -497,7 +500,7 @@ def test_bounded_carrier_startup_never_reacquires_or_trims_tail(tmp_path: Path, 
         fft_size=2048,
         dc_exclusion_hz=100,
         relative_acquisition_offset_gate_hz=200,
-        startup_acquisition_max_s=1,
+        startup_acquisition_max_s=bound,
     )
     result = analyze_carrier(
         tmp_path / "off.cf32", tmp_path / "on.cf32", params, tmp_path / "result.json"
@@ -519,7 +522,7 @@ def test_bounded_carrier_startup_never_reacquires_or_trims_tail(tmp_path: Path, 
         assert guard["startup_acquired"] is False
 
 
-@pytest.mark.parametrize("bound", [-1, 1.01, float("nan"), float("inf")])
+@pytest.mark.parametrize("bound", [-1, 1.1001, float("nan"), float("inf")])
 def test_carrier_startup_bound_rejected_before_iq_access(tmp_path: Path, bound: float):
     from wsprrypi_qualification.offline import OfflineAnalysisError
 
@@ -633,3 +636,37 @@ def test_significance_boundary_tracks_dot_duration_in_samples(rate, duration, ex
     }
     result = assess_quiet_significance(evidence, rate, 0.7)
     assert result["issues"] == expected
+
+
+@pytest.mark.parametrize("bound", [1.0, 1.1])
+@pytest.mark.parametrize("onset", [0.90, 0.94, 1.0, 1.02])
+def test_carrier_confirmation_deadline_boundary(tmp_path: Path, bound: float, onset: float):
+    rate = 8000
+    t = np.arange(3 * rate) / rate
+    rng = np.random.default_rng(219)
+    off = 0.001 * (rng.normal(size=t.size) + 1j * rng.normal(size=t.size))
+    on = off + 0.2 * np.exp(2j * np.pi * 1000 * t) * (t >= onset)
+    off.astype("<c8").tofile(tmp_path / "off.cf32")
+    on.astype("<c8").tofile(tmp_path / "on.cf32")
+    result = analyze_carrier(
+        tmp_path / "off.cf32",
+        tmp_path / "on.cf32",
+        CarrierParameters(
+            rate,
+            10000,
+            11000,
+            fft_size=2048,
+            dc_exclusion_hz=100,
+            relative_acquisition_offset_gate_hz=200,
+            startup_acquisition_max_s=bound,
+        ),
+        tmp_path / "result.json",
+    )
+    passed = onset + 0.1 <= bound + 1e-12
+    assert result["gate_outcome"] == ("passed" if passed else "inconclusive")
+    guard = result["metrics"]["noise_guard"]
+    assert guard["startup_acquired"] is passed
+    assert result["contract"]["startup_acquisition_max_s"] == bound
+    if passed:
+        assert guard["startup_excluded_windows"] == round(onset / 0.02)
+        assert guard["below_contrast_window_count"] == 0

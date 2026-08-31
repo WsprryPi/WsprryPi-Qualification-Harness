@@ -1643,3 +1643,27 @@ def test_published_artifact_index_resolves_relative_source_dependency_offline(
     shutil.rmtree(source)
 
     adapter.validate_published_artifacts(bundle)
+
+
+def test_wspr_live_analysis_supplies_onset_plus_confirmation_budget(tmp_path: Path, monkeypatch):
+    adapter = bare_adapter(tmp_path)
+    adapter._capture_artifacts = {
+        "rf_off": (tmp_path / "off.cf32", tmp_path / "off.json"),
+        "rf_on": (tmp_path / "on.cf32", tmp_path / "on.json"),
+    }
+    commands = []
+
+    class CapturedCommand(Exception):
+        pass
+
+    def intercept(arguments, deadline):
+        commands.append(arguments)
+        raise CapturedCommand
+
+    monkeypatch.setattr(adapter, "_run_offline", intercept)
+    with pytest.raises(CapturedCommand):
+        adapter.analyze_carrier(plan_document(), {}, {})
+    args = commands[0]
+    assert args[0] == "analyze-carrier"
+    assert args[args.index("--startup-acquisition-max-s") + 1] == "1.1"
+    assert "--cw-mode-plan" not in args

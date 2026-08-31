@@ -273,7 +273,8 @@ Version 3 additionally requires independent short-window local carrier contrast
 and checks for comparable separated in-window candidates. Ambiguous temporal
 or acquisition evidence is inconclusive. Live WSPR may explicitly use bounded
 startup acquisition because the receiver starts before transmitter launch:
-confirmation must complete within one second, followed by at least one second
+confirmation must complete within 1.10 seconds (one second for onset plus
+100 ms confirmation), with at least one second
 of steady evidence. Every window after acquisition, including the tail, retains
 the same contrast requirement; reacquisition after dropout is forbidden. Generic
 carrier analysis remains strict by default. The policy and discarded prefix

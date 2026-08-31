@@ -1356,7 +1356,7 @@ class ProductionRealSessionAdapters:
                         str(retained_expected),
                     )
                     if plan.get("session_kind") == "cw_live_tone"
-                    else ("--startup-acquisition-max-s", "1.0")
+                    else ("--startup-acquisition-max-s", "1.1")  # 1 s onset + 100 ms confirmation
                 ),
                 str(off),
                 str(on),

@@ -325,7 +325,7 @@ def _parser() -> argparse.ArgumentParser:
         "--startup-acquisition-max-s",
         type=float,
         default=0.0,
-        help="bounded continuous-carrier startup acquisition, 0..1 s; default strict",
+        help="continuous-carrier confirmation deadline, 0..1.1 s; default 0 (strict)",
     )
     carrier.add_argument("--cw-mode-plan", type=Path, help="authenticated TONE cadence plan")
     carrier.add_argument(

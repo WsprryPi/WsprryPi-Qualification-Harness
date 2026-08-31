@@ -135,10 +135,13 @@ guard inconclusive. Stronger remote features remain diagnostic.
 Strict continuous-carrier analysis covers the complete retained capture,
 including its FFT tail. Live WSPR carrier acquisition starts the receiver before
 the transmitter, so its analyzer explicitly supplies
-`--startup-acquisition-max-s 1.0`. Generic analysis defaults to zero (strict).
+`--startup-acquisition-max-s 1.1`. Generic analysis defaults to zero (strict).
 The version-2 temporal guard requires at least 100 ms of consecutive passing
-windows to acquire within that one-second bound. It chooses the earliest such
-run, requires at least one second of retained steady evidence, and checks every
+windows to acquire within that 1.10-second completion bound: one second for
+carrier onset plus 100 ms for confirmation. The bound is not an onset deadline.
+Historical 1.00-second bounds retain their original completion-deadline semantics.
+The guard chooses the earliest such run, requires at least one second of
+retained steady evidence, and checks every
 window from that onset through the capture tail. It never reacquires after a
 dropout or selects a later convenient segment. Missing or late acquisition,
 insufficient evidence, and subsequent contrast failures remain inconclusive.
