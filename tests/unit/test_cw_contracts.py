@@ -708,7 +708,10 @@ def test_acquired_replay_aligns_one_bounded_common_acquired_tone_latency(tmp_pat
     observations = json.loads((bundle / "observations.json").read_text(encoding="utf-8"))
     alignment = observations["measurement_summary"]["timing_alignment"]
     assert result["measurement"]["carrier_gate"] == "passed"
-    assert alignment["common_shift_s"] == pytest.approx(0.22, abs=0.02)
+    assert alignment is None
+    assert observations["measurement_summary"]["tone_timing"][
+        "command_start_offsets_s"
+    ] == pytest.approx([0.22] * 3, abs=0.02)
     assert observations["failure_causes"] == []
 
 

@@ -199,7 +199,7 @@ def _validate_observations(
     if capture["overflow_count"] > contract["overflow_max"]:
         _fail("capture overflow exceeds the resolved plan")
     analyzer = observations["analyzer"]
-    if analyzer["version"] in {"8", "9", "10", "11"}:
+    if analyzer["version"] in {"8", "9", "10", "11", "12"}:
         from wsprrypi_qualification.noise import filter_width, specification
 
         detector = observations["measurement_summary"]["noise_detector"]
@@ -257,7 +257,7 @@ def _validate_observations(
             or any(q["issues"] for q in observations["measurement_summary"]["quiet_windows"])
         ):
             _fail("passing observations contain unresolved noise evidence")
-    if analyzer["version"] in {"10", "11"} or (
+    if analyzer["version"] in {"10", "11", "12"} or (
         analyzer["version"] == "9" and plan["mode"] != "tone"
     ):
         from wsprrypi_qualification.noise import assess_quiet_significance
@@ -272,7 +272,7 @@ def _validate_observations(
             if not 0 <= quiet["start_s"] < quiet["end_s"] <= duration:
                 _fail("quiet significance interval escapes its capture")
             try:
-                if analyzer["version"] == "11":
+                if analyzer["version"] in {"11", "12"}:
                     from wsprrypi_qualification.quiet_carrier import assess as assess_carrier
 
                     recomputed = assess_carrier(
@@ -310,7 +310,7 @@ def _validate_observations(
     if thresholds["frequency_tolerance_hz"] < analyzer["frequency_resolution_hz"]:
         _fail("frequency tolerance is tighter than analyzer resolution")
     excessive_uncertainty = (
-        analyzer["version"] in {"8", "9", "10", "11"}
+        analyzer["version"] in {"8", "9", "10", "11", "12"}
         and "excessive_timing_uncertainty"
         in observations["measurement_summary"]["noise_detector"]["issues"]
     )
@@ -353,7 +353,33 @@ def _validate_observations(
     shifted_model = observations.get("measurement_summary", {}).get("shifted_frequency_model")
     unshifted_model = observations.get("measurement_summary", {}).get("unshifted_frequency_model")
     timing_alignment = observations.get("measurement_summary", {}).get("timing_alignment")
-    if capture["synthetic"]:
+    independent_tone = analyzer["version"] == "12" and plan["mode"] == "tone"
+    if independent_tone:
+        from wsprrypi_qualification.cw_iq import _tone_timing_summary
+
+        if timing_alignment is not None or observations["measurement_summary"].get(
+            "tone_timing"
+        ) != _tone_timing_summary(expected, measured):
+            _fail("independent TONE timing diagnostics contradict measured boundaries")
+        if derived == "passed":
+            active_items = [
+                item
+                for event, item in zip(expected["events"], measured, strict=True)
+                if event["rf_state"] != "off"
+            ]
+            for item in active_items:
+                if item["measured_start_s"] is None or item["measured_end_s"] is None:
+                    _fail("passing TONE requires every pulse boundary")
+                duration_error = abs(
+                    float(item["measured_end_s"])
+                    - float(item["measured_start_s"])
+                    - float(plan["protocol"]["tone_on_seconds"])
+                )
+                if duration_error + 2 * float(analyzer["time_resolution_s"]) >= float(
+                    thresholds["timing_tolerance_s"]
+                ):
+                    _fail("passing TONE exceeds commanded ON duration tolerance")
+    elif capture["synthetic"]:
         if timing_alignment is not None:
             _fail("timing alignment is restricted to acquired evidence")
     elif timing_alignment is None:

@@ -433,3 +433,12 @@ Accept changes only when applicable portable workflows and CI pass, the capture
 helper builds on each supported OS, failure injection covers cleanup behavior,
 documentation matches the checked-out capabilities, and every hardware claim is
 supported by a separately authorized live test of that exact combination.
+
+### Independent TONE timing
+
+CW analyzer 12 does not qualify command-start latency or the spacing between
+independently commanded TONE pulses. These offsets are diagnostic. Measured ON
+duration (including both edge uncertainties), carrier continuity, extra/missing
+RF, actual quiet intervals, and final stop remain qualification requirements.
+Other modes retain their protocol timing requirements. Historical evidence is
+not reinterpreted; new offline replay does not establish live qualification.

@@ -20,7 +20,7 @@ from wsprrypi_qualification.offline import (
 )
 
 ANALYZER_NAME = "wsprrypi-qualification-cw-iq"
-ANALYZER_VERSION = "11"
+ANALYZER_VERSION = "12"
 
 
 class CwIqError(OfflineAnalysisError):
@@ -234,6 +234,56 @@ def _unshifted_frequency_model(
         "observation_count": len(rows),
         "acquisition_offset_gate_hz": acquisition_offset_gate_hz,
     }, sorted(set(causes))
+
+
+def _independent_tone_runs(
+    plan: dict[str, Any],
+    expected: dict[str, Any],
+    active: np.ndarray,
+    rate: float,
+    samples: np.ndarray,
+) -> list[tuple[int, int]] | None:
+    """Associate complete pulses in order, without a command-start timing gate.
+
+    Associate by duration, never distance from a nominal command timestamp.
+    Unassigned activity remains in the surrounding quiet intervals, where the
+    carrier-specific detector distinguishes extra RF from broadband noise.
+    """
+    minimum = float(plan["protocol"]["tone_on_seconds"]) - 2 * float(
+        plan["thresholds"]["timing_tolerance_s"]
+    )
+    candidates = [(a, b) for a, b in runs(active != 0) if (b - a) / rate >= minimum]
+    count = sum(e["rf_state"] != "off" for e in expected["events"])
+    if minimum <= 0 or len(candidates) < count:
+        return None
+    duration = float(plan["protocol"]["tone_on_seconds"])
+
+    def rank(span: tuple[int, int]) -> tuple[bool, float]:
+        # Broadband energy must not displace a coherent tone merely because
+        # its envelope happens to have a closer duration.
+        a, b = span
+        segment = samples[a:b][:65536]
+        spectrum = np.abs(np.fft.fft(segment * np.hanning(len(segment)))) ** 2
+        coherent = float(np.max(spectrum)) > 0.1 * float(np.sum(spectrum))
+        return (not coherent, abs((b - a) / rate - duration))
+
+    selected = sorted(candidates, key=rank)[:count]
+    return sorted(selected)
+
+
+def _tone_timing_summary(
+    expected: dict[str, Any], measured: list[dict[str, Any]]
+) -> dict[str, Any]:
+    return {
+        "policy": "independent_tone_duration_v1",
+        "command_start_offsets_s": [
+            None
+            if item["measured_start_s"] is None
+            else float(item["measured_start_s"]) - float(event["start_s"])
+            for event, item in zip(expected["events"], measured, strict=True)
+            if event["rf_state"] != "off"
+        ],
+    }
 
 
 def _acquired_timing_alignment(
@@ -463,7 +513,10 @@ def analyze_synthetic_iq(
         + 1 / rate
         + float(detector["frequency_state_support_s"]),
     )
-    for field in ("timing_tolerance_s", "maximum_transition_s", "maximum_alignment_shift_s"):
+    timing_fields = ["timing_tolerance_s", "maximum_transition_s"]
+    if plan["mode"] != "tone":
+        timing_fields.append("maximum_alignment_shift_s")
+    for field in timing_fields:
         if float(thresholds[field]) < minimum_resolution:
             _fail(f"{field} is tighter than detector filter resolution")
         if float(thresholds[field]) < time_resolution:
@@ -519,7 +572,7 @@ def analyze_synthetic_iq(
 
     timing_alignment = (
         _acquired_timing_alignment(plan, expected, detected_states, rate)
-        if not _synthetic
+        if not _synthetic and plan["mode"] != "tone"
         else None
     )
     common_shift_s = (
@@ -554,6 +607,12 @@ def analyze_synthetic_iq(
     event_runs = [
         measured_run(event) if event["rf_state"] != "off" else None for event in expected["events"]
     ]
+    independent_tone = plan["mode"] == "tone"
+    if independent_tone:
+        tone_runs = _independent_tone_runs(plan, expected, detected_states, rate, raw_samples)
+        active_positions = [i for i, e in enumerate(expected["events"]) if e["rf_state"] != "off"]
+        for i, position in enumerate(active_positions):
+            event_runs[position] = tone_runs[i] if tone_runs is not None else None
     # Quiet boundaries belong to their adjacent message edges. Later bursts
     # are assessed independently and cannot redefine that original turn-off.
     for i, event in enumerate(expected["events"]):
@@ -565,7 +624,7 @@ def analyze_synthetic_iq(
         end = (
             right[0]
             if right
-            else round(float(event["end_s"]) * rate)
+            else (count if independent_tone else round(float(event["end_s"]) * rate))
             if i == len(event_runs) - 1
             else None
         )
@@ -586,7 +645,7 @@ def analyze_synthetic_iq(
         if event_position == 0:
             start = round(float(event["start_s"]) * rate)
         if event_position == len(expected["events"]) - 1:
-            end = min(count, round(float(event["end_s"]) * rate))
+            end = count if independent_tone else min(count, round(float(event["end_s"]) * rate))
         segment = samples[start:end]
         power = (
             float(np.mean(np.abs(raw_samples[start:end].astype(np.complex128)) ** 2))
@@ -600,6 +659,8 @@ def analyze_synthetic_iq(
         outcome = "passed"
         expected_start = max(0, round(aligned_time(float(event["start_s"])) * rate))
         expected_end = min(count, round(aligned_time(float(event["end_s"])) * rate))
+        if independent_tone and state != "off" and run is not None:
+            expected_start, expected_end = start, end
         expected_segment = samples[expected_start:expected_end]
         if not blocked and state != "off" and expected_segment.size >= 4:
             frequency = _estimate_frequency(expected_segment, rate, center)
@@ -648,6 +709,12 @@ def analyze_synthetic_iq(
                 ),
             ),
         )
+        if independent_tone:
+            boundary_error = (
+                abs((end - start) / rate - float(plan["protocol"]["tone_on_seconds"]))
+                if state != "off"
+                else 0.0
+            )
         if blocked:
             outcome = "blocked"
         elif run is None:
@@ -754,8 +821,9 @@ def analyze_synthetic_iq(
         if (
             not blocked
             and run is not None
+            and (not independent_tone or state != "off")
             and abs(boundary_error - float(thresholds["timing_tolerance_s"]))
-            <= time_resolution + 1e-12
+            <= time_resolution * (2 if independent_tone else 1) + 1e-12
         ):
             outcome = "inconclusive"
             causes.append("timing_boundary_uncertain")
@@ -882,6 +950,7 @@ def analyze_synthetic_iq(
             "shifted_frequency_model": shifted_model,
             "unshifted_frequency_model": unshifted_model,
             "timing_alignment": timing_alignment,
+            "tone_timing": _tone_timing_summary(expected, measured) if independent_tone else None,
             "noise_detector": detector,
             "quiet_windows": quiet_records,
             "qualification_claim": False,

@@ -57,3 +57,7 @@ evidence across the CW family. Historical analyzer output requires its original
 analyzer for recomputation; compose a new replay to apply current semantics.
 See [Noise robustness](noise-robustness.md). Original captures and observations
 remain immutable.
+
+Analyzer 12 evaluates TONE pulses independently of command-start latency and
+inter-command spacing. Measured ON duration and actual quiet/stop evidence remain
+required. WSPR and keyed-mode protocol timing requirements are unchanged.

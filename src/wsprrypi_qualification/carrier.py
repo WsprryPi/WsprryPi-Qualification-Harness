@@ -81,8 +81,8 @@ def _average_power(path: Path, fft_size: int) -> tuple[npt.NDArray[np.float64], 
 def _aligned_tone_intervals(
     path: Path, plan: dict[str, Any], expected: dict[str, Any]
 ) -> list[list[float]]:
-    """Use the cadence detector's bounded common latency, never individual edge fits."""
-    from wsprrypi_qualification.cw_iq import _acquired_timing_alignment
+    """Measure each TONE interior independently of command-start latency."""
+    from wsprrypi_qualification.cw_iq import _independent_tone_runs
     from wsprrypi_qualification.noise import detect
 
     capture = plan["capture_contract"]
@@ -98,18 +98,13 @@ def _aligned_tone_intervals(
         float(plan["protocol"]["pre_quiet_seconds"]),
         float(thresholds["minimum_contrast_db"]),
     )
-    alignment = _acquired_timing_alignment(plan, expected, active, rate)
-    if detector["issues"] or alignment is None:
-        raise OfflineAnalysisError("TONE temporal guard lacks supported bounded alignment")
+    found = _independent_tone_runs(plan, expected, active, rate, open_cf32(path))
     margin = float(thresholds["timing_tolerance_s"])
-    if float(detector["edge_uncertainty_s"]) >= margin:
-        raise OfflineAnalysisError("TONE temporal alignment uncertainty exceeds timing tolerance")
-    shift = float(alignment["common_shift_s"])
-    return [
-        [float(e["start_s"]) + shift + margin, float(e["end_s"]) + shift - margin]
-        for e in expected["events"]
-        if e["rf_state"] != "off"
-    ]
+    if detector["issues"] or found is None or float(detector["edge_uncertainty_s"]) >= margin:
+        # Missing/ambiguous signal evidence is a measurement result, not an
+        # analyzer exception that aborts all subsequent modes.
+        return []
+    return [[a / rate + margin, b / rate - margin] for a, b in found]
 
 
 def _temporal_carrier_guard(
@@ -133,7 +128,7 @@ def _temporal_carrier_guard(
             for a, b in intervals
         ]
     )
-    if not bounds or any(a < 0 or b > len(iq) or b - a < width for a, b in bounds):
+    if any(a < 0 or b > len(iq) or b - a < width for a, b in bounds):
         raise OfflineAnalysisError("temporal carrier intervals lack complete supported windows")
     windows = [
         (start, min(start + width, end))
@@ -391,6 +386,7 @@ def analyze_carrier(
     noise_guard["outcome"] = (
         "inconclusive"
         if ambiguous
+        or noise_guard["window_count"] == 0
         or noise_guard["below_contrast_window_count"]
         or not noise_guard.get("startup_acquired", True)
         else "passed"
@@ -550,7 +546,7 @@ def analyze_carrier_acquired(
             raise OfflineAnalysisError("temporal CW plan contradicts carrier capture or frequency")
         intervals = _aligned_tone_intervals(rf_on_path, cw_plan, expected)
         temporal_reference = {
-            "alignment_policy": "bounded_common_latency_v1",
+            "alignment_policy": "independent_tone_duration_v1",
             "plan": artifact(cw_mode_plan_path.resolve()),
             "expected_events": artifact(cw_expected_path.resolve()),
         }
@@ -639,7 +635,7 @@ def load_acquired_carrier_evidence(path: Path) -> AcquiredCarrierEvidence:
         reference = contract.get("temporal_cw_reference")
         if (
             reference is not None
-            and reference.get("alignment_policy") != "bounded_common_latency_v1"
+            and reference.get("alignment_policy") != "independent_tone_duration_v1"
         ):
             raise OfflineAnalysisError(
                 "historical unaligned TONE evidence requires its original analyzer; "

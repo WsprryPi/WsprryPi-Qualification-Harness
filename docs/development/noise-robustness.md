@@ -218,14 +218,18 @@ This prefix acquisition does not apply to TONE cadence or keyed modes.
  TONE cadence uses `analyze-carrier --cw-mode-plan PLAN
 --cw-expected-events EVENTS`; both inputs are required together, authenticated,
 and checked against capture count, rate, center, and requested frequency. The
-guard checks every expected ON interior after the cadence detector's bounded
-common-latency alignment, excluding only the plan's existing timing tolerance
-at its boundaries. Individual pulses are never independently realigned.
-Unsupported alignment, contaminated references, or excessive edge uncertainty
-stop analysis. Aligned intervals and `bounded_common_latency_v1` are retained;
-older unaligned TONE evidence requires its original analyzer. The separate full cadence analyzer checks
-edges, gaps, silence, and capture tail. A cadence failure prevents TONE qualification but does not prevent subsequent
-modes from running after verified cleanup. Each mode has an independent result.
+guard checks each detected ON interior independently, excluding the plan's
+existing timing tolerance at its boundaries. Analyzer 12 records command-start
+offsets as diagnostics under `independent_tone_duration_v1`; start latency and
+spacing between independent TONE commands do not gate qualification. Actual ON
+duration, carrier continuity, missing or extra carrier, quiet intervals, and
+capture-tail stop evidence remain required. Duration uncertainty includes both
+edges. Broadband candidate envelopes cannot displace coherent pulses solely
+because their duration is closer to the request; unselected activity remains
+subject to carrier-specific quiet analysis. Missing or ambiguous pulse evidence
+produces an unsuccessful measurement rather than an alignment exception.
+WSPR, QRSS, FSKCW, and DFCW protocol timing is unchanged. Each mode has an
+independent result after verified cleanup.
 FFT evidence is retained unchanged and `mode_gate` remains `not_applicable`.
 
 The extra RF-on projection and alignment reads are included explicitly in the TONE analysis
@@ -233,7 +237,7 @@ workload bound. No timeout reserve or RF-duration allowance is introduced.
 
 ## Evidence compatibility
 
-Source and packaged schemas must match byte-for-byte. Version-8 through version-11 CW observations
+Source and packaged schemas must match byte-for-byte. Version-8 through version-12 CW observations
 require the detector specification and quiet-window records. Semantic validation
 checks specification identity and timing budgets; replay recomputation compares
 the complete detector evidence, not only pass/fail fields. Carrier schema 3

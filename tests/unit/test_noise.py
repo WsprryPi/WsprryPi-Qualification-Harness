@@ -429,7 +429,7 @@ def test_separated_shifted_states_acquire_inside_either_authenticated_window(
 
 
 @pytest.mark.parametrize("shift", [-0.25, 0.0, 0.194, 0.6, 0.9])
-def test_tone_temporal_interiors_follow_bounded_common_latency(tmp_path: Path, shift: float):
+def test_tone_temporal_interiors_follow_detected_pulses(tmp_path: Path, shift: float):
     from wsprrypi_qualification.carrier import _aligned_tone_intervals, _temporal_carrier_guard
 
     rate = 8000
@@ -445,7 +445,7 @@ def test_tone_temporal_interiors_follow_bounded_common_latency(tmp_path: Path, s
     plan = {
         "mode": "tone",
         "capture_contract": {"sample_rate_hz": rate, "center_frequency_hz": 10000},
-        "protocol": {"primary_frequency_hz": 11000, "pre_quiet_seconds": 2},
+        "protocol": {"primary_frequency_hz": 11000, "pre_quiet_seconds": 2, "tone_on_seconds": 2},
         "thresholds": {
             "timing_tolerance_s": 0.15,
             "maximum_alignment_shift_s": 0.75,
@@ -454,12 +454,6 @@ def test_tone_temporal_interiors_follow_bounded_common_latency(tmp_path: Path, s
         },
     }
     expected = {"events": [{"start_s": s, "end_s": s + 2, "rf_state": "on"} for s in (2, 6, 10)]}
-    if shift > 0.75:
-        from wsprrypi_qualification.offline import OfflineAnalysisError
-
-        with pytest.raises(OfflineAnalysisError, match="bounded alignment"):
-            _aligned_tone_intervals(path, plan, expected)
-        return
     intervals = _aligned_tone_intervals(path, plan, expected)
     assert intervals[0][0] == pytest.approx(2 + shift + 0.15, abs=0.01)
     params = CarrierParameters(rate, 10000, 11000, temporal_on_intervals_s=intervals)
@@ -468,10 +462,7 @@ def test_tone_temporal_interiors_follow_bounded_common_latency(tmp_path: Path, s
     values[(t >= 6.8 + shift) & (t < 6.85 + shift)] = 0
     values.astype("<c8").tofile(path)
     assert _temporal_carrier_guard(path, params, 11000)["below_contrast_window_count"] > 0
-    from wsprrypi_qualification.offline import OfflineAnalysisError
-
-    with pytest.raises(OfflineAnalysisError, match="bounded alignment"):
-        _aligned_tone_intervals(path, plan, expected)
+    assert _aligned_tone_intervals(path, plan, expected) == []
 
 
 @pytest.mark.parametrize("bound", [1.0, 1.1])
@@ -680,7 +671,7 @@ def test_carrier_confirmation_deadline_boundary(tmp_path: Path, bound: float, on
 
 def test_tone_retains_brief_off_period_event_without_failing(tmp_path: Path):
     obs = analyze_case(tmp_path, "tone", "brief_pulse")
-    assert obs["analyzer"]["version"] == "11"
+    assert obs["analyzer"]["version"] == "12"
     assert obs["analysis_outcome"] == "passed"
     quiet = obs["measurement_summary"]["quiet_windows"]
     bursts = [b for q in quiet for b in q["bursts"]]
