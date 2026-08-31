@@ -24,7 +24,7 @@ correctness are forbidden.
 | Local and SSH commands | `CommandPlan.timeout_s` | plan-bound safety ceiling |
 | Helper verification | resolved helper bound times exact operation count; every sequential operation shares the remaining aggregate envelope | work-derived |
 | Helper request transport | operation-specific server work plus any cleanup it may perform: process start includes repository inspection, process wait includes the requested wait and cleanup, and process stop includes cleanup | parent/work-derived |
-| Repository discovery/snapshot | the repository guard carries its parent helper or keyed-transaction envelope into every Git subprocess | parent-derived |
+| Repository boundary discovery | the repository guard carries its parent helper or keyed-transaction envelope into every Git subprocess | parent-derived |
 | Remote child termination | the request carries a cleanup envelope; TERM and KILL escalation split that exact remainder into two stages | parent-derived |
 | Forwarded remote command termination | the capability plan separates command work from cleanup; INT, TERM, and KILL split the exact cleanup remainder into three stages and the local SSH process owns their sum | parent-derived |
 | Scheduled helper process | accepted UTC schedule converted once to a monotonic launch instant; watchdog and waiter share the same hard deadline and outcome | protocol/plan-bound |

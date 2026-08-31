@@ -142,9 +142,9 @@ path copies the tracked WsprryPi INI byte-for-byte into the dedicated deployment
 runtime before composing the final plan; only that external staged copy may be
 passed through `-i`. The plan separately binds the source and runtime files,
 the external child working directory, and every protected Git root. The helper
-rechecks those facts immediately before spawn and compares the complete
-pre-existing repository baseline after stop. A mutation makes cleanup fail and
-is preserved for manual review; the Harness never resets or restores a checkout.
+rechecks those facts immediately before spawn. It does not snapshot or compare
+the working tree after stop; unrelated checkout changes do not make cleanup
+fail. The Harness never resets or restores a checkout.
 
 `complete-test` resolves transmitter PPM once before child-plan composition. A
 fresh `tracked_host_ppm` absolute value supersedes `manual_host_ppm`, which in

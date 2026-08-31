@@ -340,8 +340,9 @@ never receive a repository-contained mutable configuration. Resolve Git roots
 with the maintained repository-protection API, stage mutable bytes into a new
 external runtime directory before authorization, and bind both the source and
 runtime identities. Run the child from that external directory with controlled
-outputs. Cleanup compares the post-process repository state to its exact
-pre-process baseline; it reports mutation and never repairs it automatically.
+outputs. Live helpers do not snapshot or compare the checkout during cleanup.
+Unrelated checkout changes do not gate qualification, and the harness never
+repairs or restores operator work automatically.
 
 The historical wspr4 Tone pattern--passing a tracked
 `config/wsprrypi.ini` through `-i`--is explicitly rejected before launch. A

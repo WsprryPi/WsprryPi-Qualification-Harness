@@ -1,4 +1,7 @@
-"""Fail-closed containment for target source repositories and mutable inputs."""
+"""Runtime path containment and historical offline repository snapshot utilities.
+
+Live helpers use input/path validation only, never repository snapshot enforcement.
+"""
 
 from __future__ import annotations
 

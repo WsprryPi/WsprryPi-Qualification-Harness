@@ -602,7 +602,7 @@ def test_pinned_mutable_process_input_cannot_launch_without_repository_guard(
         "hard_timeout_s": 1,
         "environment": {},
     }
-    with pytest.raises(HelperProtocolError, match="repository mutation guard"):
+    with pytest.raises(HelperProtocolError, match="repository boundary validation"):
         server().dispatch(request("process-start", payload))
     pinned = tmp_path / "helper executable"
     pinned.write_text("helper", encoding="utf-8")
@@ -656,9 +656,22 @@ def _repository_guard_fixture(tmp_path: Path) -> tuple[Path, Path, Path, dict[st
     return root, source, runtime, guard
 
 
-def test_repository_guard_contains_mutating_child_and_retains_dirty_baseline(
+def _forbid_repository_snapshots(monkeypatch: pytest.MonkeyPatch) -> None:
+    from wsprrypi_qualification import repository_protection
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("live helpers must not snapshot or fingerprint the checkout")
+
+    monkeypatch.setattr(repository_protection, "capture_repository_snapshot", forbidden)
+    monkeypatch.setattr(repository_protection, "compare_repository_snapshot", forbidden)
+    monkeypatch.setattr(repository_protection, "_worktree_fingerprint", forbidden)
+
+
+def test_repository_boundary_stages_mutable_input_without_snapshotting(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _forbid_repository_snapshots(monkeypatch)
     root, source, runtime, guard = _repository_guard_fixture(tmp_path)
     operator_file = root / "operator-notes.txt"
     operator_file.write_text("pre-existing dirty work", encoding="utf-8")
@@ -690,10 +703,10 @@ def test_repository_guard_contains_mutating_child_and_retains_dirty_baseline(
     assert source.read_text(encoding="utf-8") == "original\n"
     assert operator_file.read_text(encoding="utf-8") == "pre-existing dirty work"
     assert result["cleanup_verified"] is True
-    assert result["repository_integrity"][0]["outcome"] == "unchanged"
+    assert "repository_integrity" not in result
 
 
-def test_repository_guard_reports_child_source_mutation_without_repair(tmp_path: Path) -> None:
+def test_checkout_mutation_does_not_fail_process_cleanup(tmp_path: Path) -> None:
     _, source, runtime, guard = _repository_guard_fixture(tmp_path)
     executable = Path(sys.executable).resolve()
     code = f"import pathlib;pathlib.Path({str(source)!r}).write_text('malicious child')"
@@ -718,13 +731,12 @@ def test_repository_guard_reports_child_source_mutation_without_repair(tmp_path:
     result = helper.dispatch(
         request("process-wait", {"handle_id": started["handle_id"], "timeout_s": 2})
     )["result"]
-    assert result["cleanup_verified"] is False
-    assert result["repository_integrity"][0]["outcome"] == "integrity_failure"
-    assert result["repository_integrity"][0]["repair_attempted"] is False
+    assert result["cleanup_verified"] is True
+    assert "repository_integrity" not in result
     assert source.read_text(encoding="utf-8") == "malicious child"
 
 
-def test_repository_guard_fails_cleanup_when_post_exit_discovery_is_unavailable(
+def test_process_cleanup_does_not_require_post_exit_repository_discovery(
     tmp_path: Path,
 ) -> None:
     root, _, runtime, guard = _repository_guard_fixture(tmp_path)
@@ -754,15 +766,16 @@ def test_repository_guard_fails_cleanup_when_post_exit_discovery_is_unavailable(
     result = helper.dispatch(
         request("process-wait", {"handle_id": started["handle_id"], "timeout_s": 2})
     )["result"]
-    assert result["cleanup_verified"] is False
-    assert result["repository_integrity"][0]["outcome"] == "unavailable"
+    assert result["cleanup_verified"] is True
+    assert "repository_integrity" not in result
     assert (root / ".git-hidden").is_dir()
 
 
 @pytest.mark.parametrize("mutates", (False, True))
-def test_service_restoration_repository_integrity_is_independent_and_fail_closed(
-    tmp_path: Path, mutates: bool
+def test_service_restoration_does_not_gate_on_checkout_mutation(
+    tmp_path: Path, mutates: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _forbid_repository_snapshots(monkeypatch)
     _, source, _, guard = _repository_guard_fixture(tmp_path)
 
     class GuardedService:
@@ -789,13 +802,10 @@ def test_service_restoration_repository_integrity_is_independent_and_fail_closed
         "systemd",
         guard,
     )
+    provider.set_running("wsprrypi", True)
+    assert provider.inspect("wsprrypi").running is True
     if mutates:
-        with pytest.raises(CapabilityError, match="changed protected repository"):
-            provider.set_running("wsprrypi", True)
         assert source.read_text(encoding="utf-8") == "service mutation"
-    else:
-        provider.set_running("wsprrypi", True)
-        assert provider.inspect("wsprrypi").running is True
 
 
 def test_nonfinite_and_forbidden_environment_are_rejected():

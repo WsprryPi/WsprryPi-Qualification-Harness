@@ -230,14 +230,16 @@ directory outside every discovered or declared Git root before execution. The
 child receives only that staged path and runs from an external runtime working
 directory. Immediately before launch, the helper rechecks the source and staged
 identities, exact arguments, writable paths, working directory, Git executable,
-and protected roots. It snapshots repository state without requiring a clean
-checkout and compares that exact dirty baseline after every exit path.
+and protected roots. These checks cover the explicit runtime inputs and path
+boundary only. Live helpers do not snapshot or fingerprint the target working
+tree, compare dirty baselines, or classify unrelated checkout changes as cleanup
+failures. The harness therefore does not attest that the entire checkout was
+unchanged during a run.
 
-Repository mutation is an integrity and cleanup failure. It prevents a
-qualification result and is reported without reset, checkout, clean, deletion,
-or automatic restoration; operator work may have changed concurrently and must
-not be overwritten or concealed. Service restoration is not permitted to erase
-or supersede that integrity outcome.
+The harness must not reset, checkout, clean, delete, or automatically restore
+operator work. Historical repository-integrity evidence retains its original
+meaning, but new helper responses omit that optional evidence rather than
+claiming an unperformed integrity check passed.
 
 The carrier gate must pass before WSPR frames may run. The harness must never
 automatically classify receiver coverage, overload, ownership, or RF-fixture

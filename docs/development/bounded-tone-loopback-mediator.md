@@ -54,6 +54,6 @@ ownership is installed, and every tone cycle uses the same server transaction
 endpoint. The server is then stopped and its complete owned-process result is
 retained before service restoration and GPIO quiescence verification. A
 missing server, changed INI file, premature exit, or unverified owned stop makes
-the run unsuccessful. Post-stop repository comparison preserves any existing
-dirty baseline. A detected mutation is a cleanup failure and is never silently
-repaired.
+the run unsuccessful. No repository snapshot or post-stop working-tree comparison
+is performed. Unrelated checkout changes do not affect cleanup qualification;
+operator work is never automatically repaired or restored.

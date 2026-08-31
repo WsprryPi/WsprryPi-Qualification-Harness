@@ -131,5 +131,13 @@ creation, bounded permissions, byte/hash verification, and an external working
 directory. The finalized source binding, staged binding, protected roots, and
 working directory enter the resolved plan before authorization. The helper
 rejects pinned mutable inputs without this repository guard, rechecks it before
-spawn, and records post-process integrity. Cleanup removes only the owned stage;
+spawn, but does not snapshot or compare the working tree. Cleanup removes only the owned stage;
 it never deletes or repairs a repository path.
+
+Repository-wide snapshot enforcement has been removed from live process and
+service operations. The optional historical `repository_integrity` response
+field and its schemas remain readable; new helpers omit it. Absence means no
+repository-wide integrity assessment was performed, not an unchanged checkout.
+Executable, helper, configuration, staged-input, and result-artifact hashes
+remain enforced independently. Process termination, service restoration, and
+hardware quiescence remain required for cleanup success.

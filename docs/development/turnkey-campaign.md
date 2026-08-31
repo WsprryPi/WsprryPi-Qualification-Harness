@@ -265,9 +265,9 @@ never a runtime directory. Any child-writable configuration is copied into a
 new deployment-owned directory outside all protected Git roots before the final
 plan is authorized. That plan binds the source file, staged file, protected
 roots, and external process working directory. The helper verifies the boundary
-at spawn and compares the post-process repository state with its exact original
-baseline, including pre-existing dirty work. Mutation fails cleanup and is
-reported without automatic repair.
+at spawn, without taking or comparing repository snapshots. Unrelated checkout
+changes do not fail cleanup, and the helper does not attest that the working
+tree was unchanged. The harness never repairs or restores operator work.
 The current production application/quiescence contracts support GPIO, Si5351,
 and RP1 GPCLK. RP1 remains an explicit Experimental development path; its
 route, drive, provider identity, operation authorization, and quiescence

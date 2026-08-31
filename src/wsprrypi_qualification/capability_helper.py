@@ -29,12 +29,9 @@ from wsprrypi_qualification.bounded_tone_control import (
 from wsprrypi_qualification.offline import validate_document
 from wsprrypi_qualification.repository_protection import (
     RepositoryProtectionError,
-    RepositorySnapshot,
     RuntimeArtifactBinding,
     SourceArtifactBinding,
     bind_source,
-    capture_repository_snapshot,
-    compare_repository_snapshot,
     discover_protected_roots,
     validate_process_boundary,
 )
@@ -260,14 +257,6 @@ class CommandRp1Backend:
 
 
 @dataclass
-class RepositoryGuardState:
-    git: Path
-    roots: tuple[Any, ...]
-    snapshots: tuple[RepositorySnapshot, ...]
-    inspection_timeout_s: float
-
-
-@dataclass
 class OwnedChild:
     process: subprocess.Popen[bytes] | None
     stdout: Any
@@ -277,7 +266,6 @@ class OwnedChild:
     launch_arguments: list[str]
     environment: dict[str, str]
     working_directory: Path | None = None
-    repository_guard: RepositoryGuardState | None = None
     scheduled_start_utc: str | None = None
     scheduled_monotonic: float | None = None
     actual_start_utc: str | None = None
@@ -355,11 +343,13 @@ class OwnedProcessRegistry:
             if not path.is_absolute() or not path.is_file() or _sha256(path) != raw_digest:
                 raise HelperProtocolError("pinned process argument identity changed")
         environment = _environment(payload.get("environment", {}))
-        working_directory, repository_guard = self._prepare_repository_guard(
+        working_directory, boundary_validated = self._prepare_repository_guard(
             payload.get("repository_guard"), arguments, pinned_arguments
         )
-        if pinned_arguments and repository_guard is None:
-            raise HelperProtocolError("pinned process inputs require a repository mutation guard")
+        if pinned_arguments and not boundary_validated:
+            raise HelperProtocolError(
+                "pinned process inputs require a repository boundary validation"
+            )
         scheduled_text = payload.get("scheduled_start_utc")
         schedule_after_arm = payload.get("schedule_after_arm_s")
         minimum_margin = payload.get("minimum_arm_margin_s", 0.0)
@@ -421,7 +411,6 @@ class OwnedProcessRegistry:
             launch_arguments=launch_arguments,
             environment=environment,
             working_directory=working_directory,
-            repository_guard=repository_guard,
             scheduled_start_utc=scheduled_text if scheduled_utc is not None else None,
             scheduled_monotonic=scheduled_monotonic,
         )
@@ -617,20 +606,6 @@ class OwnedProcessRegistry:
         child.stderr.close()
         with self._lock:
             self._children.pop(handle, None)
-        repository_integrity: list[dict[str, object]] = []
-        if child.repository_guard is not None:
-            guard = child.repository_guard
-            for before, root in zip(guard.snapshots, guard.roots, strict=True):
-                integrity = compare_repository_snapshot(
-                    before,
-                    root,
-                    git_executable=guard.git,
-                    timeout_s=guard.inspection_timeout_s,
-                )
-                integrity_document = integrity.document()
-                validate_document(integrity_document, "repository-integrity.schema.json")
-                repository_integrity.append(integrity_document)
-        integrity_clean = all(item["outcome"] == "unchanged" for item in repository_integrity)
         result: dict[str, object] = {
             "handle_id": handle,
             "return_code": child.process.returncode if child.process is not None else None,
@@ -639,15 +614,12 @@ class OwnedProcessRegistry:
             "timed_out": timed_out,
             "cancelled": cancelled,
             "disconnected": False,
-            "cleanup_verified": (child.process is None or child.process.poll() is not None)
-            and integrity_clean,
+            "cleanup_verified": child.process is None or child.process.poll() is not None,
             "scheduled_start_utc": child.scheduled_start_utc,
             "actual_start_utc": child.actual_start_utc,
             "schedule_error_ms": child.schedule_error_ms,
             "launch_error": child.launch_error,
         }
-        if child.repository_guard is not None:
-            result["repository_integrity"] = repository_integrity
         return result
 
     @staticmethod
@@ -657,9 +629,9 @@ class OwnedProcessRegistry:
         pinned_arguments: dict[object, object],
         *,
         require_pinned_runtime: bool = True,
-    ) -> tuple[Path | None, RepositoryGuardState | None]:
+    ) -> tuple[Path | None, bool]:
         if raw_guard is None:
-            return None, None
+            return None, False
         if not isinstance(raw_guard, dict):
             raise HelperProtocolError("repository guard must be an object")
         try:
@@ -754,15 +726,7 @@ class OwnedProcessRegistry:
                 writable_paths=[Path(value) for value in writable_values],
                 roots=roots,
             )
-            snapshots = tuple(
-                capture_repository_snapshot(
-                    root, git_executable=git, timeout_s=float(inspection_timeout_s)
-                )
-                for root in roots
-            )
-            return working_directory.resolve(strict=True), RepositoryGuardState(
-                git, roots, snapshots, float(inspection_timeout_s)
-            )
+            return working_directory.resolve(strict=True), True
         except (OSError, RepositoryProtectionError) as error:
             raise HelperProtocolError(
                 f"repository guard rejected process start: {error}"
@@ -829,7 +793,7 @@ class CapabilityHelperServer:
             if operation == "service-inspect":
                 running = self.services.inspect(name, manager)
             else:
-                _working_directory, repository_guard = self.processes._prepare_repository_guard(
+                _working_directory, _boundary_validated = self.processes._prepare_repository_guard(
                     payload.get("repository_guard"),
                     ["/service-action"],
                     {},
@@ -837,23 +801,6 @@ class CapabilityHelperServer:
                 )
                 running = self.services.set_running(name, manager, _boolean(payload, "running"))
             result = {"name": name, "manager": manager, "running": running}
-            if operation == "service-set" and repository_guard is not None:
-                integrity_documents = []
-                for before, root in zip(
-                    repository_guard.snapshots, repository_guard.roots, strict=True
-                ):
-                    integrity = compare_repository_snapshot(
-                        before,
-                        root,
-                        git_executable=repository_guard.git,
-                        timeout_s=repository_guard.inspection_timeout_s,
-                    ).document()
-                    validate_document(integrity, "repository-integrity.schema.json")
-                    integrity_documents.append(integrity)
-                result["repository_integrity"] = integrity_documents
-                result["cleanup_verified"] = all(
-                    item["outcome"] == "unchanged" for item in integrity_documents
-                )
         elif operation == "gpio-inspect":
             result = self.gpio.inspect(_integer(payload, "pin"))
         elif operation == "si5351-inspect":
