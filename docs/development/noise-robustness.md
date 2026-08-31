@@ -114,8 +114,24 @@ impulse cannot qualify solely by dominating the averaged FFT. Comparable
 separated in-window features or insufficient local temporal contrast make the
 guard inconclusive. Stronger remote features remain diagnostic.
 
-Continuous-carrier input covers the complete retained capture, including its
-FFT tail. TONE cadence uses `analyze-carrier --cw-mode-plan PLAN
+Strict continuous-carrier analysis covers the complete retained capture,
+including its FFT tail. Live WSPR carrier acquisition starts the receiver before
+the transmitter, so its analyzer explicitly supplies
+`--startup-acquisition-max-s 1.0`. Generic analysis defaults to zero (strict).
+The version-2 temporal guard requires at least 100 ms of consecutive passing
+windows to acquire within that one-second bound. It chooses the earliest such
+run, requires at least one second of retained steady evidence, and checks every
+window from that onset through the capture tail. It never reacquires after a
+dropout or selects a later convenient segment. Missing or late acquisition,
+insufficient evidence, and subsequent contrast failures remain inconclusive.
+The bound does not establish transmitter startup performance or RF identity.
+
+Evidence retains the startup policy, bound, confirmation duration, excluded
+window counts (including below-contrast counts), and steady-window metrics.
+Replay recomputes these fields from the authenticated IQ. Existing strict
+results retain their original behavior; historical evidence is never rewritten.
+This prefix acquisition does not apply to TONE cadence or keyed modes.
+ TONE cadence uses `analyze-carrier --cw-mode-plan PLAN
 --cw-expected-events EVENTS`; both inputs are required together, authenticated,
 and checked against capture count, rate, center, and requested frequency. The
 guard checks every expected ON interior after the cadence detector's bounded

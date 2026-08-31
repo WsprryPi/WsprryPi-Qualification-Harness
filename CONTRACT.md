@@ -271,7 +271,13 @@ establishes calibrated power or spectral compliance.
 The target-window behavior was introduced in carrier-analysis schema version 2.
 Version 3 additionally requires independent short-window local carrier contrast
 and checks for comparable separated in-window candidates. Ambiguous temporal
-or acquisition evidence is inconclusive. TONE uses authenticated ON interiors
+or acquisition evidence is inconclusive. Live WSPR may explicitly use bounded
+startup acquisition because the receiver starts before transmitter launch:
+confirmation must complete within one second, followed by at least one second
+of steady evidence. Every window after acquisition, including the tail, retains
+the same contrast requirement; reacquisition after dropout is forbidden. Generic
+carrier analysis remains strict by default. The policy and discarded prefix
+counts are authenticated and replayed. TONE uses authenticated ON interiors
 and a separate full cadence/quiet assessment. Each mode retains its own result;
 measurement failure or inconclusive evidence does not gate subsequent modes.
 Cleanup failure, abort, preflight failure, fixture blockage, and unauthenticated

@@ -593,3 +593,45 @@ def test_acquired_audio_uses_capture_utc_and_canonical_name(
         load_audio_evidence(audio_path, wav_path)
     finally:
         os.chdir(previous)
+
+
+def test_startup_policy_is_replay_bound_and_tampering_rejected(tmp_path: Path):
+    rate, center, frequency = 8000, 10000, 11000
+    bench, test = profiles(tmp_path, rate=rate, center=center, frequency=frequency)
+    t = np.arange(3 * rate) / rate
+    rng = np.random.default_rng(204)
+    noise = 0.001 * (rng.normal(size=t.size) + 1j * rng.normal(size=t.size))
+    off, on = tmp_path / "off.cf32", tmp_path / "on.cf32"
+    noise.astype("<c8").tofile(off)
+    (noise + 0.2 * np.exp(2j * np.pi * 1000 * t) * (t >= 0.8)).astype("<c8").tofile(on)
+    off_meta = metadata(tmp_path, "off.json", off, rate=rate, center=center)
+    on_meta = metadata(tmp_path, "on.json", on, rate=rate, center=center)
+    evidence = tmp_path / "carrier.json"
+    args = [
+        "analyze-carrier",
+        str(off),
+        str(on),
+        str(evidence),
+        "--bench-profile",
+        str(bench),
+        "--test-profile",
+        str(test),
+        "--rf-off-metadata",
+        str(off_meta),
+        "--rf-on-metadata",
+        str(on_meta),
+        "--fft-size",
+        "2048",
+        "--dc-exclusion-hz",
+        "100",
+        "--startup-acquisition-max-s",
+        "1",
+    ]
+    assert main(args) == 0
+    loaded = load_acquired_carrier_evidence(evidence)
+    assert loaded.document["gate_outcome"] == "passed"
+    document = json.loads(evidence.read_text())
+    document["metrics"]["noise_guard"]["startup_excluded_windows"] += 1
+    evidence.write_text(json.dumps(document))
+    with pytest.raises(OfflineAnalysisError, match="contradict authenticated inputs"):
+        load_acquired_carrier_evidence(evidence)

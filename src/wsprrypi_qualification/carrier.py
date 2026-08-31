@@ -53,6 +53,7 @@ class CarrierParameters:
     relative_acquisition_offset_gate_hz: float = 500.0
     relative_acquisition_contrast_gate_db: float = 10.0
     temporal_on_intervals_s: list[list[float]] | None = None
+    startup_acquisition_max_s: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -166,8 +167,47 @@ def _temporal_carrier_guard(
             float(10 * (np.log10(max(coherent, np.finfo(float).tiny)) - np.log10(background)))
         )
         coherence.append(coherent / max(total, np.finfo(float).tiny))
+    startup: dict[str, Any] = {}
+    if parameters.startup_acquisition_max_s:
+        # Acquire once, at the earliest confirmed carrier. Never search again
+        # after a dropout, nor trim the tail to a convenient passing interval.
+        confirmation = max(1, math.ceil(0.1 * parameters.sample_rate_hz / width))
+        limit = math.floor(parameters.startup_acquisition_max_s * parameters.sample_rate_hz)
+        acquired = next(
+            (
+                i
+                for i in range(len(contrasts))
+                if (i + confirmation) * width <= limit
+                and len(contrasts[i : i + confirmation]) == confirmation
+                and all(
+                    c >= parameters.relative_acquisition_contrast_gate_db
+                    for c in contrasts[i : i + confirmation]
+                )
+            ),
+            None,
+        )
+        sufficient = (
+            acquired is not None and len(iq) - acquired * width >= parameters.sample_rate_hz
+        )
+        startup = {
+            "startup_policy": "bounded_prefix_acquisition_v1",
+            "startup_acquired": sufficient,
+            "startup_max_s": parameters.startup_acquisition_max_s,
+            "startup_confirmation_s": confirmation * width / parameters.sample_rate_hz,
+            "minimum_steady_s": 1.0,
+            "startup_excluded_windows": acquired if sufficient else 0,
+            "startup_excluded_below_contrast_windows": sum(
+                c < parameters.relative_acquisition_contrast_gate_db for c in contrasts[:acquired]
+            )
+            if sufficient
+            else 0,
+        }
+        if sufficient:
+            contrasts = contrasts[acquired:]
+            coherence = coherence[acquired:]
     return {
-        "version": 1,
+        **startup,
+        "version": 2 if startup else 1,
         "window_samples": width,
         "window_count": len(contrasts),
         "minimum_local_contrast_db": min(contrasts) if contrasts else 0.0,
@@ -193,6 +233,12 @@ def analyze_carrier(
     plot_path: Path | None = None,
     temporal_cw_reference: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if (
+        not math.isfinite(parameters.startup_acquisition_max_s)
+        or not 0 <= parameters.startup_acquisition_max_s <= 1
+        or (parameters.startup_acquisition_max_s and parameters.temporal_on_intervals_s is not None)
+    ):
+        raise OfflineAnalysisError("startup acquisition requires 0..1 seconds and continuous input")
     if parameters.sample_rate_hz <= 0 or parameters.fft_size < 16:
         raise OfflineAnalysisError("sample rate and FFT size must be positive")
     if not 0 <= parameters.share_gate <= 1:
@@ -341,7 +387,11 @@ def analyze_carrier(
     )
     noise_guard["ambiguous_in_window_feature"] = ambiguous
     noise_guard["outcome"] = (
-        "inconclusive" if ambiguous or noise_guard["below_contrast_window_count"] else "passed"
+        "inconclusive"
+        if ambiguous
+        or noise_guard["below_contrast_window_count"]
+        or not noise_guard.get("startup_acquired", True)
+        else "passed"
     )
     if gate == "passed" and noise_guard["outcome"] != "passed":
         gate = "inconclusive"
@@ -352,7 +402,11 @@ def analyze_carrier(
         "gate_outcome": gate,
         "inputs": {"rf_off": asdict(off_info), "rf_on": asdict(on_info)},
         "contract": {
-            **asdict(parameters),
+            **{
+                k: v
+                for k, v in asdict(parameters).items()
+                if k != "startup_acquisition_max_s" or v != 0
+            },
             "evidence_scope": "acquired" if profile_evidence is not None else "synthetic",
             "window": "hann",
             "averaging": "non_overlapping_power_blocks",
@@ -464,6 +518,7 @@ def analyze_carrier_acquired(
     receiver_calibration: dict[str, Any] | None = None,
     cw_mode_plan_path: Path | None = None,
     cw_expected_path: Path | None = None,
+    startup_acquisition_max_s: float = 0.0,
 ) -> dict[str, Any]:
     context = load_profile_context(bench_profile_path, test_profile_path)
     off_metadata = validate_acquired_capture(
@@ -498,6 +553,7 @@ def analyze_carrier_acquired(
             "expected_events": artifact(cw_expected_path.resolve()),
         }
     parameters = CarrierParameters(
+        startup_acquisition_max_s=startup_acquisition_max_s,
         temporal_on_intervals_s=intervals,
         sample_rate_hz=context.bench.receiver.sample_rate_hz,
         center_frequency_hz=context.test.receiver_center_hz,
@@ -625,6 +681,7 @@ def load_acquired_carrier_evidence(path: Path) -> AcquiredCarrierEvidence:
                 bench_path,
                 test_path,
                 Path(directory) / "carrier.json",
+                startup_acquisition_max_s=contract.get("startup_acquisition_max_s", 0.0),
                 fft_size=contract["fft_size"],
                 dc_exclusion_hz=contract["dc_exclusion_hz"],
                 plot_path=recomputed_plot,

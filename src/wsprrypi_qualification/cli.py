@@ -321,6 +321,12 @@ def _parser() -> argparse.ArgumentParser:
     carrier.add_argument("evidence", type=Path)
     carrier.add_argument("--bench-profile", type=Path, required=True)
     carrier.add_argument("--test-profile", type=Path, required=True)
+    carrier.add_argument(
+        "--startup-acquisition-max-s",
+        type=float,
+        default=0.0,
+        help="bounded continuous-carrier startup acquisition, 0..1 s; default strict",
+    )
     carrier.add_argument("--cw-mode-plan", type=Path, help="authenticated TONE cadence plan")
     carrier.add_argument(
         "--cw-expected-events", type=Path, help="authenticated TONE cadence events"
@@ -1371,6 +1377,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.bench_profile,
                 args.test_profile,
                 args.evidence,
+                startup_acquisition_max_s=args.startup_acquisition_max_s,
                 cw_mode_plan_path=args.cw_mode_plan,
                 cw_expected_path=args.cw_expected_events,
                 fft_size=args.fft_size,

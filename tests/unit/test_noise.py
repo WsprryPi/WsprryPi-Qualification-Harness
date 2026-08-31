@@ -467,3 +467,80 @@ def test_tone_temporal_interiors_follow_bounded_common_latency(tmp_path: Path, s
 
     with pytest.raises(OfflineAnalysisError, match="bounded alignment"):
         _aligned_tone_intervals(path, plan, expected)
+
+
+@pytest.mark.parametrize(
+    "case", ["delayed", "immediate", "late", "absent", "dropout", "early_dropout", "tail", "short"]
+)
+def test_bounded_carrier_startup_never_reacquires_or_trims_tail(tmp_path: Path, case: str):
+    rate = 8000
+    t = np.arange(int((1.3 if case == "short" else 3) * rate)) / rate
+    rng = np.random.default_rng(807)
+    off = 0.001 * (rng.normal(size=t.size) + 1j * rng.normal(size=t.size))
+    start = 0 if case in {"immediate", "early_dropout"} else 1.2 if case == "late" else 0.8
+    active = t >= start
+    if case == "absent":
+        active[:] = False
+    if case == "dropout":
+        active &= ~((t >= 1.4) & (t < 1.5))
+    if case == "early_dropout":
+        active &= ~((t >= 0.2) & (t < 0.3))
+    if case == "tail":
+        active &= t < 2.8
+    on = off + 0.2 * np.exp(2j * np.pi * 1000 * t) * active
+    off.astype("<c8").tofile(tmp_path / "off.cf32")
+    on.astype("<c8").tofile(tmp_path / "on.cf32")
+    params = CarrierParameters(
+        rate,
+        10000,
+        11000,
+        fft_size=2048,
+        dc_exclusion_hz=100,
+        relative_acquisition_offset_gate_hz=200,
+        startup_acquisition_max_s=1,
+    )
+    result = analyze_carrier(
+        tmp_path / "off.cf32", tmp_path / "on.cf32", params, tmp_path / "result.json"
+    )
+    guard = result["metrics"]["noise_guard"]
+    assert result["gate_outcome"] == (
+        "passed" if case in {"delayed", "immediate"} else "inconclusive"
+    )
+    assert guard["version"] == 2
+    assert guard["includes_fft_tail"] is True
+    if case == "delayed":
+        assert guard["startup_acquired"] is True
+        assert guard["startup_excluded_windows"] == 40
+        assert guard["below_contrast_window_count"] == 0
+    if case in {"dropout", "early_dropout", "tail"}:
+        assert guard["startup_acquired"] is True
+        assert guard["below_contrast_window_count"] > 0
+    if case in {"late", "absent", "short"}:
+        assert guard["startup_acquired"] is False
+
+
+@pytest.mark.parametrize("bound", [-1, 1.01, float("nan"), float("inf")])
+def test_carrier_startup_bound_rejected_before_iq_access(tmp_path: Path, bound: float):
+    from wsprrypi_qualification.offline import OfflineAnalysisError
+
+    with pytest.raises(OfflineAnalysisError, match="startup acquisition"):
+        analyze_carrier(
+            tmp_path / "missing",
+            tmp_path / "missing",
+            CarrierParameters(8000, 10000, 11000, startup_acquisition_max_s=bound),
+            tmp_path / "result.json",
+        )
+
+
+def test_startup_acquisition_cannot_mask_tone_cadence(tmp_path: Path):
+    from wsprrypi_qualification.offline import OfflineAnalysisError
+
+    with pytest.raises(OfflineAnalysisError, match="continuous input"):
+        analyze_carrier(
+            tmp_path / "missing",
+            tmp_path / "missing",
+            CarrierParameters(
+                8000, 10000, 11000, temporal_on_intervals_s=[[1, 2]], startup_acquisition_max_s=1
+            ),
+            tmp_path / "result.json",
+        )
