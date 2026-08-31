@@ -258,6 +258,83 @@ def detect(
     return baseband / oscillator, active, result
 
 
+def quiet_qualification_policy(dot_seconds: float, rate: float) -> dict[str, Any]:
+    """Versioned engineering significance policy, not a statistical RF claim."""
+    if not math.isfinite(dot_seconds) or dot_seconds <= 0 or not math.isfinite(rate) or rate <= 0:
+        raise ValueError("quiet qualification requires positive finite dot duration and rate")
+    policy = {
+        "name": "slow_cw_quiet_significance",
+        "version": 1,
+        "dot_seconds": dot_seconds,
+        "duration_fraction": 0.01,
+        "duration_cap_s": 0.01,
+        "occupancy_limit": 0.01,
+        "material_samples": max(4, math.ceil(min(0.01, dot_seconds * 0.01) * rate)),
+        "rolling_samples": max(4, round(dot_seconds * rate)),
+    }
+    encoded = json.dumps(policy, sort_keys=True, separators=(",", ":")).encode()
+    return {**policy, "sha256": hashlib.sha256(encoded).hexdigest()}
+
+
+def assess_quiet_significance(
+    evidence: dict[str, Any], rate: float, dot_seconds: float
+) -> dict[str, Any]:
+    """Retain all events; assess duration and sliding-window accumulated activity."""
+    result = {**evidence, "bursts": [dict(b) for b in evidence["bursts"]]}
+    policy = quiet_qualification_policy(dot_seconds, rate)
+    start = round(float(evidence["start_s"]) * rate)
+    end = round(float(evidence["end_s"]) * rate)
+    if end <= start:
+        raise ValueError("quiet interval has no supported samples")
+    occupied = np.zeros(end - start, dtype=np.int8)
+    issues: set[str] = set()
+    significant = 0
+    previous = start
+    for burst in result["bursts"]:
+        a, b = round(burst["start_s"] * rate), round(burst["end_s"] * rate)
+        if (
+            a < previous
+            or b <= a
+            or b > end
+            or not math.isclose(burst["duration_s"], (b - a) / rate, abs_tol=1e-9)
+        ):
+            raise ValueError("quiet burst duration or ordering contradicts its interval")
+        previous = b
+        occupied[a - start : b - start] = 1
+        effect = "diagnostic_only"
+        if b - a >= policy["material_samples"]:
+            significant += 1
+            effect = (
+                "false_silence"
+                if burst["classification"] == "coherent_in_band"
+                else "ambiguous_quiet_contamination"
+            )
+            issues.add(effect)
+        burst["qualification_effect"] = effect
+    if not math.isclose(evidence["occupancy"], float(np.mean(occupied)), abs_tol=1e-9):
+        raise ValueError("quiet occupancy contradicts retained events")
+    width = min(policy["rolling_samples"], occupied.size)
+    cumulative = np.concatenate((np.zeros(1, dtype=np.int64), np.cumsum(occupied, dtype=np.int64)))
+    counts = cumulative[width:] - cumulative[:-width]
+    peak = int(np.argmax(counts))
+    peak_occupancy = float(counts[peak]) / width
+    if (
+        counts[peak] >= math.ceil(width * policy["occupancy_limit"])
+        and "false_silence" not in issues
+    ):
+        # Accumulated short, individually uncertain events do not prove carrier identity.
+        issues.add("ambiguous_quiet_contamination")
+    result["issues"] = sorted(issues)
+    result["qualification_policy"] = policy
+    result["qualification_assessment"] = {
+        "significant_burst_count": significant,
+        "maximum_rolling_occupancy": peak_occupancy,
+        "peak_window_start_s": (start + peak) / rate,
+        "peak_window_end_s": (start + peak + width) / rate,
+    }
+    return result
+
+
 def quiet_evidence(
     samples: np.ndarray,
     rate: float,
@@ -268,6 +345,7 @@ def quiet_evidence(
     noise: float,
     minimum_contrast: float,
     channel_half_width_hz: float | None = None,
+    dot_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Assess raw quiet-window transients independently of edge persistence.
 
@@ -316,13 +394,16 @@ def quiet_evidence(
                 "classification": "coherent_in_band" if coherent else "unresolved_interference",
             }
         )
-    return {
+    result = {
         "start_s": start / rate,
         "end_s": end / rate,
         "occupancy": sum(b["duration_s"] for b in bursts) / max((end - start) / rate, 1 / rate),
         "bursts": bursts,
         "issues": sorted(issues),
     }
+    return (
+        assess_quiet_significance(result, rate, dot_seconds) if dot_seconds is not None else result
+    )
 
 
 def raw_quiet_bounds(

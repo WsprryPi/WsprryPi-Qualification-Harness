@@ -292,7 +292,13 @@ evidence including the capture tail. Filtering or persistence must not conceal
 extra transmissions. Unusable references and ambiguous interference prevent a
 pass; uncertainty at a timing boundary is inconclusive and does not widen the
 plan's tolerance. See `docs/development/noise-robustness.md` for the measurement
-domains, version compatibility, and hardware-free validation limits.
+domains, version compatibility, and hardware-free validation limits. Analyzer 9 retains
+all transient events but applies a versioned keyed-mode significance policy:
+one percent of dot duration (capped at 10 ms, minimum four samples) for individual
+bursts, and one percent occupancy in sliding dot-length quiet windows for
+accumulated activity. Short isolated events are diagnostic-only. The recorded
+policy and assessment must reproduce from retained evidence; timing, drift,
+spacing, WSPR, TONE, and cleanup requirements remain unchanged.
 
 For a complete campaign, nominal protocol frequency, intentional requested
 transmit-frequency offset, transmitter PPM correction, receiver calibration,

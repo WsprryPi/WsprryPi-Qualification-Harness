@@ -1,6 +1,6 @@
 # Noise robustness and measurement limits
 
-CW IQ analyzer **8** and carrier-analysis schema **3** introduce independent
+CW IQ analyzer **9** and carrier-analysis schema **3** introduce independent
 carrier-presence, timing, and interference checks. They do not relax a plan's
 timing, frequency, spacing, drift, transition, contrast, decoding, clipping,
 overflow, or lifecycle requirements. Campaign timing tolerance remains 150 ms.
@@ -95,15 +95,33 @@ inspection, not the carrier timing observation.
 
 Each credible burst retains start/end, duration, peak relative power,
 integrated relative power, phase-derived frequency where resolvable, coherence,
-and classification. Each quiet interval retains occupancy. Four-sample
-carrier-like bursts can fail silence even when shorter than the 10 ms state
-confirmation. Strong unresolved impulses and ambiguous broadband contamination
-remain inconclusive. Near-noise subresolution excursions cannot define an edge.
+and classification. No detected event is removed by the significance policy.
+Frequency and coherence estimated from very short events remain diagnostics,
+not sufficient evidence of an operational silence violation.
 
-Coherent in-channel energy establishes a silence violation, not independent
-proof of which physical source emitted it. Co-channel interference and very
-short events can remain unidentifiable. Sustained or repeated extra carrier
-activity must never disappear into an adaptive background estimate.
+Analyzer 9 adds `slow_cw_quiet_significance` version 1 for keyed modes. An
+individual event is material at one percent of the commanded dot duration,
+capped at 10 ms and bounded below by four samples. At a 0.7-second dot and
+250 ksps, this is 7 ms. Shorter events retain `diagnostic_only` qualification
+effect. Material carrier-like events fail silence; material unresolved events
+make it inconclusive. TONE retains the earlier strict raw-transient policy.
+
+The policy also checks accumulated retained-event occupancy in every sliding
+window of one dot duration, shortening the window only when the entire quiet
+interval is shorter. Occupancy of one percent or more is inconclusive unless
+there is already a material carrier-like silence violation. The sliding check
+prevents repeated short bursts from escaping at fixed-bin boundaries or being
+diluted by a long capture tail. Individually uncertain frequency estimates do
+not become proof of carrier identity merely through accumulation.
+
+Every keyed quiet record binds the policy parameters and SHA-256, per-event
+qualification effect, peak rolling occupancy and its interval, and count of
+material events. Semantic validation regenerates the assessment from retained
+events; full replay also regenerates events from IQ. These are explicit
+engineering significance thresholds, not calibrated interference tolerance,
+CFAR probabilities, or proof of which source emitted the activity. Changes
+require a new policy identity/analyzer version and fresh qualification evidence.
+
 
 ## Carrier gate and TONE cadence
 
@@ -149,7 +167,7 @@ workload bound. No timeout reserve or RF-duration allowance is introduced.
 
 ## Evidence compatibility
 
-Source and packaged schemas must match byte-for-byte. Version-8 CW observations
+Source and packaged schemas must match byte-for-byte. Version-8 and version-9 CW observations
 require the detector specification and quiet-window records. Semantic validation
 checks specification identity and timing budgets; replay recomputation compares
 the complete detector evidence, not only pass/fail fields. Carrier schema 3
