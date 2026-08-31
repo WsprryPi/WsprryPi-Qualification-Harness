@@ -240,7 +240,7 @@ def test_carrier_tolerance_rejects_large_uncalibrated_receiver_offset(
     assert result["metrics"]["strongest_offset_hz"] == -332
     assert result["metrics"]["nominal_offset_gate_passed"] is False
     assert result["metrics"]["relative_acquisition_passed"] is False
-    assert result["contract"]["gate_policy"] == "target_window_relative_carrier_acquisition_v2"
+    assert result["contract"]["gate_policy"] == "target_window_relative_carrier_acquisition_v3"
 
 
 def test_relative_acquisition_offset_is_explicit_and_must_be_positive(tmp_path: Path) -> None:

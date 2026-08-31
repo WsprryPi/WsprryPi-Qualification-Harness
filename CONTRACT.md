@@ -268,9 +268,23 @@ redefine the requested carrier. The 50-percent best-20-Hz threshold remains a
 nominal diagnostic; neither the carrier gate nor global feature reporting
 establishes calibrated power or spectral compliance.
 
-This target-window behavior is carrier-analysis schema version 2. Version-1
-evidence records the historical span-wide policy and is not silently
-reinterpreted or accepted as version-2 evidence.
+The target-window behavior was introduced in carrier-analysis schema version 2.
+Version 3 additionally requires independent short-window local carrier contrast
+and checks for comparable separated in-window candidates. Ambiguous temporal
+or acquisition evidence is inconclusive. TONE uses authenticated ON interiors
+and a separate full cadence/quiet assessment; unsuccessful cadence prevents
+progression without rewriting FFT acquisition metrics. Version-1 evidence
+records the historical span-wide policy. Historical evidence is never silently
+reinterpreted as a newer analyzer version.
+
+CW IQ analyzer version 8 separates carrier-channel edge timing from raw-IQ
+quiet-window contamination. It records its immutable detector specification,
+reference checks, confirmed edge onsets, full timing uncertainty, and transient
+evidence including the capture tail. Filtering or persistence must not conceal
+extra transmissions. Unusable references and ambiguous interference prevent a
+pass; uncertainty at a timing boundary is inconclusive and does not widen the
+plan's tolerance. See `docs/development/noise-robustness.md` for the measurement
+domains, version compatibility, and hardware-free validation limits.
 
 For a complete campaign, nominal protocol frequency, intentional requested
 transmit-frequency offset, transmitter PPM correction, receiver calibration,

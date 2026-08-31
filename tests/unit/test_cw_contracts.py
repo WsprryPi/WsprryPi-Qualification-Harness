@@ -258,8 +258,15 @@ def test_single_repetition_mode_plan_is_valid_for_independent_live_transaction(
     validate_document(document, "cw-mode-plan.schema.json")
 
 
-def _acquired_inputs(tmp_path: Path, mode: str) -> tuple[Path, Path, Path]:
+def _acquired_inputs(tmp_path: Path, mode: str, *, rate: float = 100.0) -> tuple[Path, Path, Path]:
     plan, expected, *_ = _chain(tmp_path, mode)
+    if rate != 100.0:
+        plan_document = json.loads(plan.read_text())
+        plan_document["capture_contract"]["sample_rate_hz"] = rate
+        _write(plan, plan_document)
+        expected_document = json.loads(expected.read_text())
+        expected_document["plan"] = _artifact(plan)
+        _write(expected, expected_document)
     capture = tmp_path / "source acquired.cf32"
     synthetic_metadata = tmp_path / "discarded-synthetic-metadata.json"
     generate_synthetic_iq(plan, expected, capture, synthetic_metadata, seed=71)
@@ -274,7 +281,7 @@ def _acquired_inputs(tmp_path: Path, mode: str) -> tuple[Path, Path, Path]:
         "capture": _artifact(capture),
         "format": "CF32LE",
         "sample_count": 100000,
-        "sample_rate_hz": 100.0,
+        "sample_rate_hz": rate,
         "center_frequency_hz": 137500.0,
         "acquired_sample_count": 100000,
         "overflow_count": 0,
@@ -297,7 +304,9 @@ def test_acquired_replay_passes_measurement_but_stays_inconclusive(
 ) -> None:
     source = tmp_path / "source"
     source.mkdir()
-    plan, expected, metadata = _acquired_inputs(source, mode)
+    plan, expected, metadata = _acquired_inputs(
+        source, mode, rate=1000.0 if mode == "dfcw" else 100.0
+    )
     bundle = tmp_path / f"replay-{mode}"
     result = compose_acquired_replay(plan, expected, metadata, bundle, source_revision="e" * 40)
     assert result["measurement"]["carrier_gate"] == "passed"
@@ -319,7 +328,9 @@ def test_acquired_shifted_modes_resolve_one_common_frequency_offset(
 ) -> None:
     source = tmp_path / "source"
     source.mkdir()
-    plan, expected, metadata = _acquired_inputs(source, mode)
+    plan, expected, metadata = _acquired_inputs(
+        source, mode, rate=1000.0 if mode == "dfcw" else 100.0
+    )
     metadata_document = json.loads(metadata.read_text(encoding="utf-8"))
     capture = source / metadata_document["capture"]["path"]
     samples = np.fromfile(capture, dtype="<c8")
@@ -443,7 +454,9 @@ def test_acquired_shifted_modes_use_authenticated_nondefault_window(
 ) -> None:
     source = tmp_path / "source"
     source.mkdir()
-    plan, expected, metadata = _acquired_inputs(source, mode)
+    plan, expected, metadata = _acquired_inputs(
+        source, mode, rate=1000.0 if mode == "dfcw" else 100.0
+    )
     plan_document = json.loads(plan.read_text(encoding="utf-8"))
     plan_document["thresholds"]["frequency_acquisition_half_width_hz"] = 25.0
     _write(plan, plan_document)
@@ -655,7 +668,7 @@ def test_acquired_replay_aligns_bounded_common_cw_latency(tmp_path: Path) -> Non
     capture = source / metadata_document["capture"]["path"]
     samples = np.fromfile(capture, dtype="<c8")
     shifted = np.roll(samples, 31)
-    shifted[:31] = 0
+    shifted[:31] = samples[:31]  # Preserve RF-off noise; this case tests latency.
     shifted.astype("<c8").tofile(capture)
     metadata_document["capture"] = _artifact(capture)
     _write(metadata, metadata_document)
@@ -686,7 +699,7 @@ def test_acquired_replay_aligns_one_bounded_common_acquired_tone_latency(tmp_pat
     capture = source / metadata_document["capture"]["path"]
     samples = np.fromfile(capture, dtype="<c8")
     shifted = np.roll(samples, 22)
-    shifted[:22] = 0
+    shifted[:22] = samples[:22]  # Zero-filled references are tested separately.
     shifted.astype("<c8").tofile(capture)
     metadata_document["capture"] = _artifact(capture)
     _write(metadata, metadata_document)

@@ -345,6 +345,10 @@ def validate_replay_bundle(
     if (bundle / "SHA256SUMS").read_text(encoding="utf-8") != expected_manifest:
         _fail("replay manifest is not canonical or does not authenticate the bundle")
     if recompute:
+        from wsprrypi_qualification.cw_iq import ANALYZER_VERSION
+
+        if observations["analyzer"]["version"] != ANALYZER_VERSION:
+            _fail("historical replay requires its original analyzer; compose a new replay")
         revision = source_revision or observations["analyzer"]["source_revision"]
         with tempfile.TemporaryDirectory(prefix="wspq-replay-verify-") as directory:
             scratch = Path(directory)

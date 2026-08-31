@@ -199,13 +199,14 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
             return {
                 "gate_outcome": "passed",
                 "metrics": {
+                    "noise_guard": {"below_contrast_window_count": 0, "outcome": "passed"},
                     "strongest_transmitter_added_frequency_hz": 14_097_200.0,
                     "strongest_offset_hz": 100.0,
                     "best_20hz_resolved_power_share": 0.9,
                     "strongest_feature_contrast_db": 20.0,
                 },
                 "contract": {
-                    "gate_policy": "target_window_relative_carrier_acquisition_v2",
+                    "gate_policy": "target_window_relative_carrier_acquisition_v3",
                     "relative_acquisition_offset_gate_hz": 500.0,
                     "relative_acquisition_contrast_gate_db": 10.0,
                 },
@@ -269,7 +270,7 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
     assert result["details"]["mode_gate"] == "not_applicable"
 
 
-def test_live_tone_diagnostic_failure_does_not_overwrite_acquisition_gate(
+def test_live_tone_cadence_failure_blocks_progress_without_rewriting_frequency(
     tmp_path: Path, monkeypatch
 ) -> None:
     work = tmp_path / "analysis work"
@@ -303,13 +304,14 @@ def test_live_tone_diagnostic_failure_does_not_overwrite_acquisition_gate(
             {
                 "gate_outcome": "passed",
                 "metrics": {
+                    "noise_guard": {"below_contrast_window_count": 0, "outcome": "passed"},
                     "strongest_transmitter_added_frequency_hz": 14_097_286.0,
                     "strongest_offset_hz": 186.0,
                     "best_20hz_resolved_power_share": 0.99,
                     "strongest_feature_contrast_db": 110.0,
                 },
                 "contract": {
-                    "gate_policy": "target_window_relative_carrier_acquisition_v2",
+                    "gate_policy": "target_window_relative_carrier_acquisition_v3",
                     "relative_acquisition_offset_gate_hz": 500.0,
                     "relative_acquisition_contrast_gate_db": 10.0,
                 },
@@ -341,7 +343,8 @@ def test_live_tone_diagnostic_failure_does_not_overwrite_acquisition_gate(
 
     result = adapter.analyze_carrier(plan, {}, {})
     assert result["details"]["offset_hz"] == 186.0
-    assert result["details"]["gate_outcome"] == "passed"
+    assert result["details"]["gate_outcome"] == "failed"
+    assert result["details"]["cadence_gate"] == "failed"
     assert result["details"]["mode_gate"] == "not_applicable"
     assert work / "tone-observations.json" in adapter._artifacts
     assert work / "tone-mode-gate.json" in adapter._artifacts

@@ -41,6 +41,7 @@ from wsprrypi_qualification.cw_reference import (
 )
 from wsprrypi_qualification.cw_replay import compose_acquired_replay
 from wsprrypi_qualification.keyed_session_contracts import resolved_keyed_plan_sha256
+from wsprrypi_qualification.noise import validate_live_detector_plan
 from wsprrypi_qualification.offline import artifact, load_json_document, write_json_new
 from wsprrypi_qualification.offline_context import load_profile_context
 from wsprrypi_qualification.real_capabilities import (
@@ -465,6 +466,10 @@ class ProductionRealSessionAdapters:
         expected = load_json_document(
             Path(binding["expected_events"]["path"]), "cw-expected-events.schema.json"
         )
+        try:
+            validate_live_detector_plan(mode_plan)
+        except ValueError as error:
+            raise RealSessionError(str(error)) from error
         schedule = plan["tone_schedule"]
         protocol = mode_plan["protocol"]
         capture = mode_plan["capture_contract"]
@@ -1324,6 +1329,16 @@ class ProductionRealSessionAdapters:
         self._run_offline(
             (
                 "analyze-carrier",
+                *(
+                    (
+                        "--cw-mode-plan",
+                        plan["cw_contract"]["plan"]["path"],
+                        "--cw-expected-events",
+                        plan["cw_contract"]["expected_events"]["path"],
+                    )
+                    if plan.get("session_kind") == "cw_live_tone"
+                    else ()
+                ),
                 str(off),
                 str(on),
                 str(evidence),
@@ -1348,6 +1363,7 @@ class ProductionRealSessionAdapters:
         )
         gate_outcome = document["gate_outcome"]
         mode_gate = "not_applicable"
+        cadence_gate = "not_applicable"
         if plan.get("session_kind") == "cw_live_tone":
             native_metadata = load_json_document(on_metadata, "capture-metadata.schema.json")
             contract = plan["cw_contract"]
@@ -1414,6 +1430,9 @@ class ProductionRealSessionAdapters:
                 _artifact_root=self.paths.work_directory,
             )
             mode_gate = generated_gate["mode_gate"]
+            cadence_gate = generated_gate["carrier_gate"]
+            if cadence_gate != "passed" and gate_outcome == "passed":
+                gate_outcome = cadence_gate
             self._artifacts.extend((observations, mode_gate_path))
         return self._stage(
             plan,
@@ -1422,12 +1441,14 @@ class ProductionRealSessionAdapters:
             {
                 "gate_outcome": gate_outcome,
                 "mode_gate": mode_gate,
+                "cadence_gate": cadence_gate,
                 "requested_frequency_hz": plan["frequency_hz"],
                 "strongest_frequency_hz": metrics["strongest_transmitter_added_frequency_hz"],
                 "offset_hz": metrics["strongest_offset_hz"],
                 "best_20hz_fraction": metrics["best_20hz_resolved_power_share"],
                 "strongest_contrast_db": metrics["strongest_feature_contrast_db"],
                 "carrier_gate_policy": document["contract"]["gate_policy"],
+                "noise_guard_outcome": document["metrics"]["noise_guard"]["outcome"],
                 "relative_acquisition_offset_gate_hz": document["contract"][
                     "relative_acquisition_offset_gate_hz"
                 ],
@@ -2271,6 +2292,7 @@ class KeyedCapabilityProviders:
         )
         try:
             validate_keyed_capture_margin(mode_plan)
+            validate_live_detector_plan(mode_plan)
         except ValueError:
             return False
         protocol = mode_plan["protocol"]

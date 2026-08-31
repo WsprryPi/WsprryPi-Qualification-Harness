@@ -199,16 +199,85 @@ def _validate_observations(
     if capture["overflow_count"] > contract["overflow_max"]:
         _fail("capture overflow exceeds the resolved plan")
     analyzer = observations["analyzer"]
+    if analyzer["version"] == "8":
+        from wsprrypi_qualification.noise import filter_width, specification
+
+        detector = observations["measurement_summary"]["noise_detector"]
+        rate = float(contract["sample_rate_hz"])
+        secondary = plan["protocol"]["secondary_frequency_hz"]
+        separation = (
+            abs(float(secondary) - float(plan["protocol"]["primary_frequency_hz"]))
+            if secondary is not None
+            else 0.0
+        )
+        width = filter_width(rate, separation)
+        support = 3 * (width - 1) // 2
+        classification = max(
+            4, round(min(0.1, float(plan["thresholds"]["maximum_transition_s"]) / 2) * rate)
+        )
+        state_support = (classification // 2 + 1) / rate if secondary is not None else 0.0
+        persistence = max(4, int(np.ceil(rate * specification()["persistence_seconds"])))
+        previous_onset = -1.0
+        previous_active = False
+        for edge in detector["edges"]:
+            if (
+                edge["onset_s"] <= previous_onset
+                or edge["active"] == previous_active
+                or edge["transition_start_s"] < 0
+                or edge["transition_start_s"] > edge["onset_s"]
+                or edge["confirmation_s"] < edge["onset_s"] + (persistence - 1) / rate - 1e-12
+                or edge["confirmation_s"] >= capture["sample_count"] / rate
+            ):
+                _fail("noise detector edges contradict confirmation ordering")
+            previous_onset = float(edge["onset_s"])
+            previous_active = bool(edge["active"])
+        if observations["analysis_outcome"] == "passed" and not detector["edges"]:
+            _fail("passing observations require confirmed carrier edges")
+        pending = max(
+            (
+                round((e["confirmation_s"] - e["transition_start_s"]) * rate) - persistence + 1
+                for e in detector["edges"]
+            ),
+            default=0,
+        )
+        edge_budget = (support + 1 + pending) / rate
+        resolution = max(4 / rate, edge_budget + state_support)
+        if (
+            detector["specification"] != specification()
+            or detector["boxcar_samples"] != width
+            or detector["edge_uncertainty_s"] != edge_budget
+            or detector["frequency_state_support_s"] != state_support
+            or analyzer["time_resolution_s"] != resolution
+            or detector["filter_support_seconds"] != support / rate
+            or detector["sample_granularity_s"] != 1 / rate
+        ):
+            _fail("noise detector identity or timing budget contradicts its specification")
+        if observations["analysis_outcome"] == "passed" and (
+            detector["issues"]
+            or any(q["issues"] for q in observations["measurement_summary"]["quiet_windows"])
+        ):
+            _fail("passing observations contain unresolved noise evidence")
     thresholds = plan["thresholds"]
     if thresholds["frequency_tolerance_hz"] < analyzer["frequency_resolution_hz"]:
         _fail("frequency tolerance is tighter than analyzer resolution")
-    if thresholds["timing_tolerance_s"] < analyzer["time_resolution_s"]:
+    excessive_uncertainty = (
+        analyzer["version"] == "8"
+        and "excessive_timing_uncertainty"
+        in observations["measurement_summary"]["noise_detector"]["issues"]
+    )
+    if (
+        thresholds["timing_tolerance_s"] < analyzer["time_resolution_s"]
+        and not excessive_uncertainty
+    ):
         _fail("timing tolerance is tighter than analyzer resolution")
     if plan["mode"] in {"fskcw", "dfcw"} and (
         thresholds["spacing_tolerance_hz"] < analyzer["frequency_resolution_hz"]
     ):
         _fail("spacing tolerance is tighter than analyzer resolution")
-    if thresholds["maximum_transition_s"] < analyzer["time_resolution_s"]:
+    if (
+        thresholds["maximum_transition_s"] < analyzer["time_resolution_s"]
+        and not excessive_uncertainty
+    ):
         _fail("transition threshold is tighter than analyzer resolution")
     measured = observations["observations"]
     if [item["event_index"] for item in measured] != list(range(len(expected["events"]))):

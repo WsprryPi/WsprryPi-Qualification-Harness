@@ -97,8 +97,11 @@ For live TONE, repository verification and server startup complete before the
 RF-on capture begins. The retained capture readiness event then establishes the
 epoch for the exact leading-quiet and on/off cadence, so repository inspection
 cannot shift the observed waveform relative to its expected events. The
-separate cadence analyzer remains retained diagnostic evidence and cannot
-overwrite the carrier-acquisition gate.
+separate cadence analyzer retains its own evidence and does not rewrite the
+FFT acquisition metrics. Under carrier policy version 3, an unsuccessful
+cadence assessment prevents progression even when the FFT acquisition passes.
+The TONE analysis workload includes the additional RF-on temporal-projection
+read. See [Noise robustness](noise-robustness.md).
 
 Polling values such as JSONL refresh, process-status checks, and readiness-file
 checks are cadences only. They may affect how quickly completion is noticed,

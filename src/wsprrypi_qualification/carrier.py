@@ -52,6 +52,7 @@ class CarrierParameters:
     share_gate: float = 0.5
     relative_acquisition_offset_gate_hz: float = 500.0
     relative_acquisition_contrast_gate_db: float = 10.0
+    temporal_on_intervals_s: list[list[float]] | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,75 @@ def _average_power(path: Path, fft_size: int) -> tuple[npt.NDArray[np.float64], 
     return total / blocks, blocks
 
 
+def _temporal_carrier_guard(
+    path: Path, parameters: CarrierParameters, frequency: float
+) -> dict[str, Any]:
+    """Independent short-window coherence; broadband impulses cannot prove a tone.
+
+    Use all samples including the FFT tail. Projection width is bounded to avoid
+    requiring sub-bin frequency accuracy. This guard never changes FFT metrics.
+    """
+    iq = open_cf32(path)
+    width = max(4, min(parameters.fft_size // 8, round(parameters.sample_rate_hz * 0.02)))
+    contrasts: list[float] = []
+    coherence: list[float] = []
+    intervals = parameters.temporal_on_intervals_s
+    bounds = (
+        [(0, len(iq))]
+        if intervals is None
+        else [
+            (math.ceil(a * parameters.sample_rate_hz), math.floor(b * parameters.sample_rate_hz))
+            for a, b in intervals
+        ]
+    )
+    if not bounds or any(a < 0 or b > len(iq) or b - a < width for a, b in bounds):
+        raise OfflineAnalysisError("temporal carrier intervals lack complete supported windows")
+    windows = [
+        (start, min(start + width, end))
+        for first, end in bounds
+        for start in range(first, end, width)
+    ]
+    for start, stop in windows:
+        block = np.asarray(iq[start:stop], dtype=np.complex128)
+        if block.size < 4:
+            continue
+        oscillator = np.exp(
+            -2j
+            * np.pi
+            * (frequency - parameters.center_frequency_hz)
+            * np.arange(block.size)
+            / parameters.sample_rate_hz
+        )
+        total = float(np.mean(np.abs(block) ** 2))
+        coherent = float(abs(np.mean(block * oscillator)) ** 2)
+        # A remote stronger feature must remain diagnostic: estimate local
+        # background with symmetric guard channels rather than full-span power.
+        guard = 3 * parameters.sample_rate_hz / block.size
+        references = []
+        for sign in (-1, 1):
+            shifted = oscillator * np.exp(
+                sign * 2j * np.pi * guard * np.arange(block.size) / parameters.sample_rate_hz
+            )
+            references.append(float(abs(np.mean(block * shifted)) ** 2))
+        background = max(sum(references) / 2, np.finfo(float).tiny)
+        contrasts.append(
+            float(10 * (np.log10(max(coherent, np.finfo(float).tiny)) - np.log10(background)))
+        )
+        coherence.append(coherent / max(total, np.finfo(float).tiny))
+    return {
+        "version": 1,
+        "window_samples": width,
+        "window_count": len(contrasts),
+        "minimum_local_contrast_db": min(contrasts) if contrasts else 0.0,
+        "minimum_coherent_fraction": min(coherence) if coherence else 0.0,
+        "below_contrast_window_count": sum(
+            c < parameters.relative_acquisition_contrast_gate_db for c in contrasts
+        ),
+        "policy": "all_short_windows_local_contrast_10db",
+        "includes_fft_tail": intervals is None,
+    }
+
+
 def analyze_carrier(
     rf_off_path: Path,
     rf_on_path: Path,
@@ -87,6 +157,7 @@ def analyze_carrier(
     profile_evidence: dict[str, Any] | None = None,
     receiver_calibration: dict[str, Any] | None = None,
     plot_path: Path | None = None,
+    temporal_cw_reference: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if parameters.sample_rate_hz <= 0 or parameters.fft_size < 16:
         raise OfflineAnalysisError("sample rate and FFT size must be positive")
@@ -225,9 +296,24 @@ def analyze_carrier(
             10 * (np.log10(max(on_power[index], tiny)) - np.log10(max(off_power[index], tiny)))
         )
 
+    noise_guard = _temporal_carrier_guard(rf_on_path, parameters, strongest_hz)
+    # Comparable separated in-window features cannot uniquely identify the tone.
+    competitors = target_resolved & (
+        np.abs(frequencies - strongest_hz)
+        > max(parameters.best_channel_hz, 4 * parameters.sample_rate_hz / parameters.fft_size)
+    )
+    ambiguous = bool(
+        np.any(competitors) and np.max(residual[competitors]) >= 0.5 * residual[strongest_index]
+    )
+    noise_guard["ambiguous_in_window_feature"] = ambiguous
+    noise_guard["outcome"] = (
+        "inconclusive" if ambiguous or noise_guard["below_contrast_window_count"] else "passed"
+    )
+    if gate == "passed" and noise_guard["outcome"] != "passed":
+        gate = "inconclusive"
     ordered = global_candidates[np.argsort(residual[global_candidates])[::-1]][:10]
     document: dict[str, Any] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "evidence_type": "carrier_analysis",
         "gate_outcome": gate,
         "inputs": {"rf_off": asdict(off_info), "rf_on": asdict(on_info)},
@@ -253,9 +339,11 @@ def analyze_carrier(
                 "the corresponding RF-off power, with positive RF-on-minus-RF-off residual"
             ),
             "edge_channel_policy": "same-length convolution; zero outside usable span",
-            "gate_policy": "target_window_relative_carrier_acquisition_v2",
+            "gate_policy": "target_window_relative_carrier_acquisition_v3",
+            "temporal_cw_reference": temporal_cw_reference,
         },
         "metrics": {
+            "noise_guard": noise_guard,
             "requested_frequency_hz": parameters.requested_frequency_hz,
             "strongest_transmitter_added_frequency_hz": strongest_hz,
             "strongest_offset_hz": strongest_hz - parameters.requested_frequency_hz,
@@ -340,6 +428,8 @@ def analyze_carrier_acquired(
     relocation_bundle: Path | None = None,
     plot_path: Path | None = None,
     receiver_calibration: dict[str, Any] | None = None,
+    cw_mode_plan_path: Path | None = None,
+    cw_expected_path: Path | None = None,
 ) -> dict[str, Any]:
     context = load_profile_context(bench_profile_path, test_profile_path)
     off_metadata = validate_acquired_capture(
@@ -350,7 +440,35 @@ def analyze_carrier_acquired(
     )
     if off_metadata.actual_settings != on_metadata.actual_settings:
         raise OfflineAnalysisError("RF-off and RF-on settings differ")
+    intervals = None
+    temporal_reference = None
+    if (cw_mode_plan_path is None) != (cw_expected_path is None):
+        raise OfflineAnalysisError("CW plan and expected events are required together")
+    if cw_mode_plan_path is not None and cw_expected_path is not None:
+        from wsprrypi_qualification.cw_iq import _load_inputs
+
+        cw_plan, expected = _load_inputs(cw_mode_plan_path, cw_expected_path)
+        capture = cw_plan["capture_contract"]
+        if (
+            cw_plan["mode"] != "tone"
+            or capture["sample_count"] != on_metadata.retained_sample_count
+            or capture["sample_rate_hz"] != context.bench.receiver.sample_rate_hz
+            or capture["center_frequency_hz"] != context.test.receiver_center_hz
+            or cw_plan["protocol"]["primary_frequency_hz"] != context.test.frequency_hz
+        ):
+            raise OfflineAnalysisError("temporal CW plan contradicts carrier capture or frequency")
+        margin = float(cw_plan["thresholds"]["timing_tolerance_s"])
+        intervals = [
+            [float(e["start_s"]) + margin, float(e["end_s"]) - margin]
+            for e in expected["events"]
+            if e["rf_state"] != "off"
+        ]
+        temporal_reference = {
+            "plan": artifact(cw_mode_plan_path.resolve()),
+            "expected_events": artifact(cw_expected_path.resolve()),
+        }
     parameters = CarrierParameters(
+        temporal_on_intervals_s=intervals,
         sample_rate_hz=context.bench.receiver.sample_rate_hz,
         center_frequency_hz=context.test.receiver_center_hz,
         requested_frequency_hz=context.test.frequency_hz,
@@ -370,6 +488,7 @@ def analyze_carrier_acquired(
         evidence_path,
         rf_off_metadata_path=rf_off_metadata_path,
         rf_on_metadata_path=rf_on_metadata_path,
+        temporal_cw_reference=temporal_reference,
         profile_evidence=context.evidence(),
         receiver_calibration=receiver_calibration,
         plot_path=plot_path,
@@ -418,6 +537,11 @@ def load_acquired_carrier_evidence(path: Path) -> AcquiredCarrierEvidence:
     try:
         document = load_json_document(path, "carrier-analysis.schema.json")
         plot_path = inspect_carrier_plot(document) if "plot" in document else None
+        if document["schema_version"] != 3:
+            raise OfflineAnalysisError(
+                "historical carrier evidence requires its original analyzer; "
+                "compose new evidence for version 3"
+            )
         contract = document["contract"]
         if contract["evidence_scope"] != "acquired":
             raise OfflineAnalysisError(
@@ -465,6 +589,16 @@ def load_acquired_carrier_evidence(path: Path) -> AcquiredCarrierEvidence:
                 fft_size=contract["fft_size"],
                 dc_exclusion_hz=contract["dc_exclusion_hz"],
                 plot_path=recomputed_plot,
+                cw_mode_plan_path=(
+                    Path(contract["temporal_cw_reference"]["plan"]["path"])
+                    if contract["temporal_cw_reference"]
+                    else None
+                ),
+                cw_expected_path=(
+                    Path(contract["temporal_cw_reference"]["expected_events"]["path"])
+                    if contract["temporal_cw_reference"]
+                    else None
+                ),
                 receiver_calibration=document.get("receiver_calibration"),
             )
         observed_without_plot = dict(document)

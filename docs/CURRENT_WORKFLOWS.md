@@ -183,6 +183,11 @@ and used for receiver tuning geometry. It is distinct from
 
 ## Offline WSPR analysis
 
+Carrier policy version 3 adds independent temporal contrast and candidate
+ambiguity checks. CW analyzer version 8 separately measures carrier edges and
+raw-IQ quiet contamination. See [Noise robustness](development/noise-robustness.md)
+for mode routing, historical evidence compatibility, and validation limits.
+
 The maintained sequence is:
 
 1. `validate-capture-metadata` authenticates exact-count capture metadata and

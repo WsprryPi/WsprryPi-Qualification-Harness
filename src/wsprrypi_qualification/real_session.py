@@ -116,6 +116,7 @@ def tone_analysis_deadline(plan: dict[str, Any]) -> int:
     carrier_work = (
         _tone_capture_bytes(plan, "rf_off") + _tone_capture_bytes(plan, "rf_on")
     ) * TONE_CARRIER_ANALYSIS_CAPTURE_PASSES
+    carrier_work += _tone_capture_bytes(plan, "rf_on")  # Version-3 temporal projection pass.
     mode_work = _tone_capture_bytes(plan, "rf_on") * TONE_MODE_ANALYSIS_RF_ON_PASSES
     return math.ceil(
         (carrier_work + mode_work) / MINIMUM_OFFLINE_IO_BYTES_PER_SECOND
@@ -1450,7 +1451,7 @@ def _validate_carrier(document: dict[str, object], plan: dict[str, Any], digest:
     if requested != plan["frequency_hz"] or abs((strongest - requested) - offset) > 1e-6:
         raise RealSessionError("carrier evidence frequency contradicts the plan")
     claimed = cast(str, details["gate_outcome"])
-    if policy != "target_window_relative_carrier_acquisition_v2":
+    if policy != "target_window_relative_carrier_acquisition_v3":
         raise RealSessionError("carrier evidence uses an unsupported gate policy")
     if relative_offset_gate != plan["frequency_acquisition_half_width_hz"]:
         raise RealSessionError("carrier acquisition window contradicts the resolved plan")
@@ -1461,13 +1462,20 @@ def _validate_carrier(document: dict[str, object], plan: dict[str, Any], digest:
         and contrast >= relative_contrast_gate
         else "failed"
     )
+    if details["noise_guard_outcome"] != "passed" and carrier_derived == "passed":
+        carrier_derived = "inconclusive"
     mode_gate = details.get("mode_gate", "not_applicable")
     if plan.get("session_kind") == "cw_live_tone":
         if mode_gate != "not_applicable":
             raise RealSessionError("tone carrier evidence contradicts its maintained mode gate")
-        derived = carrier_derived
+        cadence = details["cadence_gate"]
+        if cadence == "not_applicable":
+            raise RealSessionError("TONE requires a cadence assessment")
+        derived = (
+            str(cadence) if carrier_derived == "passed" and cadence != "passed" else carrier_derived
+        )
     else:
-        if mode_gate != "not_applicable":
+        if mode_gate != "not_applicable" or details["cadence_gate"] != "not_applicable":
             raise RealSessionError("WSPR carrier evidence cannot claim a CW mode gate")
         derived = carrier_derived
     if claimed in {"passed", "failed"} and claimed != derived:

@@ -48,10 +48,17 @@ recognized the generated fixture. `qualification_claim` remains false. Acquired
 IQ replay, lifecycle rehearsal, and live operation remain separate workflows;
 live operation requires current explicit authorization.
 
-Analyzer version 7 excludes isolated above-threshold activity shorter than its
+Historical analyzer version 7 excludes isolated above-threshold activity shorter than its
 reported four-sample timing resolution before selecting event boundaries. Such
 an excursion cannot define a resolved carrier edge: treating it as one can split
 a quiet interval and produce a much larger false timing error. Resolvable
 activity remains subject to the unchanged contrast, timing, and transition
 gates. Original observations remain immutable; a new replay is non-qualifying
 and never replaces the live lifecycle evidence.
+
+Analyzer version 8 uses carrier-channel filtering, independently confirmed
+edges, guarded reference checks, and separate raw-IQ quiet contamination
+evidence. It reports the full filter/state-classification timing budget rather
+than claiming four-sample accuracy for filtered transitions. See
+[Noise robustness](noise-robustness.md) for semantics, compatibility,
+validation scope, and remaining limitations.

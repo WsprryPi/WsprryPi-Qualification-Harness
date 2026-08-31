@@ -10,6 +10,7 @@ import numpy as np
 
 from wsprrypi_qualification.cw_contracts import CwContractError, _bind, _validate_events
 from wsprrypi_qualification.cw_reference import MORSE
+from wsprrypi_qualification.noise import detect, quiet_evidence, raw_quiet_bounds, runs
 from wsprrypi_qualification.offline import (
     FailureCause,
     OfflineAnalysisError,
@@ -19,7 +20,7 @@ from wsprrypi_qualification.offline import (
 )
 
 ANALYZER_NAME = "wsprrypi-qualification-cw-iq"
-ANALYZER_VERSION = "7"
+ANALYZER_VERSION = "8"
 
 
 class CwIqError(OfflineAnalysisError):
@@ -434,38 +435,47 @@ def analyze_synthetic_iq(
         and float(thresholds["spacing_tolerance_hz"]) < frequency_resolution
     ):
         _fail("spacing tolerance is tighter than analyzer resolution")
-    powers = np.abs(samples.astype(np.complex128)) ** 2
-    quiet_indexes: list[int] = []
-    for event in expected["events"]:
-        if event["rf_state"] == "off":
-            quiet_indexes.extend(
-                range(
-                    round(float(event["start_s"]) * rate),
-                    min(count, round(float(event["end_s"]) * rate)),
-                )
-            )
-    noise_power = float(np.median(powers[quiet_indexes])) if quiet_indexes else 1e-12
-    noise_power = max(noise_power, 1e-12)
+    raw_samples = samples
+    samples, active, detector = detect(
+        raw_samples,
+        rate,
+        center,
+        float(plan["protocol"]["primary_frequency_hz"]),
+        plan["protocol"]["secondary_frequency_hz"],
+        acquisition_offset_gate_hz,
+        float(plan["protocol"]["pre_quiet_seconds"]),
+        float(thresholds["minimum_contrast_db"]),
+    )
+    secondary = plan["protocol"]["secondary_frequency_hz"]
+    classification_samples = max(
+        4, round(min(0.1, float(thresholds["maximum_transition_s"]) / 2) * rate)
+    )
+    detector["frequency_state_support_s"] = (
+        (classification_samples // 2 + 1) / rate if secondary is not None else 0.0
+    )
+    time_resolution = max(
+        time_resolution,
+        float(detector["edge_uncertainty_s"]) + float(detector["frequency_state_support_s"]),
+    )
+    minimum_resolution = max(
+        4 / rate,
+        float(detector["filter_support_seconds"])
+        + 1 / rate
+        + float(detector["frequency_state_support_s"]),
+    )
+    for field in ("timing_tolerance_s", "maximum_transition_s", "maximum_alignment_shift_s"):
+        if float(thresholds[field]) < minimum_resolution:
+            _fail(f"{field} is tighter than detector filter resolution")
+        if float(thresholds[field]) < time_resolution:
+            detector["issues"].append("excessive_timing_uncertainty")
+    detector["issues"] = sorted(set(detector["issues"]))
+    noise_power = float(detector["raw_noise_power"])
     smoothing_samples = max(1, round(time_resolution * rate))
-    kernel = np.full(smoothing_samples, 1.0 / smoothing_samples)
-    smoothed_power = np.convolve(powers, kernel, mode="same")
-    active_threshold = noise_power * 10.0 ** (float(thresholds["minimum_contrast_db"]) / 10.0)
     detected_states = np.zeros(count, dtype=np.int8)
-    active = smoothed_power >= active_threshold
-    # A threshold excursion shorter than the declared timing resolution cannot
-    # define a carrier edge. Otherwise one noise sample can split a quiet run
-    # and manufacture a much larger timing error. Resolvable pulses remain.
-    edges = np.diff(np.concatenate(([False], active, [False])).astype(np.int8))
-    for start, end in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1), strict=True):
-        if end - start < smoothing_samples:
-            active[start:end] = False
     detected_states[active] = 1
     secondary = plan["protocol"]["secondary_frequency_hz"]
     if secondary is not None:
         products = samples[1:] * np.conjugate(samples[:-1])
-        classification_samples = max(
-            4, round(min(0.1, float(thresholds["maximum_transition_s"]) / 2) * rate)
-        )
         smoothed_products = _centered_complex_average(products, classification_samples)
         frequencies = center + np.angle(smoothed_products) * rate / (2.0 * math.pi)
         primary_center = float(plan["protocol"]["primary_frequency_hz"])
@@ -526,18 +536,9 @@ def analyze_synthetic_iq(
         margin = max(smoothing_samples, round(float(thresholds["timing_tolerance_s"]) * rate) + 1)
         search_start = max(0, expected_start - margin)
         search_end = min(count, expected_end + margin)
-        matches = detected_states[search_start:search_end] == target
-        candidates: list[tuple[int, int]] = []
-        cursor = 0
-        while cursor < matches.size:
-            if not matches[cursor]:
-                cursor += 1
-                continue
-            run_end = cursor + 1
-            while run_end < matches.size and matches[run_end]:
-                run_end += 1
-            candidates.append((search_start + cursor, search_start + run_end))
-            cursor = run_end
+        # Detect complete runs before association; never clip a bad edge to
+        # the timing-tolerance search window.
+        candidates = [(a, b) for a, b in state_runs[target] if a < search_end and b > search_start]
         if not candidates:
             return None
 
@@ -549,15 +550,37 @@ def analyze_synthetic_iq(
 
         return max(candidates, key=score)
 
+    state_runs = {state: runs(detected_states == state) for state in (0, 1, 2)}
+    event_runs = [
+        measured_run(event) if event["rf_state"] != "off" else None for event in expected["events"]
+    ]
+    # Quiet boundaries belong to their adjacent message edges. Later bursts
+    # are assessed independently and cannot redefine that original turn-off.
+    for i, event in enumerate(expected["events"]):
+        if event["rf_state"] != "off":
+            continue
+        left = event_runs[i - 1] if i else None
+        right = event_runs[i + 1] if i + 1 < len(event_runs) else None
+        start = left[1] if left else 0 if i == 0 else None
+        end = (
+            right[0]
+            if right
+            else round(float(event["end_s"]) * rate)
+            if i == len(event_runs) - 1
+            else None
+        )
+        if start is not None and end is not None and end > start:
+            event_runs[i] = (start, end)
+    quiet_records: list[dict[str, Any]] = []
     clipping_fraction = float(
-        np.mean((np.abs(samples.real) >= 0.999) | (np.abs(samples.imag) >= 0.999))
+        np.mean((np.abs(raw_samples.real) >= 0.999) | (np.abs(raw_samples.imag) >= 0.999))
     )
     blocked = clipping_fraction > float(thresholds["maximum_clipping_fraction"])
     measured: list[dict[str, Any]] = []
     causes: list[str] = []
     derived_symbols: dict[int, str] = {}
     for event_position, event in enumerate(expected["events"]):
-        run = measured_run(event)
+        run = event_runs[event_position]
         start = run[0] if run is not None else round(float(event["start_s"]) * rate)
         end = run[1] if run is not None else min(count, round(float(event["end_s"]) * rate))
         if event_position == 0:
@@ -565,7 +588,11 @@ def analyze_synthetic_iq(
         if event_position == len(expected["events"]) - 1:
             end = min(count, round(float(event["end_s"]) * rate))
         segment = samples[start:end]
-        power = float(np.mean(np.abs(segment.astype(np.complex128)) ** 2))
+        power = (
+            float(np.mean(np.abs(raw_samples[start:end].astype(np.complex128)) ** 2))
+            if end > start
+            else 0.0
+        )
         contrast = 10.0 * math.log10(max(power, 1e-15) / noise_power)
         state = event["rf_state"]
         frequency: float | None = None
@@ -576,7 +603,11 @@ def analyze_synthetic_iq(
         expected_segment = samples[expected_start:expected_end]
         if not blocked and state != "off" and expected_segment.size >= 4:
             frequency = _estimate_frequency(expected_segment, rate, center)
-            expected_chunks = [chunk for chunk in np.array_split(expected_segment, 8) if chunk.size]
+            expected_chunks = [
+                chunk
+                for chunk in np.array_split(raw_samples[expected_start:expected_end], 8)
+                if chunk.size
+            ]
             expected_chunk_contrasts = [
                 10.0
                 * math.log10(
@@ -599,12 +630,7 @@ def analyze_synthetic_iq(
             if longest_off / rate > float(thresholds["maximum_transition_s"]):
                 continuous = False
                 causes.append("carrier_interruption")
-        if blocked:
-            outcome = "blocked"
-        elif run is None:
-            outcome = "failed"
-            causes.append(_unmatched_event_cause(state, continuous))
-        elif max(
+        boundary_error = max(
             abs(
                 start / rate
                 - (
@@ -621,19 +647,26 @@ def analyze_synthetic_iq(
                     else min(count / rate, aligned_time(float(event["end_s"])))
                 ),
             ),
-        ) > float(thresholds["timing_tolerance_s"]):
+        )
+        if blocked:
+            outcome = "blocked"
+        elif run is None:
+            outcome = "failed"
+            causes.append(_unmatched_event_cause(state, continuous))
+        elif boundary_error > float(thresholds["timing_tolerance_s"]):
             outcome = "failed"
             causes.append("timing_error")
         elif state == "off":
-            if contrast >= float(thresholds["minimum_contrast_db"]):
-                outcome = "failed"
-                causes.append("false_silence")
+            pass  # Independent full quiet-window assessment below owns silence.
+
         else:
             if segment.size < 4:
                 outcome = "inconclusive"
                 causes.append("event_too_short")
             else:
-                chunks = [chunk for chunk in np.array_split(segment, 8) if chunk.size]
+                chunks = [
+                    chunk for chunk in np.array_split(raw_samples[start:end], 8) if chunk.size
+                ]
                 chunk_contrasts = [
                     10.0
                     * math.log10(
@@ -661,6 +694,53 @@ def analyze_synthetic_iq(
                     else:
                         derived_symbol = "." if duration < 2.0 * dot else "-"
                     derived_symbols[int(event["index"])] = derived_symbol
+        if state == "off" and run is not None and not blocked:
+            guard = smoothing_samples
+            qstart, qend = raw_quiet_bounds(
+                raw_samples,
+                rate,
+                start,
+                end,
+                guard,
+                float(detector["confirmation_seconds"]),
+                noise_power,
+                float(thresholds["minimum_contrast_db"]),
+                event_position == 0,
+                event_position == len(event_runs) - 1,
+            )
+            quiet = quiet_evidence(
+                raw_samples,
+                rate,
+                center,
+                float(detector["acquired_frequency_hz"]),
+                qstart,
+                qend,
+                noise_power,
+                float(thresholds["minimum_contrast_db"]),
+                channel_half_width_hz=max(
+                    float(detector["reference_search_half_width_hz"]),
+                    abs(float(secondary) - float(plan["protocol"]["primary_frequency_hz"]))
+                    if secondary is not None
+                    else 0.0,
+                ),
+            )
+            quiet["event_index"] = int(event["index"])
+            quiet["boundary_guard_s"] = guard / rate
+            quiet_records.append(quiet)
+            if quiet["issues"]:
+                causes.extend(quiet["issues"])
+                outcome = "failed" if "false_silence" in quiet["issues"] else "inconclusive"
+        if (
+            not blocked
+            and run is not None
+            and abs(boundary_error - float(thresholds["timing_tolerance_s"]))
+            <= time_resolution + 1e-12
+        ):
+            outcome = "inconclusive"
+            causes.append("timing_boundary_uncertain")
+        if detector["issues"] and not blocked:
+            causes.extend(detector["issues"])
+            outcome = "inconclusive"
         measured.append(
             {
                 "event_index": event["index"],
@@ -711,6 +791,14 @@ def analyze_synthetic_iq(
         for event, observation in zip(expected["events"], measured, strict=True):
             if event["rf_state"] != "off":
                 observation["outcome"] = "failed"
+    if detector["issues"] and not blocked:
+        # Unreliable acquisition/reference cannot support transmitter attribution.
+        causes = list(detector["issues"])
+        for observation in measured:
+            observation["outcome"] = "inconclusive"
+    if not blocked and any("ambiguous_quiet_contamination" in q["issues"] for q in quiet_records):
+        for observation in measured:
+            observation["outcome"] = "inconclusive"
     outcomes = {item["outcome"] for item in measured}
     analysis_outcome = "passed"
     for candidate in ("failed", "blocked", "inconclusive"):
@@ -773,6 +861,8 @@ def analyze_synthetic_iq(
             "shifted_frequency_model": shifted_model,
             "unshifted_frequency_model": unshifted_model,
             "timing_alignment": timing_alignment,
+            "noise_detector": detector,
+            "quiet_windows": quiet_records,
             "qualification_claim": False,
         },
         "analysis_outcome": analysis_outcome,

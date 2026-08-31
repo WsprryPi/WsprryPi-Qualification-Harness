@@ -51,3 +51,9 @@ drift-broadened whole-capture FFT sidelobes from being mistaken for a keyed stat
 The independent frequency model still measures spacing, drift, residuals, transition
 direction, timing, and carrier continuity against the plan thresholds; acquisition
 of the common offset does not relax any gate.
+
+Analyzer 8 adds versioned carrier-channel presence and raw-IQ contamination
+evidence across the CW family. Historical analyzer output requires its original
+analyzer for recomputation; compose a new replay to apply current semantics.
+See [Noise robustness](noise-robustness.md). Original captures and observations
+remain immutable.

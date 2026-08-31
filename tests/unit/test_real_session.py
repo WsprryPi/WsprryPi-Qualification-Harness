@@ -568,7 +568,11 @@ class FakeAdapters:
                 "offset_hz": offset,
                 "best_20hz_fraction": 0.9 if self.carrier != "failed" else 0.4,
                 "strongest_contrast_db": 20.0,
-                "carrier_gate_policy": "target_window_relative_carrier_acquisition_v2",
+                "carrier_gate_policy": "target_window_relative_carrier_acquisition_v3",
+                "noise_guard_outcome": "passed",
+                "cadence_gate": "passed"
+                if plan.get("session_kind") == "cw_live_tone"
+                else "not_applicable",
                 "relative_acquisition_offset_gate_hz": 500.0,
                 "relative_acquisition_contrast_gate_db": 10.0,
                 "mode_gate": "not_applicable",
@@ -830,7 +834,11 @@ def test_carrier_gate_is_recomputed_from_metrics(tmp_path: Path):
                     "offset_hz": 10000,
                     "best_20hz_fraction": 0.01,
                     "strongest_contrast_db": 1.0,
-                    "carrier_gate_policy": "target_window_relative_carrier_acquisition_v2",
+                    "carrier_gate_policy": "target_window_relative_carrier_acquisition_v3",
+                    "noise_guard_outcome": "passed",
+                    "cadence_gate": "passed"
+                    if plan.get("session_kind") == "cw_live_tone"
+                    else "not_applicable",
                     "relative_acquisition_offset_gate_hz": 500.0,
                     "relative_acquisition_contrast_gate_db": 10.0,
                 },
