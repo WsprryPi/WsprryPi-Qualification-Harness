@@ -199,7 +199,7 @@ def _validate_observations(
     if capture["overflow_count"] > contract["overflow_max"]:
         _fail("capture overflow exceeds the resolved plan")
     analyzer = observations["analyzer"]
-    if analyzer["version"] in {"8", "9", "10"}:
+    if analyzer["version"] in {"8", "9", "10", "11"}:
         from wsprrypi_qualification.noise import filter_width, specification
 
         detector = observations["measurement_summary"]["noise_detector"]
@@ -257,7 +257,9 @@ def _validate_observations(
             or any(q["issues"] for q in observations["measurement_summary"]["quiet_windows"])
         ):
             _fail("passing observations contain unresolved noise evidence")
-    if analyzer["version"] == "10" or (analyzer["version"] == "9" and plan["mode"] != "tone"):
+    if analyzer["version"] in {"10", "11"} or (
+        analyzer["version"] == "9" and plan["mode"] != "tone"
+    ):
         from wsprrypi_qualification.noise import assess_quiet_significance
 
         quiet_windows = observations["measurement_summary"]["quiet_windows"]
@@ -270,16 +272,36 @@ def _validate_observations(
             if not 0 <= quiet["start_s"] < quiet["end_s"] <= duration:
                 _fail("quiet significance interval escapes its capture")
             try:
-                recomputed = assess_quiet_significance(
-                    quiet,
-                    float(capture["sample_rate_hz"]),
-                    float(
-                        plan["protocol"][
-                            "tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds"
-                        ]
-                    ),
-                    timing_basis="tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds",
-                )
+                if analyzer["version"] == "11":
+                    from wsprrypi_qualification.quiet_carrier import assess as assess_carrier
+
+                    recomputed = assess_carrier(
+                        quiet,
+                        float(capture["sample_rate_hz"]),
+                        float(contract["center_frequency_hz"]),
+                        float(detector["acquired_frequency_hz"]),
+                        float(plan["protocol"]["primary_frequency_hz"]),
+                        plan["protocol"]["secondary_frequency_hz"],
+                        float(
+                            plan["protocol"][
+                                "tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds"
+                            ]
+                        ),
+                        float(plan["thresholds"]["minimum_contrast_db"]),
+                        float(detector["raw_noise_power"]),
+                        timing_basis="tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds",
+                    )
+                else:
+                    recomputed = assess_quiet_significance(
+                        quiet,
+                        float(capture["sample_rate_hz"]),
+                        float(
+                            plan["protocol"][
+                                "tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds"
+                            ]
+                        ),
+                        timing_basis="tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds",
+                    )
             except (ValueError, KeyError, TypeError) as error:
                 _fail(f"quiet significance evidence is invalid: {error}")
             if recomputed != quiet:
@@ -288,7 +310,7 @@ def _validate_observations(
     if thresholds["frequency_tolerance_hz"] < analyzer["frequency_resolution_hz"]:
         _fail("frequency tolerance is tighter than analyzer resolution")
     excessive_uncertainty = (
-        analyzer["version"] in {"8", "9", "10"}
+        analyzer["version"] in {"8", "9", "10", "11"}
         and "excessive_timing_uncertainty"
         in observations["measurement_summary"]["noise_detector"]["issues"]
     )

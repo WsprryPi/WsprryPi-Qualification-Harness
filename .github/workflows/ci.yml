@@ -63,6 +63,7 @@ jobs:
           tests/unit/test_cli.py
           tests/unit/test_complete_test.py
           tests/unit/test_noise.py
+          tests/unit/test_quiet_carrier.py
           tests/unit/test_carrier.py
           tests/unit/test_paths.py
           tests/unit/test_supervisor.py

@@ -303,6 +303,13 @@ spacing, WSPR, TONE, and cleanup requirements remain unchanged for analyzer 9.
 Analyzer 10 extends quiet significance to scheduled TONE OFF intervals using
 the commanded ON duration instead of dot duration. It retains all events and
 leaves TONE ON-carrier/cadence checks and WSPR continuous-carrier checks unchanged.
+Analyzer 11 replaces raw-transient quiet gating with a carrier-specific local
+spectrum assessment for all CW-family modes. Raw events and their occupancy
+remain diagnostics. Only resolved carrier activity contributes to operational
+silence failures; unusable assessment geometry remains inconclusive. The new
+policy and every window's powers, coverage, and decisions are authenticated.
+This does not attribute an interfering carrier to a particular transmitter or
+establish calibrated power. Historical analyzer 8–10 semantics remain unchanged.
 
 For a complete campaign, nominal protocol frequency, intentional requested
 transmit-frequency offset, transmitter PPM correction, receiver calibration,

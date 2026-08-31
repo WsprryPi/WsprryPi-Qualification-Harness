@@ -128,6 +128,64 @@ CFAR probabilities, or proof of which source emitted the activity. Changes
 require a new policy identity/analyzer version and fresh qualification evidence.
 
 
+## Carrier-specific quiet assessment (analyzer 11)
+
+All CW-family quiet intervals now have two independent records. Raw transients,
+their original classifications, duration, power, and occupancy remain available;
+all raw-event qualification effects are diagnostic-only. The retained historical
+`qualification_assessment` reports **raw** occupancy and is not a gate in version
+11. The new `carrier_assessment` exclusively owns quiet-time issues. No raw
+occupancy threshold or unresolved broadband burst alone prevents qualification.
+
+The new `carrier_specific_quiet` version-1 policy uses Hann projections over
+4 ms (minimum 16 samples), stepped by one quarter-window. Windows lengthen
+when needed to keep all four outer reference channels inside 90 percent of the
+available span margin, supporting low sample rates without aliasing references.
+Lengthening is capped at the larger of 64 samples or 100 ms; geometry that
+still cannot fit is inconclusive. It projects onto the
+acquired carrier; shifted modes use the commanded pair translated together by
+the acquisition offset of the nearest state. Both states are tested, without
+changing the separate measured spacing/drift checks. Four simultaneous reference
+channels lie outside the pair, three and five Fourier bins below its lower
+state and above its upper state. Target power must exceed both the maximum reference-channel
+power and the preamble raw-noise-equivalent Hann power by the plan's contrast
+ratio. Using all four reference channels rejects broadband power rises without
+requiring the carrier to dominate the full captured bandwidth. These fixed empirical engineering thresholds
+have no theoretical false-alarm or calibrated sensitivity claim.
+
+Nearest-window regions partition each quiet interval, including its endpoints;
+overlap is not counted repeatedly. Carrier-positive regions contribute to the
+material-duration and one-percent rolling-occupancy limits, with at least one
+full analysis window of positive-region support required for either gate.
+This resolution floor prevents a single random spectral peak from becoming a
+silence violation at low sample rates. Both
+sustained carrier activity and accumulated repeated carrier pulses fail with
+`false_silence`. This identifies unwanted in-channel carrier-like activity, not
+its physical emitter. Noise and out-of-channel energy remain diagnostic unless
+they invalidate an existing reference, acquisition, timing, or receiver gate.
+A dominant reference-channel line that prevents the contrast test makes
+material intervals inconclusive (`ambiguous_quiet_carrier_interference`). A
+reference line must exceed 100 times the preamble-equivalent noise power and
+at least half the window mean power (or eight Hann noise bandwidths, whichever
+is larger). This prevents a nearby narrowband interferer from silently masking
+the target check; broadband noise alone does not meet this line criterion.
+Out-of-span reference geometry or an interval shorter than a full analysis window
+is inconclusive (`unusable_quiet_carrier_geometry`), never an assumed pass.
+
+Every window retains its exact start sample, carrier and reference powers, mean
+IQ power, and decision. Semantic validation regenerates policy, coverage,
+classification, carrier intervals, and aggregate metrics from those powers and
+checks them against the plan and detector reference. Full IQ replay additionally
+recomputes the powers. The existing capture integrity/clipping, carrier edge,
+ON timing/continuity, spacing, drift, WSPR, and cleanup gates remain unchanged.
+The independent repeated-pulse cases cover 2 ms pulses at 8/250 ksps and
+3 ms (six-sample) pulses at 2 ksps. Shorter unresolved pulses remain diagnostic;
+this detector does not promise to distinguish arbitrary sub-window pulse trains
+from broadband noise. Short-window boundaries introduce finite measurement resolution; the occupancy
+is a detector metric, not a claim of exact RF duty cycle. There is no suppression
+of isolated raw records and no silent rewriting of earlier results.
+
+
 ## Carrier gate and TONE cadence
 
 The original Hann FFT, RF-on-minus-RF-off spectra, frequency tolerance, and
@@ -175,7 +233,7 @@ workload bound. No timeout reserve or RF-duration allowance is introduced.
 
 ## Evidence compatibility
 
-Source and packaged schemas must match byte-for-byte. Version-8, version-9, and version-10 CW observations
+Source and packaged schemas must match byte-for-byte. Version-8 through version-11 CW observations
 require the detector specification and quiet-window records. Semantic validation
 checks specification identity and timing budgets; replay recomputation compares
 the complete detector evidence, not only pass/fail fields. Carrier schema 3

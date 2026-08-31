@@ -117,6 +117,11 @@ def analyze_case(tmp_path: Path, mode: str, defect: str, edge_delta: float = 0.2
         start = last_off + 0.3 if defect == "extra_pulse" else end + 0.3
         mask = (t >= start) & (t < start + (0.002 if defect == "brief_pulse" else 0.020))
         samples[mask] += 0.2 * np.exp(2j * np.pi * 100 * t[mask])
+    if defect in {"quiet_noise", "quiet_noise_carrier"}:
+        mask = (t >= end + 0.15) & (t < end + 0.85)
+        samples[mask] += 0.04 * (rng.normal(size=np.sum(mask)) + 1j * rng.normal(size=np.sum(mask)))
+        if defect == "quiet_noise_carrier":
+            samples[mask] += 0.2 * np.exp(2j * np.pi * 100 * t[mask])
     if defect == "stuck":
         mask = t >= last_off
         samples[mask] += 0.2 * np.exp(2j * np.pi * 100 * t[mask])
@@ -675,7 +680,7 @@ def test_carrier_confirmation_deadline_boundary(tmp_path: Path, bound: float, on
 
 def test_tone_retains_brief_off_period_event_without_failing(tmp_path: Path):
     obs = analyze_case(tmp_path, "tone", "brief_pulse")
-    assert obs["analyzer"]["version"] == "10"
+    assert obs["analyzer"]["version"] == "11"
     assert obs["analysis_outcome"] == "passed"
     quiet = obs["measurement_summary"]["quiet_windows"]
     bursts = [b for q in quiet for b in q["bursts"]]

@@ -20,7 +20,7 @@ from wsprrypi_qualification.offline import (
 )
 
 ANALYZER_NAME = "wsprrypi-qualification-cw-iq"
-ANALYZER_VERSION = "10"
+ANALYZER_VERSION = "11"
 
 
 class CwIqError(OfflineAnalysisError):
@@ -727,6 +727,23 @@ def analyze_synthetic_iq(
                     if secondary is not None
                     else 0.0,
                 ),
+            )
+            from wsprrypi_qualification.quiet_carrier import measure as measure_quiet_carrier
+
+            quiet = measure_quiet_carrier(
+                quiet,
+                raw_samples,
+                rate,
+                center,
+                float(detector["acquired_frequency_hz"]),
+                float(plan["protocol"]["primary_frequency_hz"]),
+                secondary,
+                float(
+                    plan["protocol"]["tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds"]
+                ),
+                float(thresholds["minimum_contrast_db"]),
+                noise_power,
+                timing_basis="tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds",
             )
             quiet["event_index"] = int(event["index"])
             quiet["boundary_guard_s"] = guard / rate
