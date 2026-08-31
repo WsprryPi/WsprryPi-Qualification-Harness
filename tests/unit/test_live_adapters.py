@@ -192,7 +192,15 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
     }
     observed: dict[str, object] = {}
 
-    monkeypatch.setattr(adapter, "_run_offline", lambda *args, **kwargs: None)
+    def carrier_command(arguments, deadline):
+        assert arguments[arguments.index("--cw-mode-plan") + 1] == str(work / "tone-plan.json")
+        assert arguments[arguments.index("--cw-expected-events") + 1] == str(
+            work / "tone-expected-events.json"
+        )
+        assert (work / "tone-plan.json").is_file()
+        assert (work / "tone-expected-events.json").is_file()
+
+    monkeypatch.setattr(adapter, "_run_offline", carrier_command)
 
     def load_document(path: Path, schema: str) -> dict[str, object]:
         if schema == "carrier-analysis.schema.json":
@@ -256,10 +264,10 @@ def test_live_tone_analysis_stages_external_contract_before_relative_references(
     assert retained_expected in adapter._artifacts
     assert observed["artifacts_at_analysis"] == (
         work / "receiver-calibration-binding.json",
-        work / "carrier-analysis.json",
         retained_plan,
         sealed_expected,
         retained_expected,
+        work / "carrier-analysis.json",
         work / "tone-acquired-capture.json",
     )
     assert sealed_expected.read_bytes() == expected_source.read_bytes()
@@ -402,8 +410,24 @@ def test_rebound_retained_contracts_complete_real_iq_analysis(tmp_path: Path) ->
     assert gate["carrier_gate"] == "passed"
     assert gate["mode_gate"] == "not_applicable"
 
+    carrier = work / "carrier-analysis.json"
+    carrier.write_text(
+        json.dumps(
+            {
+                "contract": {
+                    "temporal_cw_reference": {
+                        "plan": artifact(retained_plan),
+                        "expected_events": artifact(retained_expected),
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
     adapter = bare_adapter(work)
     adapter._artifacts = [
+        carrier,
         retained_plan,
         sealed_expected,
         retained_expected,

@@ -1326,15 +1326,34 @@ class ProductionRealSessionAdapters:
             if plan.get("session_kind") == "cw_live_tone"
             else plan["deadlines"]["overall_s"]
         )
+        if plan.get("session_kind") == "cw_live_tone":
+            contract = plan["cw_contract"]
+            retained_plan = self.paths.work_directory / "tone-plan.json"
+            # The byte-exact sealed input is retained as an authenticated provenance
+            # payload, not as the active JSON contract.  Its original dependency
+            # paths are intentionally preserved and the separately derived JSON
+            # document below is the relocatable analysis contract.
+            sealed_expected = self.paths.work_directory / "tone-expected-events.sealed.source"
+            retained_expected = self.paths.work_directory / "tone-expected-events.json"
+            retained_plan_ref = _stage_bound_artifact(contract["plan"], retained_plan)
+            self._artifacts.append(retained_plan)
+            _stage_bound_artifact(contract["expected_events"], sealed_expected)
+            self._artifacts.append(sealed_expected)
+            retained_expected_ref = _derive_rebound_expected_events(
+                sealed_expected,
+                retained_expected,
+                retained_plan_ref,
+            )
+            self._artifacts.append(retained_expected)
         self._run_offline(
             (
                 "analyze-carrier",
                 *(
                     (
                         "--cw-mode-plan",
-                        plan["cw_contract"]["plan"]["path"],
+                        str(retained_plan),
                         "--cw-expected-events",
-                        plan["cw_contract"]["expected_events"]["path"],
+                        str(retained_expected),
                     )
                     if plan.get("session_kind") == "cw_live_tone"
                     else ()
@@ -1366,24 +1385,6 @@ class ProductionRealSessionAdapters:
         cadence_gate = "not_applicable"
         if plan.get("session_kind") == "cw_live_tone":
             native_metadata = load_json_document(on_metadata, "capture-metadata.schema.json")
-            contract = plan["cw_contract"]
-            retained_plan = self.paths.work_directory / "tone-plan.json"
-            # The byte-exact sealed input is retained as an authenticated provenance
-            # payload, not as the active JSON contract.  Its original dependency
-            # paths are intentionally preserved and the separately derived JSON
-            # document below is the relocatable analysis contract.
-            sealed_expected = self.paths.work_directory / "tone-expected-events.sealed.source"
-            retained_expected = self.paths.work_directory / "tone-expected-events.json"
-            retained_plan_ref = _stage_bound_artifact(contract["plan"], retained_plan)
-            self._artifacts.append(retained_plan)
-            _stage_bound_artifact(contract["expected_events"], sealed_expected)
-            self._artifacts.append(sealed_expected)
-            retained_expected_ref = _derive_rebound_expected_events(
-                sealed_expected,
-                retained_expected,
-                retained_plan_ref,
-            )
-            self._artifacts.append(retained_expected)
             acquired = self.paths.work_directory / "tone-acquired-capture.json"
             observations = self.paths.work_directory / "tone-observations.json"
             mode_gate_path = self.paths.work_directory / "tone-mode-gate.json"
