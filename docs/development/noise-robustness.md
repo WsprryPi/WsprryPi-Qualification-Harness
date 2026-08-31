@@ -10,7 +10,7 @@ All results remain specific to their capture and authenticated configuration.
 
 | Mode | Measurement path | Noise treatment |
 |---|---|---|
-| TONE | Carrier FFT gate plus CW cadence analysis | Short-window local spectral contrast in authenticated ON interiors; separate cadence and quiet checks can prevent progression without rewriting FFT frequency metrics |
+| TONE | Carrier FFT gate plus CW cadence analysis | Short-window local spectral contrast in authenticated ON interiors; separate cadence and quiet checks can prevent TONE qualification without rewriting FFT frequency metrics |
 | WSPR | Carrier FFT gate, existing audio conversion, independent `wsprd` invocations | Continuous-carrier temporal guard before decoding; modulation, WAV normalization, decoder arguments, identity and consecutive-decode requirements remain unchanged |
 | QRSS/CW | CW IQ analyzer | Carrier-channel envelope, confirmed edges, independent raw-IQ quiet assessment |
 | FSKCW | CW IQ analyzer and shifted frequency model | Common channel preserves both states; existing phase-based state classification and independent spacing/drift model remain |
@@ -124,8 +124,8 @@ at its boundaries. Individual pulses are never independently realigned.
 Unsupported alignment, contaminated references, or excessive edge uncertainty
 stop analysis. Aligned intervals and `bounded_common_latency_v1` are retained;
 older unaligned TONE evidence requires its original analyzer. The separate full cadence analyzer checks
-edges, gaps, silence, and capture tail. A cadence failure now prevents campaign
-progression; this strengthens the historical diagnostic-only TONE behavior.
+edges, gaps, silence, and capture tail. A cadence failure prevents TONE qualification but does not prevent subsequent
+modes from running after verified cleanup. Each mode has an independent result.
 FFT evidence is retained unchanged and `mode_gate` remains `not_applicable`.
 
 The extra RF-on projection and alignment reads are included explicitly in the TONE analysis

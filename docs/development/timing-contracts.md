@@ -99,9 +99,10 @@ epoch for the exact leading-quiet and on/off cadence, so repository inspection
 cannot shift the observed waveform relative to its expected events. The
 separate cadence analyzer retains its own evidence and does not rewrite the
 FFT acquisition metrics. Under carrier policy version 3, an unsuccessful
-cadence assessment prevents progression even when the FFT acquisition passes.
-The TONE analysis workload includes the additional RF-on temporal-projection
-read. See [Noise robustness](noise-robustness.md).
+cadence assessment prevents TONE qualification even when the FFT acquisition
+passes; later independent modes can still run after verified cleanup.
+The TONE analysis workload includes the additional RF-on temporal-projection and bounded-alignment
+reads. See [Noise robustness](noise-robustness.md).
 
 Polling values such as JSONL refresh, process-status checks, and readiness-file
 checks are cadences only. They may affect how quickly completion is noticed,

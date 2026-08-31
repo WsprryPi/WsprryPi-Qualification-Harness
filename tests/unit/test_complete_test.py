@@ -1114,3 +1114,64 @@ def test_explicit_rf_path_reaches_deployment_and_invalid_input_blocks_it(
     assert main(arguments) == 2
     assert len(observed) == 1
     capsys.readouterr()
+
+
+@pytest.mark.parametrize("failed_mode", ["TONE", "WSPR"])
+@pytest.mark.parametrize("measurement_status", ["inconclusive", "unqualified_carrier"])
+def test_measurement_result_does_not_gate_later_modes(tmp_path, failed_mode, measurement_status):
+    plan = compose_complete_test_plan(
+        "wspr4.local",
+        "wspr5.local",
+        SDR,
+        configuration=_configuration(tmp_path),
+        discovered_sdr=DISCOVERED_SDR,
+        live=True,
+    )
+    calls = []
+
+    def dispatch(wrapper, output_parent, **kwargs):
+        mode = wrapper["mode"]
+        calls.append(mode)
+        if mode == "QRSS":
+            # Deliberate safety stop proves dispatch reached the next independent mode.
+            raise RuntimeError("test-only unpublished child safety stop")
+        bundle = output_parent / f"child-{mode.lower()}"
+        bundle.mkdir(parents=True)
+        failing = mode == failed_mode
+        status = (
+            measurement_status if failing else "inconclusive" if mode == "TONE" else "qualified"
+        )
+        document = {
+            "schema_version": 1,
+            "run_id": f"20260823T200000Z-{mode.lower()}",
+            "status": status,
+            "started_utc": "2026-08-23T20:00:00Z",
+            "completed_utc": "2026-08-23T20:00:01Z",
+            "preflight_passed": True,
+            "carrier_gate": ("inconclusive" if status == "inconclusive" else "failed")
+            if failing
+            else "passed",
+            "decode_gate": "not_run" if failing or mode == "TONE" else "passed",
+            "cleanup_outcome": "verified",
+            "failure_causes": ["transmitter_carrier"] if status == "unqualified_carrier" else [],
+            "artifacts": [],
+        }
+        _write(bundle / "result.json", document)
+        session = {"run_id": document["run_id"], "final_status": status}
+        _write(bundle / "session.json", session)
+        write_manifest(bundle)
+        return {"authoritative_bundle": str(bundle), "underlying_result": session}
+
+    outcome = run_complete_test(
+        plan,
+        tmp_path / "runs",
+        ssh_executable=tmp_path / "ssh-fixture",
+        work_directory=tmp_path / "work",
+        dispatcher=dispatch,
+    )
+    assert calls == ["TONE", "WSPR", "QRSS"]
+    entries = outcome["result"]["modes"]
+    assert entries[0 if failed_mode == "TONE" else 1]["final_status"] == measurement_status
+    assert entries[2]["state"] == "attempted_unverified"
+    assert entries[3]["state"] == entries[4]["state"] == "not_attempted"
+    assert outcome["result"]["final_status"] == "cleanup_failed"

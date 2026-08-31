@@ -225,10 +225,10 @@ compliance evidence.
 The command validates the complete bounded execution before constructing a
 production adapter. One deliberate invocation is the campaign authorization. Modes
 run as TONE, WSPR, QRSS, FSKCW, DFCW. Cleanup, abort, preflight, fixture,
-quiescence, or inconclusive outcomes stop all later modes. A failed TONE carrier
-also stops the campaign. WSPR decode unqualification and keyed-mode
-unqualification remain authoritative but do not prevent later independent modes,
-so useful authenticated evidence is preserved. Modes stopped by the matrix are
+and quiescence failures stop all later modes, as does unauthenticated publication.
+Measurement failures and inconclusive outcomes remain authoritative for their
+own mode but do not prevent later independent modes after verified cleanup.
+This includes TONE cadence, WSPR carrier/decode, and keyed-mode measurements. Modes stopped by the matrix are
 `not_attempted`; cleanup and quiescence failures retain precedence and cannot be
 hidden by aggregation.
 

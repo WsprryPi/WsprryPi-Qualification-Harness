@@ -272,8 +272,10 @@ The target-window behavior was introduced in carrier-analysis schema version 2.
 Version 3 additionally requires independent short-window local carrier contrast
 and checks for comparable separated in-window candidates. Ambiguous temporal
 or acquisition evidence is inconclusive. TONE uses authenticated ON interiors
-and a separate full cadence/quiet assessment; unsuccessful cadence prevents
-progression without rewriting FFT acquisition metrics. Version-1 evidence
+and a separate full cadence/quiet assessment. Each mode retains its own result;
+measurement failure or inconclusive evidence does not gate subsequent modes.
+Cleanup failure, abort, preflight failure, fixture blockage, and unauthenticated
+publication still stop the campaign. FFT acquisition metrics are not rewritten. Version-1 evidence
 records the historical span-wide policy. Historical evidence is never silently
 reinterpreted as a newer analyzer version.
 

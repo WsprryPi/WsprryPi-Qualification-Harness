@@ -1669,7 +1669,6 @@ def _stops_campaign(mode: str, status: str) -> bool:
         "aborted",
         "preflight_failed",
         "fixture_blocked",
-        "inconclusive",
     }
 
 
