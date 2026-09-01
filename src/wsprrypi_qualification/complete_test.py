@@ -1668,7 +1668,6 @@ def _stops_campaign(mode: str, status: str) -> bool:
         "cleanup_failed",
         "aborted",
         "preflight_failed",
-        "fixture_blocked",
     }
 
 

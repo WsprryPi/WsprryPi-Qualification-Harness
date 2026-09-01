@@ -702,6 +702,8 @@ def test_live_order_early_stop_and_not_attempted(tmp_path: Path) -> None:
     def dispatch(wrapper, output_parent, **kwargs):
         mode = wrapper["mode"]
         calls.append(mode)
+        if mode == "QRSS":
+            raise RuntimeError("test-only unpublished child safety stop")
         bundle = output_parent / f"child-{mode.lower()}"
         bundle.mkdir(parents=True)
         status = "fixture_blocked" if mode == "WSPR" else "inconclusive"
@@ -734,15 +736,15 @@ def test_live_order_early_stop_and_not_attempted(tmp_path: Path) -> None:
             dispatcher=dispatch,
             progress=reporter.emit,
         )
-    assert calls == ["TONE", "WSPR"]
+    assert calls == ["TONE", "WSPR", "QRSS"]
     assert [entry["state"] for entry in outcome["result"]["modes"]] == [
         "attempted",
         "attempted",
-        "not_attempted",
+        "attempted_unverified",
         "not_attempted",
         "not_attempted",
     ]
-    assert outcome["result"]["final_status"] == "fixture_blocked"
+    assert outcome["result"]["final_status"] == "cleanup_failed"
     assert outcome["result"]["modes"][0]["final_status"] == "qualified"
     progress = [json.loads(line) for line in progress_path.read_text().splitlines()]
     assert [(item["mode"], item["status"]) for item in progress if item["stage"] == "mode"] == [
@@ -750,7 +752,8 @@ def test_live_order_early_stop_and_not_attempted(tmp_path: Path) -> None:
         ("TONE", "completed"),
         ("WSPR", "started"),
         ("WSPR", "completed"),
-        ("QRSS", "skipped"),
+        ("QRSS", "started"),
+        ("QRSS", "failed"),
         ("FSKCW", "skipped"),
         ("DFCW", "skipped"),
     ]
