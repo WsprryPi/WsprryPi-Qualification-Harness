@@ -42,7 +42,7 @@ correctness are forbidden.
 | Keyed campaign | exact transaction bound times the requested observation count plus final provider cleanup | work-derived |
 | Automatic installed-runtime deployment | discovery, identity, transfer, and post-run validation wait for completion; the delegated coordinator is only an observer of child plans that retain their own live bounds | completion event; never qualification evidence |
 | Opt-in source/native compilation | actual build-process completion before live execution; no elapsed-time estimate | completion event; never RF or qualification work |
-| Complete five-mode campaign | exact sum of the five resolved child envelopes | work-derived |
+| Complete selected-mode campaign evidence | exact sum of the selected resolved child envelopes; each child enforces its own bound | work-derived |
 | Progress forwarding | child command bound; forwarding has no independent success timer | plan-bound |
 
 The supported offline sequential-I/O capability floor is 25,000,000 bytes per
@@ -81,11 +81,11 @@ the local SSH launcher is bounded by the complete overall envelope. The remote
 executor divides cleanup equally among INT, TERM, and KILL escalation instead
 of manufacturing 30-, 5-, and 5-second waits.
 
-The complete campaign has no independent two-hour cutoff. Its deadline is
-recomputed after all five child plans are materialized and must equal their
-sum. A parent therefore cannot expire while a child is still legitimately
-inside its authenticated envelope, and it cannot silently authorize time that
-no child owns.
+The complete campaign has no independent wall-clock cutoff. Its recorded child
+budget is recomputed after all selected child plans are materialized and must
+equal their sum. Each maintained child coordinator enforces its own authenticated
+envelope. The parent does not pre-empt a child or reject the next child because
+of orchestration overhead between bounded modes.
 
 The TONE session likewise has no inherited fixed overall cutoff. Its outer
 deadline is the exact sum of the named preflight and lifecycle envelopes plus

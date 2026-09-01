@@ -63,10 +63,12 @@ The harness provides:
 17. thin typed turnkey route planning, exact-digest confirmation, deterministic
     hardware-free rehearsal, and dispatch to the existing production coordinator
     for every maintained mode.
-18. one first-class `complete-test` campaign that accepts transmitter host,
-    receiver host, and an exact SDR selector, resolves canonical defaults and
-    explicit overrides, prepares all five bounded mode executions,
-    and routes TONE, WSPR, QRSS, FSKCW, and DFCW in order through those same
+18. one first-class `complete-test` campaign that accepts a transmitter host,
+    receiver host, an exact SDR selector, and an optional mode selection; resolves
+    canonical defaults and
+    explicit overrides, prepares only the selected bounded mode executions,
+    and routes the selected members of TONE, WSPR, QRSS, FSKCW, and DFCW in
+    canonical order through those same
     coordinators with one invocation authorization and one authenticated aggregate.
 19. a durable JSON Lines `complete-test` progress stream, flushed after each
     campaign, mode, capture/lifecycle, WSPR-frame, keyed-observation, cleanup,
@@ -177,7 +179,8 @@ committed `confirmed: true` or similar profile value.
 
 For `complete-test` only, deliberate invocation with `--enable-rf`, two exact
 host names, and one exact SDR selector is the positive confirmation for the
-bounded five-mode campaign. The command resolves installed deployment facts
+bounded selected-mode campaign; omission of mode selectors means all five
+modes. The command resolves installed deployment facts
 internally and does not require an operator identity. Internal evidence binding
 is automatic and is not part of the user interface. Advanced explicit-plan
 commands retain their existing confirmation interfaces.

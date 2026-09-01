@@ -266,3 +266,17 @@ def test_cli_rejects_conflicting_route_spellings(tmp_path: Path, capsys) -> None
         == 2
     )
     assert "disagree" in capsys.readouterr().err
+
+
+def test_rp1_rehearsal_selects_canonical_mode_subset(tmp_path: Path) -> None:
+    document = compose_rp1_rehearsal(
+        configuration(tmp_path, "gpio20"), "gpio20", modes=("DFCW", "TONE")
+    )
+    assert document["mode_order"] == ["TONE", "DFCW"]
+    assert [entry["mode"] for entry in document["plans"]] == ["TONE", "DFCW"]
+    validate_rp1_rehearsal(document)
+
+
+def test_rp1_rehearsal_rejects_duplicate_modes(tmp_path: Path) -> None:
+    with pytest.raises(Rp1CampaignError, match="modes"):
+        compose_rp1_rehearsal(configuration(tmp_path, "gpio4"), "gpio4", modes=("TONE", "TONE"))

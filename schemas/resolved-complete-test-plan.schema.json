@@ -148,17 +148,17 @@
       }
     },
     "mode_order": {
-      "const": [
-        "TONE",
-        "WSPR",
-        "QRSS",
-        "FSKCW",
-        "DFCW"
-      ]
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["TONE", "WSPR", "QRSS", "FSKCW", "DFCW"]
+      }
     },
     "mode_plans": {
       "type": "array",
-      "minItems": 5,
+      "minItems": 1,
       "maxItems": 5,
       "items": {
         "type": "object",

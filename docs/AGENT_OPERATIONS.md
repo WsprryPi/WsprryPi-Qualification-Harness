@@ -391,8 +391,8 @@ hosted-CI result into a hardware qualification claim.
 - Thin multi-mode campaign routing:
   [`turnkey-campaign.md`](development/turnkey-campaign.md)
 
-For the simple fixed five-mode workflow, use `complete-test TRANSMITTER_HOST
-RECEIVER_HOST --sdr SELECTOR --enable-rf`. The normal path requires no
+For the simple selected-mode workflow, use `complete-test TRANSMITTER_HOST
+RECEIVER_HOST --sdr SELECTOR [--mode MODE ...] --enable-rf`. Omit `--mode` for all five; repeat it for a subset. The normal path requires no
 configuration argument: it temporarily stages the current harness and copies
 the transmitter's installed WsprryPi executable and configuration. It never
 falls back to source compilation; `--wsprrypi-source LOCAL_CHECKOUT` is the

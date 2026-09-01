@@ -48,13 +48,13 @@ emit RF from a plan, rehearsal, saved digest, or this guide. Those operations
 still require the precise current authority required by the subordinate
 coordinator and repository contract.
 
-## Simple five-mode `complete-test`
+## Simple selected-mode `complete-test`
 
 `complete-test` is the normal fixed campaign surface; the explicit-plan
 `turnkey-campaign` commands above remain the advanced interface. The normal
 command accepts two hosts and an exact SDR selector, packages the current harness,
 copies the installed WsprryPi executable and configuration, stages the required
-runtime, discovers the selected SDR immediately, and derives all five mode plans
+runtime, discovers the selected SDR immediately, and derives the selected mode plans
 rather than accepting five operator-authored mode plans. Each host receives an
 independently owned durable per-campaign executable; temporary stages are removed,
 and the retained aggregate is revalidated afterward. `--enable-rf` authorizes
@@ -179,6 +179,13 @@ the Linux XDG state directory (with the documented home-state fallback).
 `WSPQ_PROGRESS_DIR` provides a deployment-level override, while
 `--progress-log` selects an exact file. Automatic stage cleanup never owns or
 deletes this log; review and removal are explicit operator retention actions.
+Omitting `--mode` selects all five modes. Repeat it for a subset, for example
+`--mode TONE` or `--mode WSPR --mode DFCW`. Input order is normalized to the
+canonical TONE, WSPR, QRSS, FSKCW, DFCW order; duplicates are rejected before
+external access. Unselected plans, references, captures, and transmissions are
+not created. Aggregate scope, deadline, progress, and qualification claims cover
+exactly the selected modes. Historical five-mode evidence remains valid.
+
 Defaults are 20 m, 14,097,100 Hz, `Q0QQQ`, `JJ00`, 0 dBm, keyed message `ET`,
 0.7-second QRSS/FSKCW/DFCW dots, and 5.0 Hz FSKCW/DFCW separation. All are
 named CLI overrides. WSPR retains the maintained three-frame contract; keyed
@@ -280,7 +287,7 @@ label. Preserve those original bundles; do not relabel or re-sign them as a
 substitute for fresh qualification.
 
 Automatic campaign work files live under `OUTPUT_PARENT/complete-test-work-TOKEN`,
-not the remote temporary deployment stage. A five-mode run retains a coherent
+not the remote temporary deployment stage. A default five-mode run retains a coherent
 740 MB capture plus keyed captures and derived artifacts, so a small RAM-backed `/tmp` is not
 a suitable capture store. These work files are operational evidence outside
 Git and remain until an explicit retention/cleanup action.

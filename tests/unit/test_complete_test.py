@@ -23,6 +23,7 @@ from wsprrypi_qualification.complete_test import (
     compose_complete_test_plan,
     configuration_path,
     delegate_complete_test,
+    normalize_modes,
     rehearse_complete_test,
     resolve_local_sdr,
     run_complete_test,
@@ -763,6 +764,65 @@ def test_live_order_early_stop_and_not_attempted(tmp_path: Path) -> None:
         validate_complete_test_bundle(Path(outcome["bundle"]))
 
 
+def test_selected_tone_can_qualify_only_its_exact_scope(tmp_path: Path) -> None:
+    plan = compose_complete_test_plan(
+        "wspr4.local",
+        "wspr5.local",
+        SDR,
+        configuration=_configuration(tmp_path),
+        discovered_sdr=DISCOVERED_SDR,
+        live=True,
+        modes=("TONE",),
+    )
+    calls: list[str] = []
+
+    def dispatch(wrapper, output_parent, **kwargs):
+        mode = wrapper["mode"]
+        calls.append(mode)
+        bundle = output_parent / "child-tone"
+        bundle.mkdir(parents=True)
+        result = {
+            "schema_version": 1,
+            "run_id": "20260823T200000Z-tone",
+            "status": "inconclusive",
+            "started_utc": "2026-08-23T20:00:00Z",
+            "completed_utc": "2026-08-23T20:00:01Z",
+            "preflight_passed": True,
+            "carrier_gate": "passed",
+            "decode_gate": "not_run",
+            "cleanup_outcome": "verified",
+            "failure_causes": [],
+            "artifacts": [],
+        }
+        _write(bundle / "result.json", result)
+        session = {"run_id": result["run_id"], "final_status": "inconclusive"}
+        _write(bundle / "session.json", session)
+        write_manifest(bundle)
+        return {"authoritative_bundle": str(bundle), "underlying_result": session}
+
+    outcome = run_complete_test(
+        plan,
+        tmp_path / "runs",
+        ssh_executable=tmp_path / "ssh-fixture",
+        work_directory=tmp_path / "work",
+        dispatcher=dispatch,
+    )
+    assert calls == ["TONE"]
+    assert outcome["result"]["mode_order"] == ["TONE"]
+    assert outcome["result"]["qualification_scope"]["modes"] == ["TONE"]
+    assert outcome["result"]["final_status"] == "qualified"
+    assert outcome["result"]["qualification_claim"] is True
+    bundle = Path(outcome["bundle"])
+    assert validate_complete_test_bundle(bundle) == outcome["result"]
+
+    tampered = json.loads((bundle / "result.json").read_text(encoding="utf-8"))
+    tampered["qualification_scope"]["modes"] = ["WSPR"]
+    _write(bundle / "result.json", tampered)
+    write_manifest(bundle)
+    with pytest.raises(CompleteTestError, match="exact plan and order"):
+        validate_complete_test_bundle(bundle)
+
+
 def test_tampering_reordering_and_path_escape_are_rejected(tmp_path: Path) -> None:
     plan = compose_complete_test_plan(
         "wspr4.local",
@@ -1229,3 +1289,104 @@ def test_explicit_gpio_must_match_supplied_mode_plans(tmp_path, monkeypatch, gpi
         )
         == expected
     )
+
+
+def test_selected_modes_are_canonical_bounded_and_exclusive(tmp_path: Path) -> None:
+    plan = compose_complete_test_plan(
+        "wspr4.local",
+        "wspr5.local",
+        SDR,
+        configuration=_configuration(tmp_path),
+        live=False,
+        modes=("DFCW", "TONE", "QRSS"),
+    )
+    assert plan["mode_order"] == ["TONE", "QRSS", "DFCW"]
+    assert [entry["mode"] for entry in plan["mode_plans"]] == plan["mode_order"]
+    assert plan["campaign_deadline_s"] == sum(
+        entry["plan"]["deadlines"]["overall_s"] for entry in plan["mode_plans"]
+    )
+    input_store = Path(plan["input_store"]["directory"])
+    assert not (input_store / "wspr").exists()
+    assert not (input_store / "fskcw").exists()
+    validate_complete_test_plan(plan)
+    result = rehearse_complete_test(plan, Path(plan["execution_paths"]["output_parent"]))
+    assert result["result"]["mode_order"] == plan["mode_order"]
+    assert result["result"]["qualification_scope"]["modes"] == plan["mode_order"]
+    assert len(result["result"]["modes"]) == 3
+
+
+@pytest.mark.parametrize("modes", [(), ("TONE", "TONE"), ("BOGUS",)])
+def test_selected_modes_reject_empty_duplicate_and_unknown(modes: tuple[str, ...]) -> None:
+    with pytest.raises(CompleteTestError):
+        normalize_modes(modes)
+
+
+def test_remote_mode_selection_is_forwarded_in_operator_order(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setenv("WSPQ_PROGRESS_DIR", str(tmp_path / "progress"))
+    observed = {}
+
+    def delegated(*args, **kwargs):
+        observed["forwarded"] = args[3]
+        return {
+            "bundle": "/retained/campaign",
+            "result": {
+                "final_status": "qualified",
+                "transmitter_host": "wspr4",
+                "receiver_host": "wspr5",
+                "sdr_selector": SDR,
+            },
+        }
+
+    monkeypatch.setattr(cli_module, "receiver_is_local", lambda host: False)
+    monkeypatch.setattr(cli_module, "delegate_automatic_complete_test", delegated)
+    assert (
+        main(
+            [
+                "complete-test",
+                "wspr4",
+                "wspr5",
+                "--sdr",
+                SDR,
+                "--enable-rf",
+                "--mode",
+                "dfcw",
+                "--mode",
+                "tone",
+            ]
+        )
+        == 0
+    )
+    forwarded = observed["forwarded"]
+    assert [forwarded[i + 1] for i, value in enumerate(forwarded) if value == "--mode"] == [
+        "DFCW",
+        "TONE",
+    ]
+    capsys.readouterr()
+
+
+def test_cli_rejects_duplicate_modes_before_delegation(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.setenv("WSPQ_PROGRESS_DIR", str(tmp_path / "progress"))
+    monkeypatch.setattr(cli_module, "receiver_is_local", lambda host: False)
+    monkeypatch.setattr(
+        cli_module, "delegate_automatic_complete_test", lambda *a, **k: pytest.fail("delegated")
+    )
+    assert (
+        main(
+            [
+                "complete-test",
+                "wspr4",
+                "wspr5",
+                "--sdr",
+                SDR,
+                "--enable-rf",
+                "--mode",
+                "tone",
+                "--mode",
+                "TONE",
+            ]
+        )
+        == 2
+    )
+    assert "must not be duplicated" in capsys.readouterr().err

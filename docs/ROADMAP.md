@@ -14,16 +14,7 @@ keys, implicit agent forwarding, or the initiating host's aliases being valid
 on another machine. Keep privileged operations narrowly scoped, bounded, and
 fail closed across transport loss.
 
-## Phase 2 — Selective mode campaigns
-
-**Status: on hold**
-
-Allow an operator to select all modes or an explicit subset of TONE, WSPR,
-QRSS, FSKCW, and DFCW. Preserve an independently authenticated result bundle
-and cleanup outcome for each selected mode, with failure isolation and an
-explicit policy for whether later modes continue.
-
-## Phase 3 — Multi-frequency campaigns
+## Phase 2 — Multi-frequency campaigns
 
 **Status: planned**
 
@@ -32,7 +23,7 @@ shared parameters once, binding every frequency-specific plan independently,
 placing generated collateral outside source repositories, and cleaning up only
 runtime material owned by the campaign.
 
-## Phase 4 — Operator experience
+## Phase 3 — Operator experience
 
 **Status: planned**
 
@@ -40,7 +31,7 @@ Improve preflight guidance, confirmation, progress presentation, failure
 explanations, recovery guidance, and result discovery without weakening the
 existing authorization, evidence, or cleanup boundaries.
 
-## Phase 5 — Qualification campaigns
+## Phase 4 — Qualification campaigns
 
 **Status: planned**
 

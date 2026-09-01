@@ -31,6 +31,7 @@ from wsprrypi_qualification.capabilities import capability_report
 from wsprrypi_qualification.capture_metadata import CaptureMetadataError, load_capture_metadata
 from wsprrypi_qualification.carrier import analyze_carrier_acquired
 from wsprrypi_qualification.complete_test import (
+    MODE_ORDER,
     CompleteTestError,
     CompleteTestOverrides,
     compose_complete_test_plan,
@@ -481,6 +482,13 @@ def _parser() -> argparse.ArgumentParser:
         choices=(4, 20),
         help="GPIO or RP1 transmitter pin: 4 or 20; GPIO defaults to 4, RP1 requires a selection",
     )
+    complete.add_argument(
+        "--mode",
+        action="append",
+        type=str.upper,
+        choices=MODE_ORDER,
+        help="mode to run; repeat for multiple modes (default: all five)",
+    )
     complete.add_argument("--band", default="20m")
     complete.add_argument("--frequency-hz", type=int, default=14_097_100)
     complete.add_argument(
@@ -601,6 +609,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
         try:
             reporter.emit("command", "started", "complete-test command accepted")
+            if args.mode is not None and len(set(args.mode)) != len(args.mode):
+                raise CompleteTestError("--mode must not be duplicated")
             if args.rehearse and args.enable_rf:
                 raise CompleteTestError("--rehearse conflicts with --enable-rf")
             if args.allow_unqualified_frequency and (
@@ -643,6 +653,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         residual_ppm=args.transmitter_ppm_offset,
                         manual_ppm=args.gpio_manual_ppm,
                         carrier_offset_max_hz=args.carrier_offset_max_hz,
+                        modes=args.mode,
                     )
                     if rehearsal["host"] != args.transmitter_host:
                         raise CompleteTestError("RP1 rehearsal host differs from command host")
@@ -659,7 +670,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                                 "campaign_id": rehearsal["campaign_id"],
                                 "backend": "rp1_gpclk",
                                 "route": rehearsal["route"],
-                                "mode_count": 5,
+                                "mode_count": len(rehearsal["mode_order"]),
                                 "qualification_claim": False,
                             },
                             indent=2,
@@ -717,6 +728,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 forwarded.append("--progress-stream")
                 if args.configuration is not None:
                     forwarded.extend(("--configuration", str(args.configuration)))
+                for mode in args.mode or ():
+                    forwarded.extend(("--mode", mode))
                 forwarded.extend(
                     (
                         "--transmitter-backend",
@@ -833,6 +846,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 discovered_sdr=discovered_sdr,
                 delegation_receipt=delegation_receipt,
                 live=not args.rehearse,
+                modes=args.mode,
             )
             if selected_gpio is not None:
                 for entry in complete_plan["mode_plans"]:

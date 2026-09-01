@@ -1,10 +1,11 @@
-"""Sealed hardware-free RP1 five-mode complete-test rehearsal composition."""
+"""Sealed hardware-free RP1 complete-test rehearsal composition."""
 
 from __future__ import annotations
 
 import json
 import math
 import secrets
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -139,9 +140,18 @@ def compose_rp1_rehearsal(
     manual_ppm: float | None = None,
     carrier_offset_max_hz: float = 100.0,
     now: datetime | None = None,
+    modes: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    """Compose five authenticated plans without constructing any production adapter."""
+    """Compose selected authenticated plans without constructing a production adapter."""
     configuration = _load_configuration(configuration_path)
+    requested = RP1_MODE_ORDER if modes is None else tuple(modes)
+    if (
+        not requested
+        or len(set(requested)) != len(requested)
+        or not set(requested) <= set(RP1_MODE_ORDER)
+    ):
+        raise Rp1CampaignError("RP1 rehearsal modes must be a non-empty unique supported selection")
+    selected_modes = tuple(mode for mode in RP1_MODE_ORDER if mode in requested)
     expected = route_contract(route)
     if not math.isfinite(carrier_offset_max_hz) or carrier_offset_max_hz < 0:
         raise Rp1CampaignError("carrier tolerance must be finite and non-negative")
@@ -175,7 +185,7 @@ def compose_rp1_rehearsal(
     plans: list[dict[str, Any]] = []
     stamp = (now or datetime.now(UTC)).astimezone(UTC)
     campaign_id = f"rp1-{stamp.strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}-{route}"
-    for mode in RP1_MODE_ORDER:
+    for mode in selected_modes:
         application = shim.resolve_plan(
             f"{campaign_id}-{mode.lower()}", cast(Any, _protocol(mode, configuration))
         ).to_document()
@@ -224,7 +234,7 @@ def compose_rp1_rehearsal(
         "rp1_identity": rp1_identity,
         "ppm_resolution": ppm_resolution,
         "carrier_offset_max_hz": carrier_offset_max_hz,
-        "mode_order": list(RP1_MODE_ORDER),
+        "mode_order": list(selected_modes),
         "plans": plans,
         "qualification_claim": False,
     }
@@ -234,8 +244,16 @@ def compose_rp1_rehearsal(
 
 def validate_rp1_rehearsal(document: dict[str, Any]) -> dict[str, Any]:
     validate_document(document, "rp1-complete-test-rehearsal.schema.json")
-    if document["mode_order"] != list(RP1_MODE_ORDER):
-        raise Rp1CampaignError("RP1 rehearsal mode order changed")
+    requested = tuple(document["mode_order"])
+    selected_modes = tuple(mode for mode in RP1_MODE_ORDER if mode in requested)
+    if (
+        not requested
+        or len(set(requested)) != len(requested)
+        or document["mode_order"] != list(selected_modes)
+    ):
+        raise Rp1CampaignError("RP1 rehearsal mode order is invalid")
+    if [entry["mode"] for entry in document["plans"]] != list(selected_modes):
+        raise Rp1CampaignError("RP1 subordinate plans are missing, duplicated, or reordered")
     expected = route_contract(document["route"])
     if any(document["rp1_identity"].get(name) != value for name, value in expected.items()):
         raise Rp1CampaignError("RP1 rehearsal identity is wrong-route")
@@ -286,7 +304,7 @@ def validate_rp1_rehearsal(document: dict[str, Any]) -> dict[str, Any]:
             raise Rp1CampaignError("RP1 subordinate plan digest changed")
         digests.add(observed)
         identities.add(entry["route_mode_id"])
-    if len(digests) != 5 or len(identities) != 5:
+    if len(digests) != len(selected_modes) or len(identities) != len(selected_modes):
         raise Rp1CampaignError("RP1 subordinate plans are reused or duplicated")
     return document
 

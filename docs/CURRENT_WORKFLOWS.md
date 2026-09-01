@@ -31,14 +31,20 @@ runtime safety, cleanup, evidence, and status.
 
 Guide: [Turnkey campaign orchestration](development/turnkey-campaign.md).
 
-### Simple complete five-mode campaign
+### Simple complete selected-mode campaign
 
 The normal live form is:
 
 ```text
 wsprrypi-qualification complete-test TRANSMITTER_HOST RECEIVER_HOST \
   --sdr driver=sdrplay,serial=2404058C60 --enable-rf
+wsprrypi-qualification complete-test TRANSMITTER_HOST RECEIVER_HOST \
+  --sdr driver=sdrplay,serial=2404058C60 --mode TONE --enable-rf
 ```
+
+Omitting `--mode` runs all five modes. Repeat `--mode` to select one or more;
+execution is normalized to TONE, WSPR, QRSS, FSKCW, DFCW order and only selected
+plans are materialized. Duplicate modes fail before host access.
 
 Automatic composition uses the GPIO backend by default. Select the maintained
 Si5351 production path explicitly with `--transmitter-backend si5351`; this
@@ -118,8 +124,8 @@ software, firmware, module, overlay, clock, route, revision, and hash facts are
 recorded when observable and may remain unknown. They are descriptive evidence,
 not provenance whitelists. Runtime preflight still rejects incompatible ABI or
 capability and unsafe, busy, unbounded, or unclean state. The receiver uniquely resolves the
-selected SDR through SoapySDR, validates all five generated subordinate plans, then
-routes TONE, WSPR, QRSS, FSKCW, and DFCW in that order. Both named hosts may be
+selected SDR through SoapySDR, validates every selected subordinate plan, then
+routes selected modes in canonical order. Both named hosts may be
 remote to the controller; execution is delegated to the receiver host.
 `--rehearse` is deterministic and hardware-free and conflicts with
 `--enable-rf`. RP1 same-host production uses distinct authenticated local role channels.

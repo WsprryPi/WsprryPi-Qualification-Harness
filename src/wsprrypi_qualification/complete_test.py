@@ -1,4 +1,4 @@
-"""Simple five-mode campaign composition above maintained coordinators."""
+"""Selectable complete-test campaign composition above maintained coordinators."""
 
 from __future__ import annotations
 
@@ -13,8 +13,7 @@ import secrets
 import shutil
 import socket
 import subprocess
-import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
@@ -73,6 +72,23 @@ from wsprrypi_qualification.transmitter_ppm import TransmitterPpmError, resolve_
 from wsprrypi_qualification.transports import CommandPlan, LocalCommandTransport
 
 MODE_ORDER = ("TONE", "WSPR", "QRSS", "FSKCW", "DFCW")
+
+
+def normalize_modes(modes: Sequence[str] | None) -> tuple[str, ...]:
+    """Validate a requested subset and return canonical execution order."""
+    if modes is None:
+        return MODE_ORDER
+    requested = tuple(modes)
+    if not requested:
+        raise CompleteTestError("complete-test requires at least one selected mode")
+    if len(set(requested)) != len(requested):
+        raise CompleteTestError("complete-test modes must not be duplicated")
+    unsupported = sorted(set(requested) - set(MODE_ORDER))
+    if unsupported:
+        raise CompleteTestError(f"unsupported complete-test mode: {unsupported[0]}")
+    return tuple(mode for mode in MODE_ORDER if mode in requested)
+
+
 DEFAULTS: dict[str, object] = {
     "band": "20m",
     "frequency_hz": 14_097_100,
@@ -1089,9 +1105,10 @@ def _compose_complete_mode_plans(
     sdr_selector: str,
     selector_fields: dict[str, str],
     ppm_resolution: dict[str, Any],
+    modes: Sequence[str],
 ) -> list[dict[str, Any]]:
     bindings: list[dict[str, Any]] = []
-    for mode in MODE_ORDER:
+    for mode in modes:
         family = "real_session" if mode in {"TONE", "WSPR"} else "keyed_session"
         source = _mode_plan_path(config_path, config["production_templates"][family])
         template = _load(source)
@@ -1158,12 +1175,14 @@ def compose_complete_test_plan(
     delegation_receipt: dict[str, Any] | None = None,
     live: bool = True,
     now: datetime | None = None,
+    modes: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     _validate_host(transmitter_host, "TRANSMITTER_HOST")
     _validate_host(receiver_host, "RECEIVER_HOST")
     if not sdr_selector.strip() or "\x00" in sdr_selector:
         raise CompleteTestError("--sdr must be one non-empty exact device selector")
     selector_fields = _parse_sdr_selector(sdr_selector)
+    selected_modes = normalize_modes(modes)
     if live and (
         discovered_sdr is None
         or any(discovered_sdr.get(key) != value for key, value in selector_fields.items())
@@ -1255,6 +1274,7 @@ def compose_complete_test_plan(
             sdr_selector=sdr_selector,
             selector_fields=selector_fields,
             ppm_resolution=ppm_resolution,
+            modes=selected_modes,
         )
     except BaseException:
         shutil.rmtree(input_path, ignore_errors=True)
@@ -1297,12 +1317,12 @@ def compose_complete_test_plan(
                 cast(float, values["frequency_acquisition_half_width_hz"])
             ),
         ).to_document(),
-        "mode_order": list(MODE_ORDER),
+        "mode_order": list(selected_modes),
         "mode_plans": bindings,
         "topology": config["topology"],
         "transport": ("local_role_channels" if config["topology"] == "same_host_roles" else "ssh"),
-        # The campaign owns exactly the sum of its five already-resolved child
-        # envelopes.  No independent two-hour wall-clock guess can pre-empt a
+        # The campaign owns exactly the sum of its selected already-resolved child
+        # envelopes. No independent wall-clock guess can pre-empt a
         # legitimately bounded child or extend the authorized work.
         "campaign_deadline_s": sum(entry["plan"]["deadlines"]["overall_s"] for entry in bindings),
         "execution_paths": {
@@ -1329,8 +1349,9 @@ def compose_complete_test_plan(
 
 def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
     validate_document(document, "resolved-complete-test-plan.schema.json")
-    if document["mode_order"] != list(MODE_ORDER):
-        raise CompleteTestError("complete-test mode order changed")
+    selected_modes = normalize_modes(document["mode_order"])
+    if document["mode_order"] != list(selected_modes):
+        raise CompleteTestError("complete-test mode order is not canonical")
     values = document["resolved_values"]
     if document["defaults"] != DEFAULTS:
         raise CompleteTestError("complete-test canonical defaults changed")
@@ -1451,7 +1472,7 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
         raise CompleteTestError(str(error)) from error
     if document["receiver_tuning"] != expected_tuning:
         raise CompleteTestError("complete-test receiver tuning policy changed")
-    if [entry["mode"] for entry in document["mode_plans"]] != list(MODE_ORDER):
+    if [entry["mode"] for entry in document["mode_plans"]] != list(selected_modes):
         raise CompleteTestError(
             "complete-test subordinate plans are missing, duplicated, or reordered"
         )
@@ -1645,7 +1666,11 @@ def _campaign_status(entries: list[dict[str, Any]]) -> str:
     stopped_statuses = [
         entry["final_status"] for entry in entries if entry["state"] == "not_attempted"
     ]
-    if statuses and all(status == "qualified" for status in statuses) and len(statuses) == 5:
+    if (
+        statuses
+        and all(status == "qualified" for status in statuses)
+        and len(statuses) == len(entries)
+    ):
         return "qualified"
     precedence = {
         "qualified": 0,
@@ -1710,8 +1735,9 @@ def validate_complete_test_bundle(bundle: Path) -> dict[str, Any]:
         or result["sdr_selector"] != plan["sdr_selector"]
         or result["transmitter_ppm_resolution"] != plan["transmitter_ppm_resolution"]
         or result["delegation_receipt"] != plan["delegation_receipt"]
-        or result["mode_order"] != list(MODE_ORDER)
-        or [entry["mode"] for entry in result["modes"]] != list(MODE_ORDER)
+        or result["mode_order"] != plan["mode_order"]
+        or [entry["mode"] for entry in result["modes"]] != plan["mode_order"]
+        or result["qualification_scope"]["modes"] != plan["mode_order"]
     ):
         raise CompleteTestError("complete-test result does not bind its exact plan and order")
     for mode_result, mode_plan in zip(result["modes"], plan["mode_plans"], strict=True):
@@ -1820,7 +1846,7 @@ def _publish(
         "transmitter_ppm_resolution": plan["transmitter_ppm_resolution"],
         "delegation_receipt": plan["delegation_receipt"],
         "authorization": plan["authorization"],
-        "mode_order": list(MODE_ORDER),
+        "mode_order": list(plan["mode_order"]),
         "modes": entries,
         "final_status": final_status,
         "cleanup_precedence_applied": any(s == "cleanup_failed" for s in statuses),
@@ -1844,11 +1870,11 @@ def _publish(
             "sdr_selector": plan["sdr_selector"],
             "band": plan["resolved_values"]["band"],
             "frequency_hz": plan["resolved_values"]["frequency_hz"],
-            "modes": list(MODE_ORDER),
+            "modes": list(plan["mode_order"]),
             "topology": plan["topology"],
             "transmitter_route": plan["transmitter_route"],
         },
-        "qualification_claim": final_status == "qualified" and len(statuses) == 5,
+        "qualification_claim": final_status == "qualified" and len(statuses) == len(entries),
     }
     validate_document(result, "complete-test-result.schema.json")
     try:
@@ -1887,7 +1913,7 @@ def rehearse_complete_test(plan: dict[str, Any], output_parent: Path) -> dict[st
             "result_artifact": None,
             "bundle_manifest_artifact": None,
         }
-        for mode, entry in zip(MODE_ORDER, resolved["mode_plans"], strict=True)
+        for mode, entry in zip(resolved["mode_order"], resolved["mode_plans"], strict=True)
     ]
     return _publish(resolved, output_parent, entries)
 
@@ -1919,23 +1945,16 @@ def run_complete_test(
     assert dispatcher is not None
     entries: list[dict[str, Any]] = []
     stopped: str | None = None
-    campaign_started = time.monotonic()
     if progress is not None:
         progress(
-            "campaign", "started", "five-mode campaign started", campaign_id=resolved["campaign_id"]
+            "campaign",
+            "started",
+            f"{len(resolved['mode_order'])}-mode campaign started",
+            campaign_id=resolved["campaign_id"],
         )
     for entry in resolved["mode_plans"]:
         mode = entry["mode"]
         child_campaign_id = f"ct-{resolved['campaign_id'].split('-')[1]}-{mode.lower()}"
-        if (
-            stopped is None
-            and time.monotonic() - campaign_started >= resolved["campaign_deadline_s"]
-        ):
-            stopped = "campaign deadline elapsed before the next mode"
-        child_deadline = entry["plan"]["deadlines"]["overall_s"]
-        remaining = resolved["campaign_deadline_s"] - (time.monotonic() - campaign_started)
-        if stopped is None and remaining < child_deadline:
-            stopped = "campaign deadline cannot contain the next bounded mode"
         if stopped is not None:
             if progress is not None:
                 progress("mode", "skipped", stopped, campaign_id=resolved["campaign_id"], mode=mode)
