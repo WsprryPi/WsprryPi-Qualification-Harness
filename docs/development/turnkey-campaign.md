@@ -122,12 +122,12 @@ The complete route contract prevents legacy fallback. Live RP1 additionally
 requires authenticated same-host helper channels and a separately bound,
 operation-scoped development authorization for each transmission.
 
-Live RP1 preflight requires the runtime provider to remain in its safe idle
-state with `live_output=0`, no endpoint owner or lease, and quiescent GPIO,
-clock, and DMA state. The exact bounded request and its development confirmation
-authorize output only through an ABI-v4 lease bound to that exact operation;
-release or close revokes it. Startup or passive inspection never pre-authorizes
-transmission.
+Live RP1 preflight requires the production provider's immutable
+`output_inhibit=0` deployment, an operationally ready passive snapshot, no
+endpoint owner or lease, and quiescent GPIO, clock, and DMA state. The root-owned,
+mode-0600 endpoint and the exact bounded request authorize output only through
+an ABI-v4 lease bound to that exact operation; release or close revokes it.
+Startup or passive inspection never pre-authorizes transmission.
 
 `rp1_contracts.validate_preflight` and
 `rp1_contracts.validate_operation_lifecycle` are the maintained semantic

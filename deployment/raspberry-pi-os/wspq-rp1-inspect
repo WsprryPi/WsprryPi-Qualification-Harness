@@ -98,6 +98,14 @@ def observed_device_tree(node: str) -> dict[str, object]:
     }
 
 
+def transmission_deployment_ready(output_inhibit: str, values: dict[str, str]) -> bool:
+    return (
+        output_inhibit in {"N", "0"}
+        and values.get("output_inhibited") == "false"
+        and values.get("operational_ready") == "true"
+    )
+
+
 def main() -> int:
     if len(sys.argv) != 3 or sys.argv[1] != "rp1-inspect":
         return 2
@@ -127,9 +135,11 @@ def main() -> int:
             field: run(["/usr/sbin/modinfo", "-F", field, str(module)])
             for field in ("version", "vermagic", "signer")
         }
-        live = pathlib.Path(f"/sys/module/{MODULE}/parameters/live_output").read_text().strip()
+        output_inhibit = (
+            pathlib.Path(f"/sys/module/{MODULE}/parameters/output_inhibit").read_text().strip()
+        )
         compatibility_id = values["compatibility_id"]
-        if not compatibility_id or live not in {"N", "0"}:
+        if not compatibility_id or not transmission_deployment_ready(output_inhibit, values):
             return fail()
         safe = values.get("gpio_safe") == "true"
         stable = values.get("stable") == "true"
@@ -165,6 +175,9 @@ def main() -> int:
             "abi_version": 4,
             "query_version": 3,
             "finite_tone": True,
+            # Retain the evidence-schema field while deriving it from the
+            # current provider's passive operation state, not the retired
+            # live_output module parameter.
             "live_output": False,
             "route": route,
             "endpoint_node": node,
@@ -209,18 +222,14 @@ def main() -> int:
                     "path": f"/boot/firmware/overlays/rp1-gpclk-{route}.dtbo",
                     "sha256": (
                         sha256(pathlib.Path(f"/boot/firmware/overlays/rp1-gpclk-{route}.dtbo"))
-                        if pathlib.Path(
-                            f"/boot/firmware/overlays/rp1-gpclk-{route}.dtbo"
-                        ).is_file()
+                        if pathlib.Path(f"/boot/firmware/overlays/rp1-gpclk-{route}.dtbo").is_file()
                         else None
                     ),
                 },
                 "active_device_tree": active_device_tree,
                 "parent_clock": {
                     "identity": (
-                        clock_names[0]
-                        if isinstance(clock_names, list) and clock_names
-                        else None
+                        clock_names[0] if isinstance(clock_names, list) and clock_names else None
                     ),
                     "rate_hz": None,
                     "status": "device-tree-observed-runtime-rate-unavailable",
