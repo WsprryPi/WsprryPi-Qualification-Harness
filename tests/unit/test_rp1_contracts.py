@@ -51,7 +51,7 @@ def preflight(route: str = "gpio4") -> dict[str, object]:
         "abi_version": 4,
         "query_version": 3,
         "finite_tone": True,
-        "live_output": False,
+        "output_inhibited": False,
         "route": route,
         "endpoint_node": contract["endpoint_node"],
         "compatibility_id": contract["compatibility_id"],
@@ -60,7 +60,7 @@ def preflight(route: str = "gpio4") -> dict[str, object]:
         "development_enrollment": "Experimental",
         "development_manifest_sha256": "c" * 64,
         "live_eligible": True,
-        "operation_live_gate": True,
+        "root_only_endpoint": True,
         "cleanup_fault": False,
         "generation": 7,
         "operation_state": "IDLE",
@@ -181,7 +181,6 @@ def test_real_session_quiescence_stage_retains_typed_rp1_preflight() -> None:
     "field",
     [
         "endpoint_available",
-        "operation_live_gate",
         "finite_tone",
         "drain_complete",
         "gpio_safe",
@@ -198,8 +197,26 @@ def test_rp1_preflight_fails_closed(field: str) -> None:
 
 def test_rp1_preflight_rejects_output_enabled_before_operation_authorization() -> None:
     evidence = preflight()
-    evidence["live_output"] = True
-    with pytest.raises(Rp1ContractError, match="live_output"):
+    evidence["output_inhibited"] = True
+    with pytest.raises(Rp1ContractError, match="output_inhibited"):
+        validate_preflight(evidence, route="gpio4")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("endpoint_owner", "pi"), ("endpoint_group", "dialout"), ("endpoint_mode", "0660")],
+)
+def test_rp1_preflight_requires_root_only_endpoint(field: str, value: str) -> None:
+    evidence = preflight()
+    evidence[field] = value
+    with pytest.raises(Rp1ContractError, match=r"unsafe or mismatched|0600.*expected"):
+        validate_preflight(evidence, route="gpio4")
+
+
+def test_rp1_preflight_requires_root_only_endpoint_contract() -> None:
+    evidence = preflight()
+    evidence["root_only_endpoint"] = False
+    with pytest.raises(Rp1ContractError, match="root_only_endpoint"):
         validate_preflight(evidence, route="gpio4")
 
 

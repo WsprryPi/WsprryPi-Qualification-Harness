@@ -838,8 +838,8 @@ class ProductionRealSessionAdapters:
             abi_version=contract.get("abi_version"),
             finite_tone_required=contract.get("finite_tone_required"),
             development_enrollment=contract.get("development_enrollment"),
-            live_output_required=contract.get("live_output_required"),
-            operation_live_gate_required=contract.get("operation_live_gate_required"),
+            output_inhibit_disabled_required=contract.get("output_inhibit_disabled_required"),
+            root_only_endpoint_required=contract.get("root_only_endpoint_required"),
             rp1_drive_ma=contract.get("rp1_drive_ma"),
             allow_unqualified_frequency=contract.get("allow_unqualified_frequency"),
         )

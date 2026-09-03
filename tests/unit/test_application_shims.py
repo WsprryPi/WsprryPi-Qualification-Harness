@@ -218,8 +218,8 @@ def test_rp1_backend_is_route_bound_and_applies_ppm_once(
         abi_version=4,
         finite_tone_required=True,
         development_enrollment="Experimental",
-        live_output_required=True,
-        operation_live_gate_required=True,
+        output_inhibit_disabled_required=True,
+        root_only_endpoint_required=True,
         rp1_drive_ma=2,
         allow_unqualified_frequency=allow_unqualified,
     )
@@ -272,8 +272,8 @@ def test_rp1_backend_rejects_missing_route_but_records_unfamiliar_identity() -> 
             abi_version=4,
             finite_tone_required=True,
             development_enrollment="not-enrolled",
-            live_output_required=True,
-            operation_live_gate_required=True,
+            output_inhibit_disabled_required=True,
+            root_only_endpoint_required=True,
             rp1_drive_ma=2,
         ),
     ).resolve_plan("observed-identity", ToneProtocol(14_097_100))

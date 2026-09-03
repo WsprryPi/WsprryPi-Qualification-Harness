@@ -145,8 +145,8 @@ def write_automatic_configuration(facts_path: Path, destination: Path) -> Path:
             "abi_version": 4,
             "finite_tone_required": True,
             "development_enrollment": "Experimental",
-            "live_output_required": True,
-            "operation_live_gate_required": True,
+            "output_inhibit_disabled_required": True,
+            "root_only_endpoint_required": True,
             "drive_or_power_level": drive,
             "rp1_drive_ma": 2,
             **(

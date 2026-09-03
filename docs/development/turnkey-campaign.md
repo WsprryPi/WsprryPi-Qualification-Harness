@@ -111,7 +111,7 @@ same-host transmitter/receiver target. The installed path builds only a passive
 administrative probe from a disposable clone of `/home/pi/WsprryPi`; it does not
 establish that the installed binary was built from that checkout. Both bind
 two distinct logical roles on the named host, the canonical endpoint/module,
-ABI v4, finite TONE, the selected active route, operation-live-gate capability,
+ABI v4, finite TONE, the selected active route, root-owned mode-0600 endpoint,
 observed WsprryPi/component/module/overlay/clock provenance, descriptive
 receiver/RF-path observations, and one provenance-bound PPM source. Unfamiliar
 build labels, revisions, hashes, or enrollment records are retained but are not

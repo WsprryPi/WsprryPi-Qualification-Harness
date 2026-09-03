@@ -34,6 +34,7 @@ def test_passive_inspector_uses_current_immutable_output_inhibit_gate() -> None:
     source = script.read_text(encoding="utf-8")
     assert "parameters/output_inhibit" in source
     assert "parameters/live_output" not in source
+    assert 'values["live_eligible"]' not in source
 
 
 @pytest.mark.parametrize(
@@ -69,3 +70,26 @@ def test_transmission_deployment_gate_fails_closed(
         )
         is expected
     )
+
+
+def test_device_tree_observation_follows_proc_symlink(tmp_path: Path) -> None:
+    script = (
+        Path(__file__).resolve().parents[2] / "deployment" / "raspberry-pi-os" / "wspq-rp1-inspect"
+    )
+    namespace = runpy.run_path(str(script))
+    observe = cast(Callable[[str, Path], dict[str, object]], namespace["observed_device_tree"])
+    actual = tmp_path / "sys" / "firmware" / "devicetree" / "base"
+    node = actual / "soc" / "rp1-gpclk-dkms-gpio4"
+    node.mkdir(parents=True)
+    (node / "compatible").write_bytes(b"wsprrypi,rp1-gpclk-dkms-v1\0")
+    (node / "clock-names").write_bytes(b"gpclk\0parent\0")
+    (node / "clocks").write_bytes(bytes.fromhex("0000000100000021"))
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    (proc / "device-tree").symlink_to(actual)
+
+    observed = observe("rp1-gpclk-dkms-gpio4", proc / "device-tree")
+
+    assert observed["status"] == "observed"
+    assert observed["path"] == str(node)
+    assert observed["clock_names"] == ["gpclk", "parent"]

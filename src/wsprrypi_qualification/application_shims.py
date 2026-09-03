@@ -75,8 +75,8 @@ class WsprryPiBackendConfig:
     abi_version: int | None = None
     finite_tone_required: bool | None = None
     development_enrollment: str | None = None
-    live_output_required: bool | None = None
-    operation_live_gate_required: bool | None = None
+    output_inhibit_disabled_required: bool | None = None
+    root_only_endpoint_required: bool | None = None
     rp1_drive_ma: int | None = None
     allow_unqualified_frequency: bool | None = None
 
@@ -177,8 +177,8 @@ class WsprryPiShim:
                 or config.finite_tone_required is not True
                 or not isinstance(config.development_enrollment, str)
                 or not config.development_enrollment
-                or config.live_output_required is not True
-                or config.operation_live_gate_required is not True
+                or config.output_inhibit_disabled_required is not True
+                or config.root_only_endpoint_required is not True
                 or config.rp1_drive_ma not in {2, 4, 8, 12}
             ):
                 raise ApplicationPlanError(

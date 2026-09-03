@@ -102,8 +102,8 @@ def _application_config(
         abi_version=4,
         finite_tone_required=True,
         development_enrollment="Experimental",
-        live_output_required=True,
-        operation_live_gate_required=True,
+        output_inhibit_disabled_required=True,
+        root_only_endpoint_required=True,
         rp1_drive_ma=int(configuration["rp1_identity"]["rp1_drive_ma"]),
     )
 
@@ -198,8 +198,8 @@ def compose_rp1_rehearsal(
             "finite_tone_required": True,
             "tone_operation": "FINITE" if mode == "TONE" else "NOT_APPLICABLE",
             "tone_duration_ns": 1_000_000_000 if mode == "TONE" else None,
-            "live_output_required": True,
-            "operation_live_gate_required": True,
+            "output_inhibit_disabled_required": True,
+            "root_only_endpoint_required": True,
             "cleanup": "lease_release_endpoint_close_gpio_clock_dma_quiescence",
             "terminal_silence_required": True,
         }
@@ -274,8 +274,8 @@ def validate_rp1_rehearsal(document: dict[str, Any]) -> dict[str, Any]:
             "abi_version": 4,
             "finite_tone_required": True,
             "development_enrollment": "Experimental",
-            "live_output_required": True,
-            "operation_live_gate_required": True,
+            "output_inhibit_disabled_required": True,
+            "root_only_endpoint_required": True,
         }
         if any(backend.get(name) != value for name, value in expected_application.items()):
             raise Rp1CampaignError("RP1 subordinate application identity is wrong-route")

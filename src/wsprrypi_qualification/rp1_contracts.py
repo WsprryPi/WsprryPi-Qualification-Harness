@@ -57,8 +57,8 @@ def route_contract(route: str) -> dict[str, object]:
         "finite_tone_required": True,
         "compatibility_id": "runtime-observed",
         "development_enrollment": "not-required",
-        "live_output_required": True,
-        "operation_live_gate_required": True,
+        "output_inhibit_disabled_required": True,
+        "root_only_endpoint_required": True,
         "terminal_silence_required": True,
     }
 
@@ -109,13 +109,15 @@ def validate_preflight(document: dict[str, Any], *, route: str) -> dict[str, Any
         raise Rp1ContractError("RP1 preflight has missing or unknown identity fields")
     equality = {
         "endpoint": RP1_ENDPOINT,
+        "endpoint_owner": "root",
+        "endpoint_group": "root",
         "module": RP1_MODULE,
         "route": route,
         "endpoint_node": expected["endpoint_node"],
         "abi_version": 4,
         "query_version": 3,
-        "live_output": False,
-        "operation_live_gate": True,
+        "output_inhibited": False,
+        "root_only_endpoint": True,
         "finite_tone": True,
         "endpoint_available": True,
         "endpoint_open": False,

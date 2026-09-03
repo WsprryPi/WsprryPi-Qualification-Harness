@@ -80,10 +80,10 @@ def observed_enrollments(
     return observations
 
 
-def observed_device_tree(node: str) -> dict[str, object]:
-    matches = sorted(
-        path for path in pathlib.Path("/proc/device-tree").rglob(node) if path.is_dir()
-    )
+def observed_device_tree(
+    node: str, root: pathlib.Path = pathlib.Path("/proc/device-tree")
+) -> dict[str, object]:
+    matches = sorted(path for path in root.resolve().rglob(node) if path.is_dir())
     if len(matches) != 1:
         return {"status": "unavailable", "matching_node_count": len(matches)}
     path = matches[0]
@@ -177,8 +177,8 @@ def main() -> int:
             "finite_tone": True,
             # Retain the evidence-schema field while deriving it from the
             # current provider's passive operation state, not the retired
-            # live_output module parameter.
-            "live_output": False,
+            # output_inhibit module parameter.
+            "output_inhibited": False,
             "route": route,
             "endpoint_node": node,
             "compatibility_id": compatibility_id,
@@ -186,8 +186,17 @@ def main() -> int:
             "compatibility_reason": values["compatibility_reason"],
             "development_enrollment": "observed-not-required",
             "development_manifest_sha256": None,
-            "live_eligible": values["live_eligible"] == "true",
-            "operation_live_gate": bool(int(values["capabilities"]) & (1 << 11)),
+            # Retained as non-authoritative legacy evidence. The current
+            # provider exposes no global live-eligibility switch.
+            "live_eligible": False,
+            # The production provider no longer advertises the retired kernel
+            # operation-live-gate capability. Exact operation authorization is
+            # enforced by the root-owned endpoint and lease lifecycle.
+            "root_only_endpoint": (
+                endpoint_stat.st_uid == 0
+                and endpoint_stat.st_gid == 0
+                and stat.S_IMODE(endpoint_stat.st_mode) == 0o600
+            ),
             "cleanup_fault": values["cleanup_fault"] == "true",
             "generation": int(values["generation"]),
             "operation_state": operation_state,
@@ -219,10 +228,14 @@ def main() -> int:
                 "module_file_sha256": sha256(module),
                 "enrollments": observed_enrollments(),
                 "overlay": {
-                    "path": f"/boot/firmware/overlays/rp1-gpclk-{route}.dtbo",
+                    "path": f"/usr/lib/rp1-gpclk-dkms/runtime-overlays/{route}.dtbo",
                     "sha256": (
-                        sha256(pathlib.Path(f"/boot/firmware/overlays/rp1-gpclk-{route}.dtbo"))
-                        if pathlib.Path(f"/boot/firmware/overlays/rp1-gpclk-{route}.dtbo").is_file()
+                        sha256(
+                            pathlib.Path(f"/usr/lib/rp1-gpclk-dkms/runtime-overlays/{route}.dtbo")
+                        )
+                        if pathlib.Path(
+                            f"/usr/lib/rp1-gpclk-dkms/runtime-overlays/{route}.dtbo"
+                        ).is_file()
                         else None
                     ),
                 },
