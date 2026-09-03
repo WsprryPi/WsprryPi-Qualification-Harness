@@ -513,6 +513,7 @@ def test_frequency_contract_propagates_offset_window_and_explicit_ppm(tmp_path: 
             frequency_acquisition_half_width_hz=1_000.0,
             gpio_manual_ppm=3.924,
         ),
+        keyed_frequency_tolerance_hz=10.0,
         live=False,
     )
     derived = plan["derived_frequencies"]
@@ -546,6 +547,7 @@ def test_frequency_contract_propagates_offset_window_and_explicit_ppm(tmp_path: 
             )
             reference = json.loads(Path(child["reference"]["plan"]["path"]).read_text())
             assert reference["thresholds"]["frequency_acquisition_half_width_hz"] == 1_000.0
+            assert reference["thresholds"]["frequency_tolerance_hz"] == 10.0
             assert reference["frequency_contract"] == child["frequency_contract"]
 
     tampered = deepcopy(plan)
@@ -677,6 +679,24 @@ def test_unsupported_topology_and_invalid_input_fail_before_dispatch(tmp_path: P
         CompleteTestOverrides(fskcw_separation_hz=0).validated()
     with pytest.raises(CompleteTestError, match="between zero and one"):
         CompleteTestOverrides(carrier_best_20hz_share_min=1.1).validated()
+    with pytest.raises(CompleteTestError, match="at most 100"):
+        compose_complete_test_plan(
+            "wspr4.local",
+            "wspr5.local",
+            SDR,
+            configuration=_configuration(tmp_path / "high-tolerance"),
+            live=False,
+            keyed_frequency_tolerance_hz=101,
+        )
+    with pytest.raises(CompleteTestError, match="at most 100"):
+        compose_complete_test_plan(
+            "wspr4.local",
+            "wspr5.local",
+            SDR,
+            configuration=_configuration(tmp_path / "zero-tolerance"),
+            live=False,
+            keyed_frequency_tolerance_hz=0,
+        )
 
     config = _configuration(tmp_path / "rp1")
     keyed_path = tmp_path / "rp1/templates/keyed.json"
@@ -1091,6 +1111,8 @@ def test_remote_complete_test_forwards_explicit_runtime_selection(
     if gpio is not None:
         forwarded = observed["forwarded"]
         assert forwarded[forwarded.index("--transmit-gpio") + 1] == str(gpio)
+    forwarded = observed["forwarded"]
+    assert forwarded[forwarded.index("--keyed-frequency-tolerance-hz") + 1] == "2.0"
     capsys.readouterr()
 
 

@@ -204,6 +204,12 @@ is transmitter PPM, receiver calibration, measured residual error, or formal
 spectral tolerance. `--carrier-offset-max-hz` remains the separate carrier
 pass/fail tolerance.
 
+Keyed modes also accept `--keyed-frequency-tolerance-hz HZ` as an explicit
+per-campaign limit for frequency-model residual and drift excursion. It defaults
+to `2`, is bounded above at `100`, and is authenticated in every generated
+QRSS/FSKCW/DFCW reference plan. It does not alter the carrier gate, acquisition
+window, tone-spacing tolerance, timing tolerance, or silence checks.
+
 The WSPR child deadline is calculated from its final slot schedule rather than
 a fixed campaign allowance. It includes receiver setup derived from the
 configured maximum read interval, the actual first-slot wait, the 370-second

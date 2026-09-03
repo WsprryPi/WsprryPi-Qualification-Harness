@@ -131,7 +131,11 @@ def test_discovered_facts_create_all_five_production_plans(
         "wspr5",
         facts["sdr_selector"],
         configuration=configuration,
-        overrides=CompleteTestOverrides(carrier_offset_max_hz=250.0, transmitter_ppm_offset=-1.25),
+        overrides=CompleteTestOverrides(
+            carrier_offset_max_hz=250.0,
+            transmitter_ppm_offset=-1.25,
+        ),
+        keyed_frequency_tolerance_hz=10.0,
         live=False,
     )
     assert adjusted["resolved_values"]["carrier_offset_max_hz"] == 250.0
@@ -143,6 +147,8 @@ def test_discovered_facts_create_all_five_production_plans(
             assert child["calibration"]["ppm"] == -1.25
         else:
             assert child["application_plan"]["backend_contract"]["ppm"] == -1.25
+            reference = json.loads(Path(child["reference"]["plan"]["path"]).read_text())
+            assert reference["thresholds"]["frequency_tolerance_hz"] == 10.0
 
     measured = compose_complete_test_plan(
         "wspr4",

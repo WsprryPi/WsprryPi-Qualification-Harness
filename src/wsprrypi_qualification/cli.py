@@ -528,6 +528,15 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     complete.add_argument(
+        "--keyed-frequency-tolerance-hz",
+        type=float,
+        default=2.0,
+        help=(
+            "maximum keyed-mode frequency-model residual and drift excursion in Hz "
+            "(default: 2; maximum: 100)"
+        ),
+    )
+    complete.add_argument(
         "--carrier-best-20hz-share-min",
         type=float,
         default=0.5,
@@ -762,6 +771,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         str(args.carrier_offset_max_hz),
                         "--frequency-acquisition-half-width-hz",
                         str(args.frequency_acquisition_half_width_hz),
+                        "--keyed-frequency-tolerance-hz",
+                        str(args.keyed_frequency_tolerance_hz),
                         "--carrier-best-20hz-share-min",
                         str(args.carrier_best_20hz_share_min),
                         *(
@@ -847,6 +858,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 delegation_receipt=delegation_receipt,
                 live=not args.rehearse,
                 modes=args.mode,
+                keyed_frequency_tolerance_hz=args.keyed_frequency_tolerance_hz,
             )
             if selected_gpio is not None:
                 for entry in complete_plan["mode_plans"]:

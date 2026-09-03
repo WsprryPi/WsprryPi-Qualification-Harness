@@ -173,6 +173,13 @@ is emitted as `carrier_offset_max_hz` in generated test profiles and reaches
 `CarrierAnalysisParameters.offset_gate_hz` through the resolved real-session
 plan. It is analysis tolerance, not transmitter or receiver calibration.
 
+`--keyed-frequency-tolerance-hz HZ` explicitly selects the QRSS/FSKCW/DFCW
+frequency-model residual and drift-excursion tolerance for one campaign. It
+defaults to `2` and must be greater than zero and no more than `100`. The value
+is authenticated in each generated keyed reference plan and does not widen the
+carrier acquisition gate, spacing tolerance, timing tolerance, or quiet-state
+requirements. TONE and WSPR retain their existing frequency contracts.
+
 `--requested-transmit-frequency-offset-hz HZ` intentionally shifts the nominal
 `--frequency-hz` exactly once for TONE, WSPR, QRSS, FSKCW, and DFCW. The
 aggregate retains nominal, offset, and effective frequencies; every child plan,

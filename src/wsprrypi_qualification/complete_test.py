@@ -800,7 +800,13 @@ def _resolve_keyed(
 
 
 def _materialize_cw_reference(
-    plan: dict[str, Any], mode: str, destination: Path, *, now: datetime, band: str
+    plan: dict[str, Any],
+    mode: str,
+    destination: Path,
+    *,
+    now: datetime,
+    band: str,
+    keyed_frequency_tolerance_hz: float,
 ) -> None:
     destination.mkdir(parents=True, exist_ok=False)
     tone = mode == "TONE"
@@ -906,7 +912,7 @@ def _materialize_cw_reference(
         },
         "thresholds": {
             "frequency_acquisition_half_width_hz": plan["frequency_acquisition_half_width_hz"],
-            "frequency_tolerance_hz": 2.0,
+            "frequency_tolerance_hz": 2.0 if tone else keyed_frequency_tolerance_hz,
             "spacing_tolerance_hz": 2.0,
             "minimum_contrast_db": 10.0,
             "timing_tolerance_s": 0.15,
@@ -1105,6 +1111,7 @@ def _compose_complete_mode_plans(
     sdr_selector: str,
     selector_fields: dict[str, str],
     ppm_resolution: dict[str, Any],
+    keyed_frequency_tolerance_hz: float,
     modes: Sequence[str],
 ) -> list[dict[str, Any]]:
     bindings: list[dict[str, Any]] = []
@@ -1125,7 +1132,12 @@ def _compose_complete_mode_plans(
         )
         if mode != "WSPR":
             _materialize_cw_reference(
-                plan, mode, input_path / mode.lower(), now=composed_at, band=str(values["band"])
+                plan,
+                mode,
+                input_path / mode.lower(),
+                now=composed_at,
+                band=str(values["band"]),
+                keyed_frequency_tolerance_hz=keyed_frequency_tolerance_hz,
             )
         if mode in {"TONE", "WSPR"}:
             _materialize_real_profiles(
@@ -1176,6 +1188,7 @@ def compose_complete_test_plan(
     live: bool = True,
     now: datetime | None = None,
     modes: Sequence[str] | None = None,
+    keyed_frequency_tolerance_hz: float = 2.0,
 ) -> dict[str, Any]:
     _validate_host(transmitter_host, "TRANSMITTER_HOST")
     _validate_host(receiver_host, "RECEIVER_HOST")
@@ -1183,6 +1196,12 @@ def compose_complete_test_plan(
         raise CompleteTestError("--sdr must be one non-empty exact device selector")
     selector_fields = _parse_sdr_selector(sdr_selector)
     selected_modes = normalize_modes(modes)
+    if not math.isfinite(keyed_frequency_tolerance_hz) or not (
+        0 < keyed_frequency_tolerance_hz <= 100
+    ):
+        raise CompleteTestError(
+            "keyed-frequency-tolerance-hz must be finite, positive, and at most 100"
+        )
     if live and (
         discovered_sdr is None
         or any(discovered_sdr.get(key) != value for key, value in selector_fields.items())
@@ -1274,6 +1293,7 @@ def compose_complete_test_plan(
             sdr_selector=sdr_selector,
             selector_fields=selector_fields,
             ppm_resolution=ppm_resolution,
+            keyed_frequency_tolerance_hz=keyed_frequency_tolerance_hz,
             modes=selected_modes,
         )
     except BaseException:
@@ -1456,6 +1476,11 @@ def validate_complete_test_plan(document: dict[str, Any]) -> dict[str, Any]:
             ):
                 raise CompleteTestError(
                     "authenticated keyed analyzer window differs from the campaign value"
+                )
+            keyed_tolerance = reference_plan["thresholds"]["frequency_tolerance_hz"]
+            if not math.isfinite(keyed_tolerance) or not (0 < keyed_tolerance <= 100):
+                raise CompleteTestError(
+                    "authenticated keyed frequency tolerance is outside the supported range"
                 )
     try:
         expected_tuning = ReceiverTuningGeometry(
