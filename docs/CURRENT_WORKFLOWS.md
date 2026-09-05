@@ -386,3 +386,11 @@ campaign-owned process; the installed INI is not edited. RP1 still requires an
 explicit pin, and `--rp1-route` remains RP1-only. Si5351 rejects GPIO selectors.
 When a configuration is supplied, its mode plans must agree with an explicit
 pin selector; the harness does not silently rewrite an authenticated plan.
+
+## Simultaneous reference diagnostics
+
+`analyze-simultaneous-reference` measures separate signal and reference channels
+in authenticated retained IQ, with explicit reference and transfer uncertainty
+inputs. `validate-simultaneous-reference` authenticates and recomputes its report.
+These commands are offline and never qualify hardware or modify transmitter PPM.
+See [simultaneous-reference analysis](development/simultaneous-reference.md).

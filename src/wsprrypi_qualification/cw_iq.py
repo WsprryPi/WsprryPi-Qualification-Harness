@@ -10,7 +10,13 @@ import numpy as np
 
 from wsprrypi_qualification.cw_contracts import CwContractError, _bind, _validate_events
 from wsprrypi_qualification.cw_reference import MORSE
-from wsprrypi_qualification.noise import detect, quiet_evidence, raw_quiet_bounds, runs
+from wsprrypi_qualification.noise import (
+    channel_referred_noise,
+    detect,
+    quiet_evidence,
+    raw_quiet_bounds,
+    runs,
+)
 from wsprrypi_qualification.offline import (
     FailureCause,
     OfflineAnalysisError,
@@ -20,7 +26,7 @@ from wsprrypi_qualification.offline import (
 )
 
 ANALYZER_NAME = "wsprrypi-qualification-cw-iq"
-ANALYZER_VERSION = "12"
+ANALYZER_VERSION = "13"
 
 
 class CwIqError(OfflineAnalysisError):
@@ -264,7 +270,16 @@ def _independent_tone_runs(
         a, b = span
         segment = samples[a:b][:65536]
         spectrum = np.abs(np.fft.fft(segment * np.hanning(len(segment)))) ** 2
-        coherent = float(np.max(spectrum)) > 0.1 * float(np.sum(spectrum))
+        frequencies = float(plan["capture_contract"]["center_frequency_hz"]) + np.fft.fftfreq(
+            len(segment), 1 / rate
+        )
+        selected = np.abs(frequencies - float(plan["protocol"]["primary_frequency_hz"])) <= float(
+            plan["thresholds"]["frequency_acquisition_half_width_hz"]
+        )
+        channel_spectrum = spectrum[selected]
+        coherent = bool(channel_spectrum.size) and float(np.max(channel_spectrum)) > 0.1 * float(
+            np.sum(channel_spectrum)
+        )
         return (not coherent, abs((b - a) / rate - duration))
 
     selected = sorted(candidates, key=rank)[:count]
@@ -522,7 +537,8 @@ def analyze_synthetic_iq(
         if float(thresholds[field]) < time_resolution:
             detector["issues"].append("excessive_timing_uncertainty")
     detector["issues"] = sorted(set(detector["issues"]))
-    noise_power = float(detector["raw_noise_power"])
+    raw_noise_power = float(detector["raw_noise_power"])
+    noise_power = float(detector["channel_noise_power"])
     smoothing_samples = max(1, round(time_resolution * rate))
     detected_states = np.zeros(count, dtype=np.int8)
     detected_states[active] = 1
@@ -648,7 +664,7 @@ def analyze_synthetic_iq(
             end = count if independent_tone else min(count, round(float(event["end_s"]) * rate))
         segment = samples[start:end]
         power = (
-            float(np.mean(np.abs(raw_samples[start:end].astype(np.complex128)) ** 2))
+            float(np.mean(np.abs(samples[start:end].astype(np.complex128)) ** 2))
             if end > start
             else 0.0
         )
@@ -666,7 +682,7 @@ def analyze_synthetic_iq(
             frequency = _estimate_frequency(expected_segment, rate, center)
             expected_chunks = [
                 chunk
-                for chunk in np.array_split(raw_samples[expected_start:expected_end], 8)
+                for chunk in np.array_split(samples[expected_start:expected_end], 8)
                 if chunk.size
             ]
             expected_chunk_contrasts = [
@@ -731,9 +747,7 @@ def analyze_synthetic_iq(
                 outcome = "inconclusive"
                 causes.append("event_too_short")
             else:
-                chunks = [
-                    chunk for chunk in np.array_split(raw_samples[start:end], 8) if chunk.size
-                ]
+                chunks = [chunk for chunk in np.array_split(samples[start:end], 8) if chunk.size]
                 chunk_contrasts = [
                     10.0
                     * math.log10(
@@ -764,7 +778,7 @@ def analyze_synthetic_iq(
         if state == "off" and run is not None and not blocked:
             guard = smoothing_samples
             qstart, qend = raw_quiet_bounds(
-                raw_samples,
+                samples,
                 rate,
                 start,
                 end,
@@ -782,7 +796,7 @@ def analyze_synthetic_iq(
                 float(detector["acquired_frequency_hz"]),
                 qstart,
                 qend,
-                noise_power,
+                raw_noise_power,
                 float(thresholds["minimum_contrast_db"]),
                 dot_seconds=float(
                     plan["protocol"]["tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds"]
@@ -809,7 +823,8 @@ def analyze_synthetic_iq(
                     plan["protocol"]["tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds"]
                 ),
                 float(thresholds["minimum_contrast_db"]),
-                noise_power,
+                channel_referred_noise(detector),
+                policy_version=2,
                 timing_basis="tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds",
             )
             quiet["event_index"] = int(event["index"])
@@ -944,6 +959,7 @@ def analyze_synthetic_iq(
         "observations": measured,
         "measurement_summary": {
             "clipping_fraction": clipping_fraction,
+            "continuity_power_domain": "filtered_carrier_channel",
             "reconstructed_repetitions": [
                 messages[repetition] for repetition in range(len(messages))
             ],

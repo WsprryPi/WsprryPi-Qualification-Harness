@@ -24,7 +24,11 @@ def policy(
     secondary: float | None,
     duration: float,
     contrast: float,
+    *,
+    version: int = 1,
 ) -> dict[str, Any]:
+    if version not in {1, 2}:
+        raise ValueError("unsupported quiet carrier policy")
     values = [rate, center, acquired, primary, duration, contrast]
     if secondary is not None:
         values.append(secondary)
@@ -50,7 +54,7 @@ def policy(
     )
     result = {
         "name": "carrier_specific_quiet",
-        "version": 1,
+        "version": version,
         "window": "hann",
         "window_samples": size,
         "hop_samples": hop,
@@ -98,8 +102,17 @@ def assess(
     result["issues"] = []
     for burst in result["bursts"]:
         burst["qualification_effect"] = "diagnostic_only"
-    p = policy(rate, center, acquired, primary, secondary, duration, contrast)
     record = evidence["carrier_assessment"]
+    p = policy(
+        rate,
+        center,
+        acquired,
+        primary,
+        secondary,
+        duration,
+        contrast,
+        version=record["policy"]["version"],
+    )
     if record["policy"] != p:
         raise ValueError("quiet carrier policy contradicts plan or acquisition")
     start, end = round(evidence["start_s"] * rate), round(evidence["end_s"] * rate)
@@ -132,7 +145,12 @@ def assess(
             for power, ref in zip(targets, references, strict=True)
         )
         interference = any(
-            max(ref) >= max(p["reference_line_concentration"], 8 * bandwidth) * max(mean, 1e-30)
+            max(ref)
+            >= (
+                p["reference_line_noise_ratio"] * max(sorted(ref)[1], floor)
+                if p["version"] == 2
+                else max(p["reference_line_concentration"], 8 * bandwidth) * max(mean, 1e-30)
+            )
             and max(ref) >= p["reference_line_noise_ratio"] * floor
             for ref in references
         )
@@ -195,9 +213,12 @@ def measure(
     noise: float,
     *,
     timing_basis: str,
+    policy_version: int = 1,
 ) -> dict[str, Any]:
     """Measure all quiet windows, independent of the raw transient detector."""
-    p = policy(rate, center, acquired, primary, secondary, duration, contrast)
+    p = policy(
+        rate, center, acquired, primary, secondary, duration, contrast, version=policy_version
+    )
     size = p["window_samples"]
     start, end = round(evidence["start_s"] * rate), round(evidence["end_s"] * rate)
     starts = window_starts(start, end, size, p["hop_samples"]) if p["geometry_usable"] else []

@@ -285,3 +285,18 @@ These explain mechanisms, not validated settings for this harness.
 Authenticated inconclusive carrier evidence can publish a bounded inconclusive
 session only with retained RF-off/RF-on evidence and verified cleanup and
 quiescence. It never advances to frames; cleanup failure retains precedence.
+
+### Analyzer 13: separate carrier and reference power
+
+Analyzer 13 uses the existing filtered carrier samples and channel noise for
+CW-family strength and continuity. Raw-IQ clipping and transient diagnostics
+remain intact. Quiet policy 2 refers the channel noise through the exact
+three-boxcar equivalent noise bandwidth, supplements that floor with local
+spectral references, and detects concentrated guard-channel interference using
+a 20 dB excess over the second-lowest guard power and the channel-referred
+noise floor rather than total capture power. This distinguishes up to two
+strong guard lines from broadband noise. This prevents a continuous
+out-of-channel reference from masking missing or unwanted carrier activity.
+Policy 1 and earlier analyzer records retain their original validation rules.
+See [simultaneous-reference analysis](simultaneous-reference.md) for the separate
+offline reference-frequency and relative-power report.

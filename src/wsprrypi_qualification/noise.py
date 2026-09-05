@@ -119,6 +119,19 @@ def filter_width(rate: float, separation: float) -> int:
     return int(width + 1 - width % 2)
 
 
+def channel_referred_noise(detector: dict[str, Any]) -> float:
+    """Refer channel noise back through the three-boxcar noise bandwidth.
+
+    A separate continuous carrier must not inflate the quiet-channel floor.
+    This white-noise-equivalent floor is supplemented by local spectral guards.
+    """
+    width = int(detector["boxcar_samples"])
+    # Exact sum of squared three-boxcar coefficients; no large convolution.
+    # For three length-n boxcars this is (11*n**4 + 5*n**2 + 4)/(20*n**5).
+    bandwidth = (11 + 5 / width**2 + 4 / width**4) / (20 * width)
+    return float(detector["channel_noise_power"]) / bandwidth
+
+
 def detect(
     samples: np.ndarray,
     rate: float,

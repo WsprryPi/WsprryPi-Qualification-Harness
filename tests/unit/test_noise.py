@@ -82,7 +82,11 @@ def test_impulse_does_not_displace_original_falling_edge(width: int) -> None:
 def analyze_case(tmp_path: Path, mode: str, defect: str, edge_delta: float = 0.225) -> dict:
     plan_path, expected_path, *_ = _chain(tmp_path, mode)
     plan = json.loads(plan_path.read_text())
-    rate = 2000
+    rate = (
+        8000
+        if defect.startswith("external_reference") and defect != "external_reference_near_guard"
+        else 2000
+    )
     plan["capture_contract"]["sample_rate_hz"] = rate
     plan["capture_contract"]["center_frequency_hz"] = 137400
     plan["thresholds"]["frequency_acquisition_half_width_hz"] = 200
@@ -112,6 +116,26 @@ def analyze_case(tmp_path: Path, mode: str, defect: str, edge_delta: float = 0.2
             frequency -= 8
         mask = (t >= start) & (t < stop)
         samples[mask] += 0.2 * np.exp(2j * np.pi * frequency * t[mask])
+    if defect.startswith("external_reference"):
+        ref_offset = -650 if defect == "external_reference_near_guard" else -2500
+        samples += 0.5 * np.exp(2j * np.pi * ref_offset * t)
+        if defect == "external_reference_missing":
+            for event in expected["events"]:
+                if event["rf_state"] != "off":
+                    mask = (t >= event["start_s"]) & (t < event["end_s"])
+                    frequency = event["frequency_hz"] - 137400
+                    samples[mask] -= 0.2 * np.exp(2j * np.pi * frequency * t[mask])
+        if defect == "external_reference_interrupted":
+            event = next(e for e in expected["events"] if e["rf_state"] != "off")
+            midpoint = (event["start_s"] + event["end_s"]) / 2
+            mask = (t >= midpoint - 0.1) & (t < midpoint + 0.1)
+            frequency = event["frequency_hz"] - 137400
+            samples[mask] -= 0.2 * np.exp(2j * np.pi * frequency * t[mask])
+        if defect == "external_reference_clipped":
+            samples[::20] = 1.1
+        if defect == "external_reference_stuck":
+            mask = t >= expected["events"][-1]["start_s"] + 0.2
+            samples[mask] += 0.2 * np.exp(2j * np.pi * 100 * t[mask])
     last_off = expected["events"][-1]["start_s"]
     if defect in {"extra_pulse", "tail_pulse", "brief_pulse"}:
         start = last_off + 0.3 if defect == "extra_pulse" else end + 0.3
@@ -671,7 +695,7 @@ def test_carrier_confirmation_deadline_boundary(tmp_path: Path, bound: float, on
 
 def test_tone_retains_brief_off_period_event_without_failing(tmp_path: Path):
     obs = analyze_case(tmp_path, "tone", "brief_pulse")
-    assert obs["analyzer"]["version"] == "12"
+    assert obs["analyzer"]["version"] == "13"
     assert obs["analysis_outcome"] == "passed"
     quiet = obs["measurement_summary"]["quiet_windows"]
     bursts = [b for q in quiet for b in q["bursts"]]
@@ -712,3 +736,23 @@ def test_tone_material_boundary_and_accumulation(duration, issues):
     result = assess_quiet_significance(evidence, rate, 2, timing_basis="tone_on_seconds")
     assert result["issues"] == ["ambiguous_quiet_contamination"]
     assert result["qualification_assessment"]["significant_burst_count"] == 0
+
+
+@pytest.mark.parametrize("mode", ["tone", "qrss", "fskcw", "dfcw"])
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "external_reference",
+        "external_reference_missing",
+        "external_reference_stuck",
+        "external_reference_interrupted",
+        "external_reference_clipped",
+        "external_reference_near_guard",
+    ],
+)
+def test_external_reference_never_substitutes_for_transmitter(
+    tmp_path: Path, mode: str, defect: str
+):
+    obs = analyze_case(tmp_path, mode, defect)
+    assert (obs["analysis_outcome"] == "passed") == (defect == "external_reference")
+    assert obs["measurement_summary"]["continuity_power_domain"] == "filtered_carrier_channel"

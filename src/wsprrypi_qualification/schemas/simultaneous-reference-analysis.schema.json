@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_type",
+    "algorithm_version",
+    "qualification_claim",
+    "inputs",
+    "request",
+    "receiver_settings",
+    "model",
+    "uncertainty_policy",
+    "power_reference",
+    "reference_usable",
+    "reference_excursion_hz",
+    "outcome",
+    "issues",
+    "windows"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "evidence_type": {
+      "const": "simultaneous_reference_analysis"
+    },
+    "algorithm_version": {
+      "const": 1
+    },
+    "qualification_claim": {
+      "const": false
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capture",
+        "metadata",
+        "request"
+      ],
+      "properties": {
+        "capture": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256",
+            "size_bytes"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256",
+            "size_bytes"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256",
+            "size_bytes"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "request": {
+      "$ref": "simultaneous-reference-request.schema.json"
+    },
+    "receiver_settings": {
+      "type": "object"
+    },
+    "model": {
+      "const": "local_additive_receiver_error"
+    },
+    "uncertainty_policy": {
+      "const": "sum_of_declared_reference_and_transfer_bounds_plus_two_fft_bins"
+    },
+    "power_reference": {
+      "const": "unit_complex_CF32_power_not_calibrated_dBm"
+    },
+    "reference_usable": {
+      "type": "boolean"
+    },
+    "reference_excursion_hz": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "outcome": {
+      "enum": [
+        "usable_diagnostic",
+        "inconclusive"
+      ]
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "windows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start_s",
+          "end_s",
+          "signal",
+          "reference",
+          "signal_usable",
+          "reference_usable",
+          "corrected_signal_frequency_hz",
+          "frequency_error_budget_hz",
+          "signal_minus_reference_db"
+        ],
+        "properties": {
+          "start_s": {
+            "type": "number",
+            "minimum": 0
+          },
+          "end_s": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "signal": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "indicated_frequency_hz",
+              "power_dbfs",
+              "contrast_db",
+              "ambiguous",
+              "edge_peak"
+            ],
+            "properties": {
+              "indicated_frequency_hz": {
+                "type": "number"
+              },
+              "power_dbfs": {
+                "type": "number"
+              },
+              "contrast_db": {
+                "type": "number"
+              },
+              "ambiguous": {
+                "type": "boolean"
+              },
+              "edge_peak": {
+                "type": "boolean"
+              }
+            }
+          },
+          "reference": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "indicated_frequency_hz",
+              "power_dbfs",
+              "contrast_db",
+              "ambiguous",
+              "edge_peak",
+              "minimum_20ms_power_ratio"
+            ],
+            "properties": {
+              "indicated_frequency_hz": {
+                "type": "number"
+              },
+              "power_dbfs": {
+                "type": "number"
+              },
+              "contrast_db": {
+                "type": "number"
+              },
+              "ambiguous": {
+                "type": "boolean"
+              },
+              "edge_peak": {
+                "type": "boolean"
+              },
+              "minimum_20ms_power_ratio": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          },
+          "signal_usable": {
+            "type": "boolean"
+          },
+          "reference_usable": {
+            "type": "boolean"
+          },
+          "corrected_signal_frequency_hz": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "frequency_error_budget_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "signal_minus_reference_db": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

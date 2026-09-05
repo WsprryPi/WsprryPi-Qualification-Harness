@@ -199,7 +199,7 @@ def _validate_observations(
     if capture["overflow_count"] > contract["overflow_max"]:
         _fail("capture overflow exceeds the resolved plan")
     analyzer = observations["analyzer"]
-    if analyzer["version"] in {"8", "9", "10", "11", "12"}:
+    if analyzer["version"] in {"8", "9", "10", "11", "12", "13"}:
         from wsprrypi_qualification.noise import filter_width, specification
 
         detector = observations["measurement_summary"]["noise_detector"]
@@ -257,7 +257,7 @@ def _validate_observations(
             or any(q["issues"] for q in observations["measurement_summary"]["quiet_windows"])
         ):
             _fail("passing observations contain unresolved noise evidence")
-    if analyzer["version"] in {"10", "11", "12"} or (
+    if analyzer["version"] in {"10", "11", "12", "13"} or (
         analyzer["version"] == "9" and plan["mode"] != "tone"
     ):
         from wsprrypi_qualification.noise import assess_quiet_significance
@@ -272,9 +272,13 @@ def _validate_observations(
             if not 0 <= quiet["start_s"] < quiet["end_s"] <= duration:
                 _fail("quiet significance interval escapes its capture")
             try:
-                if analyzer["version"] in {"11", "12"}:
+                if analyzer["version"] in {"11", "12", "13"}:
+                    from wsprrypi_qualification.noise import channel_referred_noise
                     from wsprrypi_qualification.quiet_carrier import assess as assess_carrier
 
+                    expected_policy = 2 if analyzer["version"] == "13" else 1
+                    if quiet["carrier_assessment"]["policy"]["version"] != expected_policy:
+                        _fail("quiet policy differs from analyzer version")
                     recomputed = assess_carrier(
                         quiet,
                         float(capture["sample_rate_hz"]),
@@ -288,7 +292,9 @@ def _validate_observations(
                             ]
                         ),
                         float(plan["thresholds"]["minimum_contrast_db"]),
-                        float(detector["raw_noise_power"]),
+                        channel_referred_noise(detector)
+                        if analyzer["version"] == "13"
+                        else float(detector["raw_noise_power"]),
                         timing_basis="tone_on_seconds" if plan["mode"] == "tone" else "dot_seconds",
                     )
                 else:
@@ -310,7 +316,7 @@ def _validate_observations(
     if thresholds["frequency_tolerance_hz"] < analyzer["frequency_resolution_hz"]:
         _fail("frequency tolerance is tighter than analyzer resolution")
     excessive_uncertainty = (
-        analyzer["version"] in {"8", "9", "10", "11", "12"}
+        analyzer["version"] in {"8", "9", "10", "11", "12", "13"}
         and "excessive_timing_uncertainty"
         in observations["measurement_summary"]["noise_detector"]["issues"]
     )
@@ -353,7 +359,7 @@ def _validate_observations(
     shifted_model = observations.get("measurement_summary", {}).get("shifted_frequency_model")
     unshifted_model = observations.get("measurement_summary", {}).get("unshifted_frequency_model")
     timing_alignment = observations.get("measurement_summary", {}).get("timing_alignment")
-    independent_tone = analyzer["version"] == "12" and plan["mode"] == "tone"
+    independent_tone = analyzer["version"] in {"12", "13"} and plan["mode"] == "tone"
     if independent_tone:
         from wsprrypi_qualification.cw_iq import _tone_timing_summary
 

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "signal_frequency_hz",
+    "reference_frequency_hz",
+    "channel_half_width_hz",
+    "window_seconds",
+    "minimum_contrast_db",
+    "maximum_reference_excursion_hz",
+    "reference_uncertainty_hz",
+    "transfer_uncertainty_hz"
+  ],
+  "properties": {
+    "signal_frequency_hz": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "reference_frequency_hz": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "channel_half_width_hz": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "window_seconds": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 10
+    },
+    "minimum_contrast_db": {
+      "type": "number",
+      "minimum": 10,
+      "maximum": 100
+    },
+    "maximum_reference_excursion_hz": {
+      "type": "number",
+      "minimum": 0
+    },
+    "reference_uncertainty_hz": {
+      "type": "number",
+      "minimum": 0
+    },
+    "transfer_uncertainty_hz": {
+      "type": "number",
+      "minimum": 0
+    }
+  }
+}

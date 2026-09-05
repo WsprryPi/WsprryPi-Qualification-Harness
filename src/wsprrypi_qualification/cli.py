@@ -219,6 +219,16 @@ def _parser() -> argparse.ArgumentParser:
     cw_analyzer.add_argument("observations", type=Path)
     cw_analyzer.add_argument("mode_gate", type=Path)
     cw_analyzer.add_argument("--source-revision", required=True)
+    reference = subparsers.add_parser(
+        "analyze-simultaneous-reference",
+        help="analyze authenticated IQ channels against a simultaneous frequency reference",
+    )
+    reference.add_argument("metadata", type=Path)
+    reference.add_argument("capture", type=Path)
+    reference.add_argument("request", type=Path)
+    reference.add_argument("output", type=Path)
+    reference_validate = subparsers.add_parser("validate-simultaneous-reference")
+    reference_validate.add_argument("report", type=Path)
     cw_replay = subparsers.add_parser(
         "compose-cw-acquired-replay",
         help="compose an acquired-IQ replay bundle; never qualifies hardware",
@@ -229,6 +239,11 @@ def _parser() -> argparse.ArgumentParser:
     cw_replay.add_argument("output_directory", type=Path)
     cw_replay.add_argument("--source-revision", required=True)
     cw_replay.add_argument("--receiver-calibration-binding", type=Path)
+    cw_replay.add_argument(
+        "--capture-copy",
+        type=Path,
+        help="explicit relocated IQ copy; size and hash must match retained metadata",
+    )
     cw_replay_validate = subparsers.add_parser(
         "validate-cw-acquired-replay",
         help="authenticate and recompute a non-qualifying replay bundle",
@@ -1146,6 +1161,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         print(json.dumps(document, indent=2, sort_keys=True))
         return 0
+    if args.command in {"analyze-simultaneous-reference", "validate-simultaneous-reference"}:
+        from wsprrypi_qualification.simultaneous_reference import compose, validate
+
+        try:
+            document = (
+                compose(args.metadata, args.capture, args.request, args.output)
+                if args.command == "analyze-simultaneous-reference"
+                else validate(args.report)
+            )
+        except (ValueError, OfflineAnalysisError, OSError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        print(json.dumps(document, indent=2, sort_keys=True))
+        return 0 if document["outcome"] == "usable_diagnostic" else 4
     if args.command == "analyze-cw-synthetic-iq":
         try:
             observations, gate = analyze_synthetic_iq(
@@ -1190,6 +1219,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.output_directory,
                 source_revision=args.source_revision,
                 receiver_calibration=calibration,
+                capture_copy=args.capture_copy,
             )
         except (
             CwReplayError,

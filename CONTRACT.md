@@ -445,3 +445,17 @@ duration (including both edge uncertainties), carrier continuity, extra/missing
 RF, actual quiet intervals, and final stop remain qualification requirements.
 Other modes retain their protocol timing requirements. Historical evidence is
 not reinterpreted; new offline replay does not establish live qualification.
+
+### Simultaneous reference diagnostics
+
+CW analyzer 13 measures carrier continuity in the acquired transmitter channel,
+while preserving raw-IQ clipping and carrier-specific quiet inspection. Quiet
+policy 2 uses channel-referred noise and local guard concentration; historical
+versions remain distinct. The optional offline simultaneous-reference command
+binds exact-count capture metadata, IQ and an explicit request, measures both
+channels in common windows, and retains indicated values alongside additive
+receiver-error estimates with declared uncertainty budgets. It neither applies
+frozen calibration profiles nor alters transmitter corrections or qualification
+results. Reference dropout, ambiguity, edge geometry or excessive excursion
+withholds corrected estimates. Reports are non-qualifying and independently
+recomputed by their validator.

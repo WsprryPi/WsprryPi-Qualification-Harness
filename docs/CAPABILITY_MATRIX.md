@@ -19,6 +19,7 @@ evidence. Confirm command syntax with the checked-out CLI
 | 10. Test strategy | hardware-free fixtures, sealed fakes, failure injection, native mock helper | all review-facing schemas | complete pytest suite, package build, native build/CTest, CI workflow |
 | 11. Repository boundaries | `.gitignore`, packaging configuration, archive intake | archive inventory and non-qualifying multi-capture schemas | archive, schema-parity, installed-wheel smoke, and repository-boundary tests |
 | 12. Change acceptance | checked-out docs and CLI; CI workflow | every `schemas/*.schema.json` byte-matched to its packaged copy | Ruff, Mypy, full Ubuntu product tests/build, focused macOS/Windows portability tests, and CMake/CTest |
+| Simultaneous reference diagnostics | `simultaneous_reference.py`, CLI analyze/validate commands | `simultaneous-reference-request`, `simultaneous-reference-analysis` | independent two-tone synthetic IQ, dropout, ambiguity, drift, geometry, clipping, loss, report/input tampering; no live control |
 
 Generated IQ, WAV, logs, manifests, and result directories are operational
 outputs. Keep selected target records with the target project or another

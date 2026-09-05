@@ -1562,3 +1562,33 @@ def test_trailing_quiet_ignores_only_subresolution_threshold_excursions(
     )
     assert result["measurement"]["carrier_gate"] == ("failed" if resolvable_activity else "passed")
     assert result["qualification_claim"] is False
+
+
+def test_explicit_replay_capture_copy_authenticates_relocation(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    plan, expected, metadata = _acquired_inputs(source, "tone")
+    document = json.loads(metadata.read_text())
+    original = Path(document["capture"]["path"])
+    if not original.is_absolute():
+        original = metadata.parent / original
+    copy = tmp_path / "relocated capture.cf32"
+    copy.write_bytes(original.read_bytes())
+    original.unlink()
+    bundle = tmp_path / "replay"
+    result = compose_acquired_replay(
+        plan, expected, metadata, bundle, source_revision="e" * 40, capture_copy=copy
+    )
+    assert result["measurement"]["carrier_gate"] == "passed"
+    assert result["qualification_claim"] is False
+    with copy.open("r+b") as handle:
+        handle.write(b"tampered")
+    with pytest.raises(CwReplayError, match="authenticated copy"):
+        compose_acquired_replay(
+            plan,
+            expected,
+            metadata,
+            tmp_path / "invalid",
+            source_revision="e" * 40,
+            capture_copy=copy,
+        )

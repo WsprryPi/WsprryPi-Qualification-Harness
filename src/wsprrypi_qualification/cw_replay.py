@@ -69,7 +69,7 @@ def _bind_authenticated_copy(reference: dict[str, Any], supplied: Path, label: s
 
 
 def _load_acquired_inputs(
-    plan_path: Path, expected_path: Path, metadata_path: Path
+    plan_path: Path, expected_path: Path, metadata_path: Path, capture_copy: Path | None = None
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], Path]:
     plan = load_json_document(plan_path, "cw-mode-plan.schema.json")
     expected = load_json_document(expected_path, "cw-expected-events.schema.json")
@@ -78,7 +78,11 @@ def _load_acquired_inputs(
         _bind_authenticated_copy(expected["plan"], plan_path, "plan")
         _bind_authenticated_copy(metadata["plan"], plan_path, "plan")
         _bind_authenticated_copy(metadata["expected_events"], expected_path, "expected events")
-        capture_path = _resolved_reference(metadata["capture"], metadata_path)
+        if capture_copy is None:
+            capture_path = _resolved_reference(metadata["capture"], metadata_path)
+        else:
+            _bind_authenticated_copy(metadata["capture"], capture_copy, "capture")
+            capture_path = capture_copy.resolve(strict=True)
         _validate_events(plan, expected)
     except CwContractError as error:
         raise CwReplayError(str(error), cause=error.cause) from error
@@ -122,6 +126,7 @@ def compose_acquired_replay(
     *,
     source_revision: str,
     receiver_calibration: dict[str, Any] | None = None,
+    capture_copy: Path | None = None,
 ) -> dict[str, Any]:
     """Compose a new deterministic, non-qualifying acquired-IQ replay bundle."""
     if output_directory.exists():
@@ -129,7 +134,7 @@ def compose_acquired_replay(
     if not output_directory.parent.is_dir():
         _fail("replay bundle parent does not exist", FailureCause.INVALID_ARGUMENTS)
     plan, expected, metadata, capture_path = _load_acquired_inputs(
-        plan_path, expected_path, metadata_path
+        plan_path, expected_path, metadata_path, capture_copy
     )
     calibration = validate_receiver_calibration(
         receiver_calibration if receiver_calibration is not None else disabled_binding()
