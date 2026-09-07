@@ -141,6 +141,72 @@ def _step(event: dict[str, object]) -> tuple[tuple[object, ...], Step]:
     return key, Step(timestamp=timestamp, scope=scope, label=label, state=state, kind=kind)
 
 
+def _progress_event(value: object) -> dict[str, object] | None:
+    """Adapt bounded Pico band/mode updates without granting evidence authority."""
+    if not isinstance(value, dict):
+        return None
+    if value.get("evidence_type") == "complete_test_progress":
+        return value
+    kind = value.get("event")
+    if not isinstance(kind, str):
+        return None
+    band = value.get("band")
+    if kind in {"screen", "screen_result", "mode", "mode_result"}:
+        if not isinstance(band, str) or band not in {
+            "2200m",
+            "630m",
+            "160m",
+            "80m",
+            "60m",
+            "40m",
+            "30m",
+            "20m",
+            "17m",
+            "15m",
+            "12m",
+            "10m",
+            "6m",
+            "4m",
+            "2m",
+        }:
+            return None
+        mode = "TONE" if kind.startswith("screen") else value.get("mode")
+        if not isinstance(mode, str) or mode not in {"TONE", "WSPR", "QRSS", "FSKCW", "DFCW"}:
+            return None
+        status = value.get("status") if kind.endswith("_result") else "running"
+        if status not in ("running", "qualified", "failed", "blocked", "unsupported"):
+            return None
+        return dict(
+            evidence_type="complete_test_progress",
+            campaign_id="pico-" + band,
+            stage="pio_" + mode.lower(),
+            mode=band,
+            status="completed" if status == "qualified" else status,
+            detail="operational criteria passed" if status == "qualified" else "",
+            timestamp_utc=value.get("utc"),
+        )
+    if kind == "cleanup" and isinstance(value.get("errors"), list):
+        return dict(
+            evidence_type="complete_test_progress",
+            campaign_id="pico",
+            stage="cleanup",
+            mode="RUN",
+            status="failed" if value["errors"] else "verified",
+            timestamp_utc=value.get("utc"),
+        )
+    if kind == "campaign_error":
+        return dict(
+            evidence_type="complete_test_progress",
+            campaign_id="pico",
+            stage="campaign",
+            mode="RUN",
+            status="terminal",
+            detail="campaign ended with blocked",
+            timestamp_utc=value.get("utc"),
+        )
+    return None
+
+
 def _display_timestamp(value: object) -> str:
     if not isinstance(value, str):
         return "????-??-??T??:??:??Z"
@@ -294,14 +360,11 @@ def view(path: Path, *, follow: bool, stream: TextIO | None = None) -> int:
 
         for raw_line in lines:
             try:
-                event = json.loads(raw_line)
+                event = _progress_event(json.loads(raw_line))
             except json.JSONDecodeError:
                 print("ignored malformed progress record", file=sys.stderr)
                 continue
-            if (
-                not isinstance(event, dict)
-                or event.get("evidence_type") != "complete_test_progress"
-            ):
+            if event is None:
                 continue
             if event.get("stage") == "delegation" and event.get("status") == "started":
                 delegation_seen = True
@@ -314,14 +377,11 @@ def view(path: Path, *, follow: bool, stream: TextIO | None = None) -> int:
         if not follow:
             if pending:
                 try:
-                    event = json.loads(pending)
+                    event = _progress_event(json.loads(pending))
                 except json.JSONDecodeError:
                     print("ignored malformed progress record", file=sys.stderr)
                 else:
-                    if (
-                        isinstance(event, dict)
-                        and event.get("evidence_type") == "complete_test_progress"
-                    ):
+                    if event is not None:
                         renderer.update(event)
             renderer.snapshot()
             return 0
@@ -330,7 +390,7 @@ def view(path: Path, *, follow: bool, stream: TextIO | None = None) -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="wspq-progress", description="tail a complete-test JSONL progress log"
+        prog="wspq-progress", description="tail a complete-test or Pico campaign JSONL progress log"
     )
     parser.add_argument("log_file", type=Path)
     parser.add_argument(

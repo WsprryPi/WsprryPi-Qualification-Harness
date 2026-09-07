@@ -24,3 +24,7 @@ evidence. Confirm command syntax with the checked-out CLI
 Generated IQ, WAV, logs, manifests, and result directories are operational
 outputs. Keep selected target records with the target project or another
 approved evidence store; do not commit them to this harness.
+
+Experimental device-neutral WTP transaction control and offline validation are
+documented in [WTP control](development/wtp-control.md). The portable adapter API
+is `wtp_control.run_transaction`; the CLI is `validate-wtp-transaction`.

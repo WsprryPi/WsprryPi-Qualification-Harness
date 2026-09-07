@@ -287,3 +287,32 @@ def test_tracking_command_is_directly_executable_with_spaces(tmp_path: Path) -> 
     assert result.returncode == 0
     assert result.stderr == ""
     assert "Five-mode campaign" in result.stdout
+
+
+def test_pico_campaign_bands_do_not_collapse_or_hide_failures(tmp_path: Path) -> None:
+    path = tmp_path / "pico.jsonl"
+    rows = [
+        dict(event="screen", band="2200m"),
+        dict(event="screen_result", band="2200m", status="failed"),
+        dict(event="screen_result", band="630m", status="qualified"),
+        dict(event="mode", band="630m", mode="WSPR"),
+        dict(event="mode_result", band="630m", mode="WSPR", status="failed"),
+        dict(event="cleanup", errors=[]),
+    ]
+    path.write_text("\n".join(json.dumps(dict(utc="2026-09-07T11:00:00Z", **row)) for row in rows))
+    stream = io.StringIO()
+    assert view(path, follow=False, stream=stream) == 0
+    lines = stream.getvalue().splitlines()
+    assert len(lines) == 4
+    assert any("2200m" in line and "failed" in line and line.startswith("✗") for line in lines)
+    assert any("630m" in line and "Pio Tone" in line and "passed" in line for line in lines)
+    assert any("630m" in line and "Pio Wspr" in line and "failed" in line for line in lines)
+    assert all(len(line) <= MAX_COLUMNS for line in lines)
+
+
+def test_pico_malformed_fields_are_ignored(tmp_path: Path) -> None:
+    path = tmp_path / "pico.jsonl"
+    path.write_text(json.dumps(dict(event="screen_result", band=[], status={})))
+    stream = io.StringIO()
+    assert view(path, follow=False, stream=stream) == 0
+    assert not stream.getvalue()

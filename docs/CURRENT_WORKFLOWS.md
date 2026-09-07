@@ -394,3 +394,7 @@ in authenticated retained IQ, with explicit reference and transfer uncertainty
 inputs. `validate-simultaneous-reference` authenticates and recomputes its report.
 These commands are offline and never qualify hardware or modify transmitter PPM.
 See [simultaneous-reference analysis](development/simultaneous-reference.md).
+
+Experimental device-neutral WTP transaction control and offline validation are
+documented in [WTP control](development/wtp-control.md). The portable adapter API
+is `wtp_control.run_transaction`; the CLI is `validate-wtp-transaction`.

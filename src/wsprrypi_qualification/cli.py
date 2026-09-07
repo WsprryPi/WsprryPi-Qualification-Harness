@@ -416,6 +416,11 @@ def _parser() -> argparse.ArgumentParser:
     turnkey_execute.add_argument("--confirm-plan-sha256", required=True)
     turnkey_execute.add_argument("--enable-turnkey-live", action="store_true", required=True)
     turnkey_execute.add_argument("--enable-rf", action="store_true", required=True)
+    wtp_validate = subparsers.add_parser(
+        "validate-wtp-transaction",
+        help="validate device-neutral WTP evidence without hardware access",
+    )
+    wtp_validate.add_argument("path", type=Path)
     complete = subparsers.add_parser(
         "complete-test",
         help="run the bounded TONE/WSPR/QRSS/FSKCW/DFCW campaign",
@@ -938,6 +943,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         if status == "cleanup_failed":
             return 6
         raise AssertionError("unreachable complete-test status")
+    if args.command == "validate-wtp-transaction":
+        from wsprrypi_qualification.wtp_control import validate_transaction
+
+        try:
+            result = validate_transaction(json.loads(args.path.read_text(encoding="utf-8")))
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            print(json.dumps({"valid": False, "error": str(error)}))
+            return 1
+        print(json.dumps({"valid": True, **result}))
+        return 0
     if args.command == "turnkey-campaign":
         try:
             if args.turnkey_action == "plan":

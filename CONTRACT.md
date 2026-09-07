@@ -459,3 +459,12 @@ frozen calibration profiles nor alters transmitter corrections or qualification
 results. Reference dropout, ambiguity, edge geometry or excessive excursion
 withholds corrected estimates. Reports are non-qualifying and independently
 recomputed by their validator.
+
+## Experimental WTP transport boundary
+
+The `wtp_control` adapter API supplies a hardware-independent, bounded WTP/1
+job transaction and offline evidence validation. Its caller must supply current
+live authorization, physical receiver/source ownership, clock observations,
+non-interference checks, hard capture bounds and verified cleanup. The API does
+not initialize a transmitter or supply a Pico/USB implementation. WTP completion
+alone never qualifies RF. See `docs/development/wtp-control.md`.
