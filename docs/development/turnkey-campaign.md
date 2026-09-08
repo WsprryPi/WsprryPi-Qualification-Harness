@@ -65,7 +65,10 @@ validated before host access and bound into every generated plan; it does not
 authorize RF. Live RP1 requires an explicitly conducted, attenuated,
 antenna-disconnected path for its operation-scoped confirmation. The path input
 is available only with automatic live deployment; explicit configurations
-already contain their path observations. To qualify previously unqualified RP1
+already contain their path observations. Agents must
+[collect all required path details in one request](../AGENT_OPERATIONS.md#collect-rf-path-details-once)
+and check backend requirements before deployment; schema validity alone does
+not establish that unknown values satisfy the live route. To qualify previously unqualified RP1
 amateur bands, explicitly add `--allow-unqualified-frequency`. This opt-in is
 bound into the RP1 backend contract and all five mode launches, defaults off,
 and never adds `--allow-non-amateur-frequency` or changes the installed INI.

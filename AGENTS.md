@@ -27,6 +27,13 @@ For an agent asked to plan, rehearse, execute, monitor, or review a campaign:
 5. derive exact commands from the checked-out CLI `--help` and the relevant
    `docs/development/` guide.
 
+Before asking the operator about the RF path, identify all path attributes
+required by the selected backend and modes. Use facts already supplied in the
+current task and collect all remaining details in one request, following
+`docs/AGENT_OPERATIONS.md#collect-rf-path-details-once`. Carry the answers into
+the resolved input; do not discover another required attribute by attempting
+the run or ask again merely because the workflow advances to another mode.
+
 The normal agentic five-mode entrypoint is `complete-test`; its progress JSONL
 path and exact viewer command are printed before long-running work begins.
 Planning, rehearsal, validation, and log review do not authorize host access,

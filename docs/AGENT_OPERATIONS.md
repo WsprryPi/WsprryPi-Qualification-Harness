@@ -126,6 +126,41 @@ not contact hosts or construct production adapters. Live `execute` remains a
 separate exact-plan confirmation boundary and delegates safety and evidence to
 the selected maintained coordinator.
 
+### Collect RF-path details once
+
+Before asking about the physical path, inspect the selected backend and every
+selected mode's schema and production requirements. Assemble the complete set
+of needed facts first: transmitter output and routing to the exact receiver,
+antenna connection state, termination/load, total attenuation, filter state,
+and safe receiver-input basis. Use the operator's current task description to
+fill the fields it actually establishes, including explicit absence of a
+filter or antenna. Ask for all remaining required details together in one
+concise request; include already supplied facts as context without requesting
+them again. Do this before deployment or live setup.
+
+For RP1, explicitly resolve `path_type: conducted`,
+`antenna_connected: false`, and positive `attenuation_db` before launch. A
+statement of attenuation alone does not establish antenna disconnection. Include
+that missing attribute in the initial path request instead of discovering it
+after receiver setup. Descriptive unknowns remain unknown where supported;
+do not turn optional provenance into additional approval questions.
+
+Translate the response into the schema-backed `--rf-path` input for automatic
+deployment, or the path fields of the explicit configuration. Check that the
+resolved fields preserve the supplied facts and satisfy the selected backend
+and modes before invoking the campaign. A schema-valid unknown can still fail
+a runtime requirement. Never substitute a default or infer a missing physical
+fact merely to pass that requirement.
+
+Within the authorized campaign, reuse the resolved path across modes and
+retries while it remains current. If the operator changes one part, update that
+part and retain the other established facts; ask only about affected facts that
+are unclear or contradictory. A new campaign still needs current observations
+and its required authorization, but an explicit statement that the described
+path is unchanged can establish those observations together. Do not ask for a
+second confirmation solely to translate ordinary language into a field value.
+Path facts and permission to operate remain separate under `CONTRACT.md`.
+
 ### Offline capture analysis
 
 The maintained offline sequence is:
