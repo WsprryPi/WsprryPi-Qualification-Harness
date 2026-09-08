@@ -119,6 +119,33 @@ Example profiles are non-executable starting points. Device-specific gain,
 frequency correction, attenuation, safe-input limits, identity, and RF-path
 facts must be resolved for the actual run and recorded in its output bundle.
 
+## Standalone Elecraft W1 readout
+
+[`scripts/w1_readout.py`](scripts/w1_readout.py) reads forward power, reflected
+power, and SWR once per second from an attached Elecraft W1. It uses Python's
+standard-library POSIX serial support on macOS/Linux; native Windows is not
+supported by this standalone utility. It is separate from the portable harness
+package and campaign workflows.
+
+```text
+python3 scripts/w1_readout.py --port /dev/cu.usbserial-A95QWDJT
+python3 scripts/w1_readout.py --port /dev/cu.usbserial-A95QWDJT --count 3
+```
+
+Select the W1 adapter's actual serial-device path with `--port` (for example,
+`/dev/ttyUSB0` on Linux). The default is `/dev/cu.usbserial-A95QWDJT`. Press
+Ctrl+C to stop; `--count N` stops after N readings. The script uses 9600 baud,
+8N1, and no flow control, sends only firmware and measurement queries, and
+restores the port settings when it exits. It stops on a missing or malformed
+reply. Meter settings are unchanged. SWR displays `--` when forward power is
+zero. Readings are the meter's indicated values and do not establish calibrated
+power or RF qualification.
+
+The original [Elecraft W1 Serial Interface Commands, revision C-1](scripts/W1%20Serial%20Command%20Set%20Rev%20C-1.pdf)
+is stored beside the script. [Source PDF](https://ftp.elecraft.com/W1/firmware/W1%20Serial%20Command%20Set%20Rev%20C-1.pdf).
+Copyright 2006 Elecraft; all rights reserved. This third-party PDF is not
+covered by the repository's MIT license.
+
 ## Development validation
 
 Use targeted tests while developing. Before merging a cross-cutting change or
