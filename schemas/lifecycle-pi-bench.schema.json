@@ -146,6 +146,43 @@
           "minLength": 1
         }
       }
+    },
+    "provider_idle_route": {
+      "enum": [
+        "gpio4",
+        "gpio20"
+      ]
+    },
+    "candidate_release_tag": {
+      "type": "string",
+      "pattern": "^v[0-9][A-Za-z0-9.+_-]*$"
+    },
+    "retained_paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "/usr/local/etc/wsprrypi.ini.pre_migration.bak": {
+          "$ref": "#/$defs/retainedFile"
+        },
+        "/etc/apache2/sites-available/wsprrypi.conf.wsprrypi.bak": {
+          "$ref": "#/$defs/retainedFile"
+        },
+        "/usr/local/etc/wsprrypi.ini.wtp-devices.json": {
+          "$ref": "#/$defs/retainedFile"
+        },
+        "/usr/local/etc/wsprrypi.ini.wtp-assignments.json": {
+          "$ref": "#/$defs/retainedFile"
+        },
+        "/usr/local/etc/wsprrypi.ini.usb-logs.json": {
+          "$ref": "#/$defs/retainedFile"
+        },
+        "/root/.wsprrypi-wtp": {
+          "$ref": "#/$defs/retainedEmptyDirectory"
+        },
+        "/var/lib/wsprrypi": {
+          "$ref": "#/$defs/retainedEmptyDirectory"
+        }
+      }
     }
   },
   "required": [
@@ -164,5 +201,78 @@
     "eligible_kernels",
     "owned_paths",
     "target_identity"
-  ]
+  ],
+  "$defs": {
+    "retainedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "file"
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "kind",
+        "uid",
+        "gid",
+        "mode",
+        "reason",
+        "sha256"
+      ]
+    },
+    "retainedEmptyDirectory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "empty_directory"
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "uid",
+        "gid",
+        "mode",
+        "reason"
+      ]
+    }
+  }
 }

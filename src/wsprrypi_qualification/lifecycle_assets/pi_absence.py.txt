@@ -2,14 +2,31 @@ def ensure(value, message='Lifecycle assertion failed'):
     if not value:
         raise RuntimeError(message)
 import grp
+import hashlib
 import json
 import os
 import pathlib
 import re
 import subprocess
+import stat
 P = pathlib.Path
+def verify_retained(records):
+    for name, policy in records.items():
+        path=P(name)
+        ensure(not any(p.is_symlink() for p in (path,*path.parents)), 'Symlink retained path')
+        info=path.lstat()
+        ensure(info.st_uid==policy['uid'] and info.st_gid==policy['gid'] and
+               stat.S_IMODE(info.st_mode)==policy['mode'], 'Retained ownership/mode changed')
+        if policy['kind']=='empty_directory':
+            ensure(stat.S_ISDIR(info.st_mode) and not any(path.iterdir()), 'Retained directory is not empty')
+        else:
+            ensure(stat.S_ISREG(info.st_mode) and info.st_nlink==1, 'Unsafe retained file')
+            ensure(hashlib.sha256(path.read_bytes()).hexdigest()==policy['sha256'], 'Retained bytes changed')
+    return set(records)
+retained=json.loads(os.environ.get('LIFECYCLE_RETAINED_PATHS','{}'))
+verified_retained=verify_retained(retained)
 paths = json.loads(os.environ['LIFECYCLE_OWNED_PATHS'])
-remaining = [p for p in paths if P(p).exists() or P(p).is_symlink()]
+remaining = [p for p in paths if (P(p).exists() or P(p).is_symlink()) and p not in verified_retained]
 ensure(not remaining, remaining)
 for name in ['wsprrypi.service', 'wsprrypi-log.service', 'wsprrypi-rp1-reconcile.service', 'rp1-gpclk-route-manager.socket']:
     out = subprocess.check_output(['systemctl', 'show', name, '-p', 'LoadState', '-p', 'ActiveState'], text=True)
@@ -43,7 +60,7 @@ for directory, dirs, files in os.walk('/', topdown=True, followlinks=False):
         p = P(directory) / name
         if str(p) in exclude:
             continue
-        if related(name):
+        if related(name) and str(p) not in verified_retained:
             findings.append(str(p))
         try:
             if p.is_symlink() or p.stat().st_dev != rootdev:
@@ -53,7 +70,7 @@ for directory, dirs, files in os.walk('/', topdown=True, followlinks=False):
         kept.append(name)
     dirs[:] = kept
     for name in files:
-        if related(name):
+        if related(name) and str(P(directory) / name) not in verified_retained:
             findings.append(str(P(directory) / name))
 for directory, dirs, files in os.walk('/run', topdown=True, followlinks=False):
     for name in dirs + files:
@@ -64,4 +81,5 @@ for p in P('/boot/firmware').rglob('*'):
         findings.append(str(p))
 ensure(not findings, findings)
 ensure(not subprocess.check_output(['dpkg', '--audit'], text=True).strip(), 'Lifecycle assertion failed')
-print(json.dumps({'result': 'PASS', 'remaining_inventoried_paths': remaining, 'remaining_product_paths': findings, 'services_package_dkms_modules_devices_group': 'absent', 'scanned': ['root-filesystem', '/run', '/boot/firmware'], 'excluded': sorted(exclude), 'device': rootdev}, indent=2))
+verify_retained(retained)
+print(json.dumps({'result': 'PASS', 'remaining_inventoried_paths': remaining, 'remaining_product_paths': findings, 'retained_operator_data': retained, 'services_package_dkms_modules_devices_group': 'absent', 'scanned': ['root-filesystem', '/run', '/boot/firmware'], 'excluded': sorted(exclude), 'device': rootdev}, indent=2))

@@ -49,7 +49,7 @@ if runtime.exists():
     r = run(['python3', '-B', str(runtime), 'inspect'])
     if r['returncode'] == 0:
         v = json.loads(r['stdout'])
-        d['runtime'] = {k: v.get(k) for k in ['state', 'routeSelected', 'safety', 'reboot']}
+        d['runtime'] = {k: v.get(k) for k in ['state', 'routeSelected', 'routes', 'safety', 'reboot']}
         d['runtime']['outputEnabled'] = v.get('manager', {}).get('query', {}).get('state', {}).get('outputEnabled')
     else:
         d['runtime_error'] = r

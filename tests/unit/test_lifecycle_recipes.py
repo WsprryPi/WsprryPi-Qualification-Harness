@@ -275,6 +275,19 @@ def test_public_system_keeps_component_gates_and_requires_real_handoff(
     assert set(recipes.required_checks("system")).issubset(checks)
     request["steps"] = [s for s in request["steps"] if s["check"] != "usb-handoff"]
     assert "missing required check: usb-handoff" in lc.compose(request)["blockers"]
+    pi["candidate_release_tag"] = "v4.0.0-beta.5"
+    pi_path.write_text(json.dumps(pi))
+    with pytest.raises(ValueError, match="cannot pin"):
+        recipes.pi_public_request(pi_path, state, checkout, checkout)
+    feature = recipes.pi_public_request(
+        pi_path, state, checkout, checkout, installer_branch="codex/lifecycle-release"
+    )
+    assert feature["profile"] == "pi-streamed-eight"
+    assert feature["inputs"]["default_public_acceptance"] is False
+    assert lc.compose(feature)["blockers"] == []
+    pi["retained_paths"] = {"/var/lib/rp1-gpclk-dkms": {}}
+    with pytest.raises(ValueError, match="Additional properties"):
+        lc.validate(pi, "lifecycle-pi-bench")
 
 
 def test_lifecycle_run_named_directory_is_not_mistaken_for_rf(
@@ -385,3 +398,181 @@ def test_system_probe_uses_production_mutation_intent_header(
         assert not output.exists()
     else:
         assert json.loads(output.read_text())["verified"] is True
+
+
+def idle_provider(route=None):
+    return {
+        "state": "exact_ready" if route else "neutral_ready",
+        "routeSelected": bool(route),
+        "routes": {"active": route},
+        "outputEnabled": False,
+        "safety": {
+            "clock": "quiescent",
+            "dma": "quiescent",
+            "gpio": "quiescent",
+            "endpointOpen": False,
+            "owner": False,
+            "lease": False,
+            "operationalReady": bool(route),
+        },
+    }
+
+
+def test_provider_idle_route_requires_explicit_selection():
+    from wsprrypi_qualification.lifecycle_pi import verify_provider_idle
+
+    verify_provider_idle(idle_provider())
+    verify_provider_idle(idle_provider(), "gpio4")
+    verify_provider_idle(idle_provider("gpio4"), "gpio4")
+    for route in (None, "gpio20"):
+        with pytest.raises(ValueError, match="provider route"):
+            verify_provider_idle(idle_provider("gpio4"), route)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("outputEnabled", True),
+        ("outputEnabled", 0),
+        ("routeSelected", 1),
+        ("safety.owner", True),
+        ("safety.lease", True),
+        ("safety.endpointOpen", True),
+        ("safety.clock", "active"),
+        ("safety.dma", "active"),
+        ("safety.gpio", "active"),
+        ("safety.operationalReady", False),
+        ("safety.owner", None),
+        ("routes.active", "gpio20"),
+        ("state", "unknown"),
+    ],
+)
+def test_configured_idle_policy_never_accepts_unsafe_or_unbound_state(field, value):
+    from wsprrypi_qualification.lifecycle_pi import verify_provider_idle
+
+    observed = idle_provider("gpio4")
+    target = observed
+    keys = field.split(".")
+    for key in keys[:-1]:
+        target = target[key]
+    target[keys[-1]] = value
+    with pytest.raises(ValueError, match="provider"):
+        verify_provider_idle(observed, "gpio4")
+
+
+def test_retained_operator_paths_require_exact_bytes_and_empty_directory(tmp_path):
+    import hashlib
+    import stat
+
+    asset = Path(recipes.__file__).parent / "lifecycle_assets/pi_absence.py.txt"
+    tree = ast.parse(asset.read_text())
+    functions = ast.Module(
+        body=[n for n in tree.body if isinstance(n, ast.FunctionDef)], type_ignores=[]
+    )
+    scope = {"P": lambda p: tmp_path / p.lstrip("/"), "hashlib": hashlib, "stat": stat}
+    exec(compile(functions, str(asset), "exec"), scope)
+    name = "/usr/local/etc/wsprrypi.ini.pre_migration.bak"
+    path = scope["P"](name)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"operator fixture")
+    info = path.stat()
+    record = {
+        name: {
+            "kind": "file",
+            "uid": info.st_uid,
+            "gid": info.st_gid,
+            "mode": stat.S_IMODE(info.st_mode),
+            "reason": "operator backup",
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+    }
+    assert scope["verify_retained"](record) == {name}
+    path.write_bytes(b"changed")
+    with pytest.raises(RuntimeError, match="bytes changed"):
+        scope["verify_retained"](record)
+    name = "/root/.wsprrypi-wtp"
+    directory = scope["P"](name)
+    directory.mkdir(parents=True)
+    info = directory.stat()
+    record = {
+        name: {
+            "kind": "empty_directory",
+            "uid": info.st_uid,
+            "gid": info.st_gid,
+            "mode": stat.S_IMODE(info.st_mode),
+            "reason": "retained endpoint namespace",
+        }
+    }
+    scope["verify_retained"](record)
+    (directory / "unexplained").write_text("must block")
+    with pytest.raises(RuntimeError, match="not empty"):
+        scope["verify_retained"](record)
+
+
+@pytest.mark.parametrize("operation", ["install", "uninstall"])
+def test_selected_streamed_branch_is_explicit_and_hash_bound(tmp_path, monkeypatch, operation):
+    from wsprrypi_qualification import lifecycle_pi
+
+    config = tmp_path / "bench.json"
+    config.write_text(
+        json.dumps(
+            {
+                "host": "fixture",
+                "known_hosts": "/known",
+                "home": "/home/operator",
+                "remote_lock": "/state/lock",
+                "expected_hostname": "fixture",
+                "evidence_root": "/state",
+                "baseline_local": "/baseline",
+                "baseline_remote": "/remote-baseline",
+                "baseline_sha256": "a" * 64,
+                "candidate_sha256": "b" * 64,
+                "provider_source": "c" * 40,
+                "provider_tooling_sha256": "d" * 64,
+                "eligible_kernels": ["fixture"],
+                "owned_paths": [],
+                "target_identity": target_fixture(),
+                "candidate_release_tag": "v4.0.0-beta.5",
+            }
+        )
+    )
+    calls = []
+    monkeypatch.setattr(lifecycle_pi, "remote", lambda *args, **kw: calls.append(args[2]) or "log")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "lifecycle_pi",
+            operation,
+            str(config),
+            "--installer-source",
+            "a" * 40,
+            "--installer-sha256",
+            "b" * 64,
+            "--installer-branch",
+            "codex/lifecycle-release",
+            "--output",
+            str(tmp_path / "result.json"),
+        ],
+    )
+    assert lifecycle_pi.main() == 0
+    command = calls[0]
+    assert "refs/heads/codex/lifecycle-release" in command
+    assert "REPO_BRANCH=codex/lifecycle-release" in command
+    assert "public installer bytes changed" in command
+    assert ("--binary-source release --release-tag v4.0.0-beta.5" in command) == (
+        operation == "install"
+    )
+    with pytest.raises(ValueError, match="branch reference"):
+        lifecycle_pi.installer_url("bad..ref")
+    if operation == "install":
+        observed = {"host": "fixture", "binary_sha256": "wrong", "runtime": idle_provider()}
+        monkeypatch.setattr(lifecycle_pi, "probe", lambda *args: observed)
+        failed = tmp_path / "failed-observation.json"
+        monkeypatch.setattr(
+            sys, "argv", ["lifecycle_pi", "verify", str(config), "--output", str(failed)]
+        )
+        assert lifecycle_pi.main() == 1
+        retained = json.loads(failed.read_text())
+        assert retained["observed"] == observed
+        assert "executable bytes differ" in retained["verification_error"]

@@ -181,7 +181,7 @@ def compose(request: dict[str, Any], *, publication_selected: bool = False) -> d
     if publication_selected and request["operation"] != "release":
         raise LifecycleError("publication requires a selected release operation")
     selected = {"pi", "pico", "rp1"} if request["scope"] == "system" else {request["scope"]}
-    if request["profile"] == "pi-public-eight" and request["scope"] == "pi":
+    if request["profile"] in {"pi-public-eight", "pi-streamed-eight"} and request["scope"] == "pi":
         selected.add("rp1")  # Public Pi 5 installation explicitly includes this provider.
     blockers: list[str] = []
     from wsprrypi_qualification.lifecycle_recipes import CHECKS

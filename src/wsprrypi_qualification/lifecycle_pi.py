@@ -10,14 +10,29 @@ import argparse
 import base64
 import hashlib
 import json
+import os
 import shlex
 import subprocess
 import sys
 from importlib.resources import files
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import quote
 
 RAW = "https://raw.githubusercontent.com/WsprryPi/WsprryPi/refs/heads/devel/scripts/install.sh"
+
+
+def installer_url(branch: str) -> str:
+    try:
+        subprocess.run(
+            ["git", "check-ref-format", "refs/heads/" + branch],
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
+    except subprocess.SubprocessError as error:
+        raise ValueError("invalid or unavailable installer branch reference") from error
+    return RAW.replace("/devel/", "/" + quote(branch, safe="/") + "/")
 
 
 DEFAULT_SETTINGS_FIXTURE = {
@@ -134,6 +149,7 @@ def probe(config: dict[str, Any], kind: str) -> dict[str, Any]:
         "LIFECYCLE_EVIDENCE_ROOT": config["evidence_root"],
         "LIFECYCLE_OWNED_PATHS": json.dumps(config["owned_paths"]),
         "LIFECYCLE_SETTINGS_FIXTURE": json.dumps(settings_fixture(config)),
+        "LIFECYCLE_RETAINED_PATHS": json.dumps(config.get("retained_paths", {})),
     }
     command = shlex.join(
         [
@@ -155,6 +171,37 @@ def probe(config: dict[str, Any], kind: str) -> dict[str, Any]:
     )
 
 
+def verify_provider_idle(runtime: dict[str, Any], expected_route: str | None = None) -> None:
+    """Require neutral state or an explicitly selected, fully quiescent idle route."""
+    safety = runtime.get("safety", {})
+    routes = runtime.get("routes", {})
+    if (
+        runtime.get("outputEnabled") is not False
+        or not isinstance(safety, dict)
+        or not isinstance(routes, dict)
+        or "active" not in routes
+        or any(safety.get(k) != "quiescent" for k in ("clock", "dma", "gpio"))
+        or any(safety.get(k) is not False for k in ("endpointOpen", "lease", "owner"))
+    ):
+        raise ValueError("provider output, endpoint, ownership or hardware is not quiescent")
+    if (
+        runtime.get("state") == "neutral_ready"
+        and runtime.get("routeSelected") is False
+        and routes["active"] is None
+        and safety.get("operationalReady") is False
+    ):
+        return
+    if (
+        expected_route in {"gpio4", "gpio20"}
+        and runtime.get("state") == "exact_ready"
+        and runtime.get("routeSelected") is True
+        and routes["active"] == expected_route
+        and safety.get("operationalReady") is True
+    ):
+        return
+    raise ValueError("provider route differs from the explicitly selected idle policy")
+
+
 def verify_installed(
     snapshot: dict[str, Any], config: dict[str, Any], *, baseline: bool = False
 ) -> None:
@@ -169,13 +216,7 @@ def verify_installed(
     safety = snapshot["safety"]
     if safety.get("transmit") != "false" or safety.get("enable on boot") != "Never":
         raise ValueError("RF-disabled persistent policy not established")
-    runtime = snapshot["runtime"]
-    if (
-        runtime["state"] != "neutral_ready"
-        or runtime["outputEnabled"] is not False
-        or runtime["routeSelected"]
-    ):
-        raise ValueError("provider is not neutral with output disabled and no selected route")
+    verify_provider_idle(snapshot["runtime"], config.get("provider_idle_route"))
     if snapshot["provider"]["sourceCommit"] != config["provider_source"]:
         raise ValueError("provider package source mismatch")
     if snapshot["provider_tooling_sha256"] != config["provider_tooling_sha256"]:
@@ -220,6 +261,7 @@ def main() -> int:
     parser.add_argument("config", type=Path)
     parser.add_argument("--installer-source")
     parser.add_argument("--installer-sha256")
+    parser.add_argument("--installer-branch", default="devel")
     parser.add_argument("--baseline", action="store_true")
     parser.add_argument(
         "--compare", type=Path, help="before snapshot for shared/settings/module preservation"
@@ -227,6 +269,10 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     config = json.loads(args.config.read_text(encoding="utf-8"))
+    from wsprrypi_qualification.lifecycle import validate
+
+    validate(config, "lifecycle-pi-bench")
+    value: dict[str, Any] | None = None
     try:
         if args.operation == "stage-baseline":
             data = Path(config["baseline_local"]).read_bytes()
@@ -241,9 +287,9 @@ def main() -> int:
                 + "data=base64.b64decode("
                 + repr(base64.b64encode(data).decode())
                 + ");"
-                + "assert hashlib.sha256(data).hexdigest()=="
+                + "hashlib.sha256(data).hexdigest()=="
                 + repr(config["baseline_sha256"])
-                + ";"
+                + " or sys.exit('baseline bytes changed');"
                 + "f=p.open('xb');f.write(data);f.close();p.chmod(0o700)"
             )
             # Stream code over stdin: executable images may exceed SSH argument limits.
@@ -307,10 +353,11 @@ def main() -> int:
             if value.get("apache_config", {}).get("returncode", 0) != 0:
                 raise ValueError("Apache configuration invalid")
         else:
-            url = config.get("installer_url", RAW)
-            if url != RAW:
+            expected_url = installer_url(args.installer_branch)
+            url = config.get("installer_url", expected_url)
+            if url != expected_url:
                 raise ValueError(
-                    "this profile proves the actual default public devel stdin path only"
+                    "installer URL differs from the explicitly selected streamed branch"
                 )
             if not args.installer_source or not args.installer_sha256:
                 raise ValueError(
@@ -319,7 +366,9 @@ def main() -> int:
             channel_check = (
                 "import subprocess,sys;"
                 "value=subprocess.check_output(['git','ls-remote',"
-                "'https://github.com/WsprryPi/WsprryPi.git','refs/heads/devel'],"
+                "'https://github.com/WsprryPi/WsprryPi.git',"
+                + repr("refs/heads/" + args.installer_branch)
+                + "],"
                 "text=True,timeout=30).split();"
                 + "value and value[0]=="
                 + repr(args.installer_source)
@@ -332,7 +381,14 @@ def main() -> int:
                 + " or sys.exit('public installer bytes changed');sys.stdout.buffer.write(data)"
             )
             home = shlex.quote(config["home"])
-            environment = ["sudo", "-n", "env", "REPO_BRANCH=devel", "TERSE=true", "TERM=xterm"]
+            environment = [
+                "sudo",
+                "-n",
+                "env",
+                "REPO_BRANCH=" + args.installer_branch,
+                "TERSE=true",
+                "TERM=xterm",
+            ]
             if args.operation == "uninstall":
                 environment.append("ACTION=uninstall")
             pipeline = (
@@ -347,6 +403,10 @@ def main() -> int:
             if args.baseline:
                 pipeline += " --binary-source local --binary-path " + shlex.quote(
                     config["baseline_remote"]
+                )
+            elif args.operation == "install" and config.get("candidate_release_tag"):
+                pipeline += " --binary-source release --release-tag " + shlex.quote(
+                    config["candidate_release_tag"]
                 )
             if args.operation == "install":
                 pipeline += " && touch " + home + "/finished"
@@ -376,6 +436,8 @@ def main() -> int:
             value = {"output": output, "completed": args.operation}
         with args.output.open("x", encoding="utf-8") as stream:
             json.dump(value, stream, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
         print(
             json.dumps(
                 {
@@ -386,7 +448,24 @@ def main() -> int:
             )
         )
         return 0
-    except (ValueError, OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+    except (
+        ValueError,
+        OSError,
+        RuntimeError,
+        KeyError,
+        TypeError,
+        subprocess.TimeoutExpired,
+    ) as error:
+        if value is not None and not args.output.exists():
+            try:
+                with args.output.open("x", encoding="utf-8") as stream:
+                    json.dump(
+                        {"verification_error": str(error), "observed": value}, stream, indent=2
+                    )
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            except OSError as save_error:
+                print("Failed to retain observation: " + str(save_error), file=sys.stderr)
         print(str(error), file=sys.stderr)
         return 1
 

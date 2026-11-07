@@ -37,6 +37,11 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
     )
     public_system.add_argument("pi_bench", type=Path)
     public_system.add_argument("pico_bench", type=Path)
+    public_system.add_argument(
+        "--installer-branch",
+        default="devel",
+        help="explicit streamed source branch; a feature branch is not default-public acceptance",
+    )
     for argument in ("state-root", "pi-source", "rp1-source", "pico-source", "output"):
         public_system.add_argument("--" + argument, type=Path, required=True)
     system = commands.add_parser(
@@ -58,6 +63,11 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         "pi-public-plan", help="generate maintained public Pi/RP1 eight-step request"
     )
     public.add_argument("bench", type=Path)
+    public.add_argument(
+        "--installer-branch",
+        default="devel",
+        help="explicit streamed source branch; a feature branch is not default-public acceptance",
+    )
     public.add_argument("--state-root", type=Path, required=True)
     public.add_argument("--pi-source", type=Path, required=True)
     public.add_argument("--rp1-source", type=Path, required=True)
@@ -112,6 +122,7 @@ def dispatch(args: argparse.Namespace) -> int:
                 args.pi_source,
                 args.rp1_source,
                 args.pico_source,
+                installer_branch=args.installer_branch,
             )
             lifecycle.save(args.output, result, new=True)
         elif action == "system-plan":
@@ -127,7 +138,13 @@ def dispatch(args: argparse.Namespace) -> int:
         elif action == "pi-public-plan":
             from wsprrypi_qualification.lifecycle_recipes import pi_public_request
 
-            result = pi_public_request(args.bench, args.state_root, args.pi_source, args.rp1_source)
+            result = pi_public_request(
+                args.bench,
+                args.state_root,
+                args.pi_source,
+                args.rp1_source,
+                installer_branch=args.installer_branch,
+            )
             lifecycle.save(args.output, result, new=True)
         elif action == "source":
             result = lifecycle.source_identity(args.component, args.path)

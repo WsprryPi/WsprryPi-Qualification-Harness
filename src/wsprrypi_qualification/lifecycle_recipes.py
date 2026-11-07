@@ -78,6 +78,9 @@ CHECKS = {
 }
 
 
+CHECKS["pi-streamed-eight"] = list(CHECKS["pi-public-eight"])
+
+
 def required_checks(profile: str) -> list[str]:
     return list(CHECKS[profile])
 
@@ -90,14 +93,21 @@ def release_order(scope: str, changed: list[str]) -> list[str]:
     return [component for component in ("pico", "rp1", "pi") if component in changed]
 
 
-def pi_public_request(config_path: Path, state_root: Path, pi: Path, rp1: Path) -> dict[str, Any]:
+def pi_public_request(
+    config_path: Path, state_root: Path, pi: Path, rp1: Path, *, installer_branch: str = "devel"
+) -> dict[str, Any]:
     """Produce the public eight-step matrix; no host access or mutation."""
     import json
 
-    from wsprrypi_qualification.lifecycle_pi import settings_fixture
+    from wsprrypi_qualification.lifecycle_pi import installer_url, settings_fixture
 
     config = json.loads(config_path.read_text(encoding="utf-8"))
     validate(config, "lifecycle-pi-bench")
+    installer_url(installer_branch)
+    if installer_branch == "devel" and config.get("candidate_release_tag"):
+        raise ValueError("default public devel acceptance cannot pin a candidate release")
+    if installer_branch != "devel" and not config.get("candidate_release_tag"):
+        raise ValueError("selected branch requires an explicit candidate_release_tag")
     executable = str(Path(sys.executable).resolve())
     root = Path(str(files("wsprrypi_qualification")))
     immutable = [
@@ -134,6 +144,8 @@ def pi_public_request(config_path: Path, state_root: Path, pi: Path, rp1: Path) 
             source_identity("pi", pi)["revision"],
             "--installer-sha256",
             file_sha(pi / "scripts/install.sh"),
+            "--installer-branch",
+            installer_branch,
             "--output",
             str(output_root / (name + ".json")),
         ]
@@ -189,7 +201,7 @@ def pi_public_request(config_path: Path, state_root: Path, pi: Path, rp1: Path) 
         "schema_version": 1,
         "operation": "test",
         "scope": "pi",
-        "profile": "pi-public-eight",
+        "profile": "pi-public-eight" if installer_branch == "devel" else "pi-streamed-eight",
         "rf_enabled": False,
         "sources": [source_identity("pi", pi), source_identity("rp1", rp1)],
         "artifacts": inputs,
@@ -197,6 +209,8 @@ def pi_public_request(config_path: Path, state_root: Path, pi: Path, rp1: Path) 
             "bench": config,
             "settings_fixture": settings_fixture(config),
             "companion_mutation": ["rp1"],
+            "installer_branch": installer_branch,
+            "default_public_acceptance": installer_branch == "devel",
         },
         "resources": ["host:" + config["target_identity"]["machine_id_sha256"]],
         "state_root": str(state_root),
@@ -492,7 +506,14 @@ def system_request(requests: list[dict[str, Any]], state_root: Path) -> dict[str
 
 
 def system_public_request(
-    pi_bench: Path, pico_bench: Path, state_root: Path, pi: Path, rp1: Path, pico: Path
+    pi_bench: Path,
+    pico_bench: Path,
+    state_root: Path,
+    pi: Path,
+    rp1: Path,
+    pico: Path,
+    *,
+    installer_branch: str = "devel",
 ) -> dict[str, Any]:
     """Public Pi matrix with real production Pi/standalone USB lease handoff."""
     import copy
@@ -502,7 +523,7 @@ def system_public_request(
 
     from wsprrypi_qualification.lifecycle_pi import target_identity_script
 
-    request = pi_public_request(pi_bench, state_root, pi, rp1)
+    request = pi_public_request(pi_bench, state_root, pi, rp1, installer_branch=installer_branch)
     config = json.loads(pico_bench.read_text(encoding="utf-8"))
     validate(config, "lifecycle-pico-bench")
     if config["target_identity"] != request["inputs"]["bench"]["target_identity"]:
