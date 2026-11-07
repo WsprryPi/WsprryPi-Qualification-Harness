@@ -215,7 +215,12 @@ def pi_public_request(
         "resources": ["host:" + config["target_identity"]["machine_id_sha256"]],
         "state_root": str(state_root),
         "protected_paths": [str(pi), str(rp1)],
-        "final_states": {"pi": "absent", "rp1": "absent"},
+        "final_states": {
+            "pi": "application-absent-with-declared-operator-data"
+            if config.get("retained_paths")
+            else "absent",
+            "rp1": "absent",
+        },
         "required_checks": required_checks("pi-public-eight"),
         "steps": steps,
         "ci": [],
