@@ -301,3 +301,72 @@ def test_lifecycle_run_named_directory_is_not_mistaken_for_rf(
             ]
         )
     assert len(observed) == 1
+
+
+def test_system_probe_uses_production_mutation_intent_header(tmp_path, monkeypatch) -> None:
+    """Discovery identify is read-only in effect but uses the protected POST contract."""
+    import io
+    import os
+    import runpy
+    import sys
+    import urllib.request
+
+    before = tmp_path / "before.json"
+    output = tmp_path / "probe.json"
+    before.write_text(
+        json.dumps(
+            {
+                "safe": True,
+                "rf_enabled": False,
+                "serial": "0123456789ABCDEF",
+                "target": {"device_id": "device", "boot_id": "boot"},
+            }
+        )
+    )
+    calls = []
+
+    def urlopen(request, *, timeout):
+        calls.append(request)
+        if isinstance(request, str):
+            value = {
+                "usb": {
+                    "candidates": [
+                        {
+                            "id": "usb-device",
+                            "settings": {
+                                "USB Serial": "0123456789ABCDEF",
+                                "Transport": "usb",
+                            },
+                        }
+                    ]
+                }
+            }
+        else:
+            assert request.get_method() == "POST"
+            assert request.get_header("Origin") == "http://127.0.0.1:31415"
+            assert request.get_header("Content-type") == "application/json"
+            assert request.get_header("X-wsprrypico-request") == "1"
+            assert json.loads(request.data)["settings"]["Device ID"] == "device"
+            value = {
+                "binding": "usb",
+                "output_active": False,
+                "device_id": "device",
+                "boot_id": "boot",
+            }
+        return io.BytesIO(json.dumps(value).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["pi_usb_handoff.py", "probe", "--before", str(before), "--output", str(output)],
+    )
+    prior_umask = os.umask(0o077)
+    try:
+        runpy.run_path(
+            str(Path(recipes.__file__).parent / "lifecycle_assets/pi_usb_handoff.py.txt")
+        )
+    finally:
+        os.umask(prior_umask)
+    assert len(calls) == 2
+    assert json.loads(output.read_text())["verified"] is True

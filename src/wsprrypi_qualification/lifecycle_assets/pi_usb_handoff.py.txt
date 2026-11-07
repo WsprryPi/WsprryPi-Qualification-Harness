@@ -40,7 +40,8 @@ if args.operation == 'probe':
     body = {'discovery_id': candidate['id'], 'settings': settings}
     request = urllib.request.Request(base + '/api/control/v1/host/discovery/identify',
         data=json.dumps(body).encode(), method='POST',
-        headers={'Content-Type': 'application/json', 'Origin': base})
+        headers={'Content-Type': 'application/json', 'Origin': base,
+                 'X-WsprryPico-Request': '1'})
     with urllib.request.urlopen(request, timeout=30) as response:
         observation = json.load(response)
     require(observation['binding'] == 'usb' and observation['output_active'] is False,
