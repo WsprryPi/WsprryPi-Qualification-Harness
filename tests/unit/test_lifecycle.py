@@ -423,6 +423,11 @@ def test_expected_refusal_is_distinct_and_supported_recovery_can_pass(recipe, re
     result = lc.run(plan, directory, confirm=plan["plan_sha256"])
     assert result["status"] == ("pass" if recover else "expected_refusal")
     assert lc.report(directory) == result
+    if not recover:
+        result["status"] = "pass"
+        (directory / "result.json").write_text(json.dumps(result))
+        with pytest.raises(lc.LifecycleError, match="pass contradicts the expected-refusal"):
+            lc.report(directory)
 
 
 def test_report_refuses_forged_expected_refusal(recipe):
@@ -433,3 +438,19 @@ def test_report_refuses_forged_expected_refusal(recipe):
     (directory / "result.json").write_text(json.dumps(result))
     with pytest.raises(lc.LifecycleError, match="expected refusal contradicts"):
         lc.report(directory)
+
+
+@pytest.mark.parametrize("scope", ["pi", "pico", "rp1", "system"])
+def test_documented_release_example_supports_independent_and_system_planning(scope):
+    from wsprrypi_qualification.lifecycle_release import release_graph
+
+    example = Path(lc.__file__).parents[2] / "docs/examples/lifecycle-release-request.json"
+    request = json.loads(example.read_text())
+    request["scope"] = scope
+    for name, component in request["components"].items():
+        component["changed"] = scope == "system" or name == scope
+        component["published"] = not component["changed"]
+    plan = release_graph(request)
+    assert plan["order"] == (["pico", "rp1", "pi"] if scope == "system" else [scope])
+    assert plan["publication_enabled"] is False
+    assert all(s["ci_action"] == "canonical-validation-required" for s in plan["selection"])

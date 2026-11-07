@@ -1,0 +1,118 @@
+{
+  "scope": "system",
+  "components": {
+    "pi": {
+      "source": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tooling_source": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_source": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "embedded_source": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "dirty_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "build_inputs": {
+        "source": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "dirty_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "version": "1.0.0-example.1",
+        "board": "illustrative-pi",
+        "profile": "non-publishing-example",
+        "compiler": "replace-with-measured-toolchain",
+        "dependencies": {
+          "manifest": "replace-with-verified-digest"
+        },
+        "generator": "replace-with-measured-version-generator"
+      },
+      "version": "1.0.0-example.1",
+      "tag": "v1.0.0-example.1",
+      "prior_remote_oid": null,
+      "changed": true,
+      "move_existing_tag": false,
+      "published": false,
+      "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "build_inputs_sha256": "e9aca8ff5ed9f43f2cf117c88e64b6d0243d9f95f35a985e20fc4689722437f9",
+      "verified_build_inputs_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "canonical_ci": "replace-with-owning-canonical-workflow",
+      "ci_conclusion": "missing",
+      "required_jobs": [
+        "replace-with-required-job"
+      ],
+      "successful_jobs": [],
+      "ci_input_sha256": "0fa4f6b2e2ac8f71d206e5fe2eec93b5e1e453f6642ee28926a1488c3501d030",
+      "successful_ci_input_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "pico": {
+      "source": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "tooling_source": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "test_source": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "embedded_source": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "dirty_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "build_inputs": {
+        "source": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "dirty_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "version": "1.0.0-example.1",
+        "board": "illustrative-pico",
+        "profile": "non-publishing-example",
+        "compiler": "replace-with-measured-toolchain",
+        "dependencies": {
+          "manifest": "replace-with-verified-digest"
+        },
+        "generator": "replace-with-measured-version-generator"
+      },
+      "version": "1.0.0-example.1",
+      "tag": "v1.0.0-example.1",
+      "prior_remote_oid": null,
+      "changed": true,
+      "move_existing_tag": false,
+      "published": false,
+      "artifact_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "build_inputs_sha256": "c1ba93fd6ef7cbb09dace609da192e212931ce831d8c906739cf83d8e6a2d966",
+      "verified_build_inputs_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "canonical_ci": "replace-with-owning-canonical-workflow",
+      "ci_conclusion": "missing",
+      "required_jobs": [
+        "replace-with-required-job"
+      ],
+      "successful_jobs": [],
+      "ci_input_sha256": "3c9ed9d851e5abc30f91eddacdc86bc55b05145b386433866ba47eaaf4818e8d",
+      "successful_ci_input_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "rp1": {
+      "source": "cccccccccccccccccccccccccccccccccccccccc",
+      "tooling_source": "cccccccccccccccccccccccccccccccccccccccc",
+      "test_source": "cccccccccccccccccccccccccccccccccccccccc",
+      "embedded_source": "cccccccccccccccccccccccccccccccccccccccc",
+      "dirty_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "build_inputs": {
+        "source": "cccccccccccccccccccccccccccccccccccccccc",
+        "dirty_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "version": "1.0.0-example.1",
+        "board": "illustrative-rp1",
+        "profile": "non-publishing-example",
+        "compiler": "replace-with-measured-toolchain",
+        "dependencies": {
+          "manifest": "replace-with-verified-digest"
+        },
+        "generator": "replace-with-measured-version-generator"
+      },
+      "version": "1.0.0-example.1",
+      "tag": "v1.0.0-example.1",
+      "prior_remote_oid": null,
+      "changed": true,
+      "move_existing_tag": false,
+      "published": false,
+      "artifact_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "build_inputs_sha256": "42baf4e5c619b3039af344864c303b6b21f6ba9ee38b7cdaf3651b939e972352",
+      "verified_build_inputs_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "canonical_ci": "replace-with-owning-canonical-workflow",
+      "ci_conclusion": "missing",
+      "required_jobs": [
+        "replace-with-required-job"
+      ],
+      "successful_jobs": [],
+      "ci_input_sha256": "8304417bf1ffa42dc99a83bf22ea0ebb256d0a786c88c83b3cf38f7261a3cec4",
+      "successful_ci_input_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "publication_selected": false,
+  "pi_dependency_selections": {
+    "pico": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "rp1": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  }
+}

@@ -99,6 +99,34 @@ wsprrypi-qualification lifecycle execute SYSTEM-PLAN.json /durable/controller-st
 wsprrypi-qualification lifecycle release-plan RELEASE-REQUEST.json --output RELEASE-GRAPH.json
 ```
 
+The [complete release request example](../examples/lifecycle-release-request.json) is a runnable, read-only schema example with fictional sources and missing CI evidence. It deliberately requests fresh canonical validation and rebuilding; none of its hashes or publication assertions are production evidence. From the repository root, create independent and system examples in an existing external directory:
+
+```python
+import copy, json
+from pathlib import Path
+
+example = json.loads(Path("docs/examples/lifecycle-release-request.json").read_text())
+output = Path("/absolute/external/example-plans")
+output.mkdir(parents=True, exist_ok=True)
+for scope in ("pi", "pico", "rp1", "system"):
+    request = copy.deepcopy(example)
+    request["scope"] = scope
+    for name, component in request["components"].items():
+        component["changed"] = scope == "system" or name == scope
+        component["published"] = not component["changed"]
+    with (output / (scope + ".json")).open("x") as stream:
+        json.dump(request, stream, indent=2)
+```
+
+```text
+wsprrypi-qualification lifecycle release-plan /absolute/external/example-plans/pi.json --output /absolute/external/example-plans/pi-plan.json
+wsprrypi-qualification lifecycle release-plan /absolute/external/example-plans/pico.json --output /absolute/external/example-plans/pico-plan.json
+wsprrypi-qualification lifecycle release-plan /absolute/external/example-plans/rp1.json --output /absolute/external/example-plans/rp1-plan.json
+wsprrypi-qualification lifecycle release-plan /absolute/external/example-plans/system.json --output /absolute/external/example-plans/system-plan.json
+```
+
+The independent graphs select only their named component and retain fixed companions; the system graph orders Pico, RP1, then Pi. Before operational use, replace every fictional source, artifact, build dependency, workflow/job and public-state assertion with measured inputs and authenticated owning records, then recompute `build_inputs_sha256` with `lifecycle.digest` and each `ci_input_sha256` with `lifecycle_release.ci_input_key`. Set verified/successful keys only when exact retained evidence supports them. These examples have publication disabled and never execute a graph.
+
 [`lifecycle-release-request.schema.json`](../../schemas/lifecycle-release-request.schema.json) requires exact source and dirty-state identities, tooling, test and embedded identities for all three components, selected version/tag, artifact bytes, board/profile/compiler/dependency/generator inputs, build-input digests, canonical workflow/jobs and CI input keys. `lifecycle_release.ci_input_key` binds the complete fixed source/artifact pair. Artifact reuse retains original build provenance; a changed build-input key requires rebuilding. Failed, missing, cancelled, skipped or incomplete canonical jobs do not count as reusable green evidence. Supplied CI evidence must come from authenticated canonical records; a local plan does not independently verify a URL's truth or trigger jobs.
 
 For independent release, set scope to `pi`, `pico` or `rp1` and mark only that component changed. Fixed companions remain fully identified. System release orders changed Pico/RP1 dependencies before Pi, reuses unchanged suitable public artifacts, updates Pi's authoritative selections before its validation, and requires actual consumer/public acceptance. It never publishes all dependencies automatically. Source tag and embedded binary source remain separate fields so metadata-only tag changes cannot claim an old executable was rebuilt.
@@ -123,6 +151,8 @@ wsprrypi-qualification lifecycle report /durable/controller-state/recovery-001
 Every continuation performs a fresh named read-only inspection. An interrupted non-replayable effect is refused rather than repeated. Use a new explicit recovery plan invoking the owning product's supported transaction/recovery command and independently verifying final state. Retain the original unsuccessful run and its duties; a separate successful recovery does not rewrite its outcome. Cleanup phases are explicitly selected recovery-safe actions and run after an unsuccessful execution; do not put destructive baseline restoration in unconditional cleanup.
 
 Published-component receipts survive later failures. Inspect actual public state and continue only unfinished owning operations after partial delivery. No automatic cross-repository rollback, tag movement, history deletion or republishing is promised. A final cleanup report must state observed devices/services/routes/packages, intentionally retained inputs/shared tools, unresolved duties and every unattempted required gate.
+
+For example, after a system run selected Pi/RP1 removal and an installed idle Pico, run `lifecycle report /durable/controller-state/system-001` and inspect the final named observation records. A successful cleanup account states Pi services/listeners and RP1 package/DKMS/modules/routes absent; lists each protected backup and empty namespace with its verified identity; identifies the retained shared picotool and separate Pico transaction/bundle store; gives the Pico serial, firmware source, disabled output and idle state; and states zero missing checks and recovery duties. If any assertion or cleanup failed, retain that unsuccessful result and describe the separate supported recovery rather than rewriting the original report. A successful feature profile still lists default-public acceptance and publication as unexecuted when those gates were outside its selection.
 
 ## Explicit idle routes, retention and feature validation
 

@@ -744,4 +744,10 @@ def report(directory: Path) -> dict[str, Any]:
             s["phase"] == "recover" and s["expect_exit"] == 0 for s in completed
         ):
             raise LifecycleError("expected refusal contradicts the completed scenario")
+    if result["status"] == "pass":
+        completed = [s for s in plan["request"]["steps"] if s["id"] in result["completed"]]
+        if any(s["expect_exit"] != 0 for s in completed) and not any(
+            s["phase"] == "recover" and s["expect_exit"] == 0 for s in completed
+        ):
+            raise LifecycleError("pass contradicts the expected-refusal scenario")
     return result
