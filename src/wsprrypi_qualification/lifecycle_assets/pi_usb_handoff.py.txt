@@ -24,6 +24,8 @@ parser.add_argument('--probe', type=Path)
 parser.add_argument('--output', type=Path, required=True)
 args = parser.parse_args()
 os.umask(0o077)
+require(not args.output.exists() and not args.output.is_symlink(), 'Fresh handoff evidence destination required before USB access')
+require(args.output.parent.is_dir() and not any(p.is_symlink() for p in args.output.parents), 'Physical handoff evidence directory required')
 before = json.loads(args.before.read_text())
 require(before.get('safe') is True and before.get('rf_enabled') is False,
         'Independent idle/output-disabled snapshot required')
@@ -78,6 +80,12 @@ with args.output.open('x') as output:
     json.dump(result, output, indent=2)
     output.flush()
     os.fsync(output.fileno())
+if os.name=='posix':
+    directory=os.open(args.output.parent,os.O_RDONLY|os.O_DIRECTORY)
+    try:os.fsync(directory)
+    finally:os.close(directory)
 print(json.dumps({'verified': True, 'operation': args.operation,
                   'usb_handoff': args.operation == 'verify',
-                  'fixed_compatibility': args.operation == 'verify'}))
+                  'fixed_compatibility': args.operation == 'verify',
+                  'evidence_sha256': hashlib.sha256(args.output.read_bytes()).hexdigest(),
+                  'observation': result}))

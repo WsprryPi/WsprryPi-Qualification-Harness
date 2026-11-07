@@ -183,6 +183,17 @@
           "$ref": "#/$defs/retainedEmptyDirectory"
         }
       }
+    },
+    "candidate_local": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidate_remote": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rolling_ini_backup": {
+      "type": "boolean"
     }
   },
   "required": [
@@ -274,5 +285,60 @@
         "reason"
       ]
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "candidate_local"
+        ]
+      },
+      "then": {
+        "required": [
+          "candidate_remote"
+        ],
+        "not": {
+          "required": [
+            "candidate_release_tag"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "candidate_remote"
+        ]
+      },
+      "then": {
+        "required": [
+          "candidate_local"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "rolling_ini_backup": {
+            "const": true
+          }
+        },
+        "required": [
+          "rolling_ini_backup"
+        ]
+      },
+      "then": {
+        "required": [
+          "retained_paths"
+        ],
+        "properties": {
+          "retained_paths": {
+            "required": [
+              "/usr/local/etc/wsprrypi.ini.pre_migration.bak"
+            ]
+          }
+        }
+      }
+    }
+  ]
 }

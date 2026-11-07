@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import hashlib
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -39,6 +41,65 @@ DEFAULT_SETTINGS_FIXTURE = {
     "WSPR": {"Call Sign": "AA0NT", "Grid Square": "EM18", "TX Power": 10},
     "CW": {"Message": "CQ CQ DE AA0NT EM18 QRSS TEST 73"},
 }
+
+INI_BACKUP = "/usr/local/etc/wsprrypi.ini.pre_migration.bak"
+
+
+def observation_document(value: dict[str, Any], operation: str) -> dict[str, Any]:
+    if "_proof" in value:
+        raise ValueError("reserved observation proof field")
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    return {
+        **value,
+        "_proof": {
+            "schema": "wspq-pi-observation/1",
+            "operation": operation,
+            "sha256": hashlib.sha256(encoded).hexdigest(),
+        },
+    }
+
+
+def load_observation(path: Path, operations: set[str]) -> dict[str, Any]:
+    if any(p.is_symlink() for p in (path, *path.parents)):
+        raise ValueError("symlink observation refused")
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict) or not isinstance(document.get("_proof"), dict):
+        raise ValueError("observation lacks a successful producer proof")
+    proof = document.pop("_proof")
+    if (
+        set(proof) != {"schema", "operation", "sha256"}
+        or proof["schema"] != "wspq-pi-observation/1"
+        or not isinstance(proof["operation"], str)
+        or not isinstance(proof["sha256"], str)
+        or proof["operation"] not in operations
+        or observation_document(document, proof["operation"])["_proof"] != proof
+    ):
+        raise ValueError("observation proof changed or has the wrong operation")
+    return cast(dict[str, Any], document)
+
+
+def rolling_retention(config: dict[str, Any], path: Path) -> dict[str, Any]:
+    if config.get("rolling_ini_backup") is not True or INI_BACKUP not in config.get(
+        "retained_paths", {}
+    ):
+        raise ValueError("rolling backup verification was not explicitly selected")
+    before = load_observation(path, {"verify"})
+    expected = before.get("ini_sha256")
+    if (
+        before.get("host") != config["expected_hostname"]
+        or before.get("binary_sha256") != config["baseline_sha256"]
+        or not isinstance(expected, str)
+        or re.fullmatch("[0-9a-f]{64}", expected) is None
+    ):
+        raise ValueError("rolling backup proof is not the verified pre-upgrade baseline")
+    result = copy.deepcopy(config)
+    result["retained_paths"][INI_BACKUP]["sha256"] = expected
+    result["retained_paths"][INI_BACKUP]["reason"] += "; matches verified pre-upgrade INI"
+    result["retention_proof"] = {
+        "path": str(path),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+    return result
 
 
 def settings_fixture(config: dict[str, Any]) -> dict[str, Any]:
@@ -150,6 +211,7 @@ def probe(config: dict[str, Any], kind: str) -> dict[str, Any]:
         "LIFECYCLE_OWNED_PATHS": json.dumps(config["owned_paths"]),
         "LIFECYCLE_SETTINGS_FIXTURE": json.dumps(settings_fixture(config)),
         "LIFECYCLE_RETAINED_PATHS": json.dumps(config.get("retained_paths", {})),
+        "LIFECYCLE_RETENTION_PROOF": json.dumps(config.get("retention_proof")),
     }
     command = shlex.join(
         [
@@ -253,6 +315,7 @@ def main() -> int:
             "uninstall",
             "verify",
             "stage-baseline",
+            "stage-candidate",
             "retire-marker",
             "seed",
             "restart",
@@ -264,6 +327,11 @@ def main() -> int:
     parser.add_argument("--installer-branch", default="devel")
     parser.add_argument("--baseline", action="store_true")
     parser.add_argument(
+        "--retained-from",
+        type=Path,
+        help="verified pre-upgrade observation for selected rolling INI backup",
+    )
+    parser.add_argument(
         "--compare", type=Path, help="before snapshot for shared/settings/module preservation"
     )
     parser.add_argument("--output", type=Path, required=True)
@@ -273,21 +341,30 @@ def main() -> int:
     # the pinned base interpreter and deliberately needs only the standard library.
     value: dict[str, Any] | None = None
     try:
-        if args.operation == "stage-baseline":
-            data = Path(config["baseline_local"]).read_bytes()
-            if hashlib.sha256(data).hexdigest() != config["baseline_sha256"]:
+        if args.output.exists() or args.output.is_symlink():
+            raise ValueError("fresh observation destination required")
+        if not args.output.parent.is_dir() or any(p.is_symlink() for p in args.output.parents):
+            raise ValueError("prepare a physical observation directory before execution")
+        if args.retained_from:
+            if args.operation != "audit":
+                raise ValueError("rolling backup proof applies only to an absence audit")
+            config = rolling_retention(config, args.retained_from)
+        if args.operation in {"stage-baseline", "stage-candidate"}:
+            role = "baseline" if args.operation == "stage-baseline" else "candidate"
+            data = Path(config[role + "_local"]).read_bytes()
+            if hashlib.sha256(data).hexdigest() != config[role + "_sha256"]:
                 raise ValueError("baseline input bytes changed")
             code = (
                 "from pathlib import Path;import base64,hashlib;"
                 + "p=Path("
-                + repr(config["baseline_remote"])
+                + repr(config[role + "_remote"])
                 + ");"
                 + "p.parent.mkdir(mode=0o700,parents=True,exist_ok=True);"
                 + "data=base64.b64decode("
                 + repr(base64.b64encode(data).decode())
                 + ");"
                 + "hashlib.sha256(data).hexdigest()=="
-                + repr(config["baseline_sha256"])
+                + repr(config[role + "_sha256"])
                 + " or sys.exit('baseline bytes changed');"
                 + "f=p.open('xb');f.write(data);f.close();p.chmod(0o700)"
             )
@@ -307,7 +384,7 @@ def main() -> int:
             ]
             code = target_identity_script(config["target_identity"]) + code
             subprocess.run(command, input=code, text=True, check=True, timeout=120)
-            value = {"staged_sha256": config["baseline_sha256"]}
+            value = {"staged_sha256": config[role + "_sha256"]}
         elif args.operation == "retire-marker":
             code = (
                 "from pathlib import Path;p=Path("
@@ -339,7 +416,7 @@ def main() -> int:
             if args.operation == "verify":
                 verify_installed(value, config, baseline=args.baseline)
             if args.compare:
-                before = json.loads(args.compare.read_text(encoding="utf-8"))
+                before = load_observation(args.compare, {"snapshot", "verify"})
                 keys = ["shared_hashes"]
                 if args.operation == "verify":
                     keys += ["settings_sha256", "module_artifacts"]
@@ -371,7 +448,7 @@ def main() -> int:
                 "text=True,timeout=30).split();"
                 + "value and value[0]=="
                 + repr(args.installer_source)
-                + " or sys.exit('public devel source changed')"
+                + " or sys.exit('selected streamed source changed')"
             )
             script_check = (
                 "import sys,hashlib;data=sys.stdin.buffer.read();"
@@ -403,6 +480,10 @@ def main() -> int:
                 pipeline += " --binary-source local --binary-path " + shlex.quote(
                     config["baseline_remote"]
                 )
+            elif args.operation == "install" and config.get("candidate_remote"):
+                pipeline += " --binary-source local --binary-path " + shlex.quote(
+                    config["candidate_remote"]
+                )
             elif args.operation == "install" and config.get("candidate_release_tag"):
                 pipeline += " --binary-source release --release-tag " + shlex.quote(
                     config["candidate_release_tag"]
@@ -433,16 +514,26 @@ def main() -> int:
                 timeout=1900,
             )
             value = {"output": output, "completed": args.operation}
+        if value is None:
+            raise ValueError("operation produced no observation")
+        document = observation_document(value, args.operation)
         with args.output.open("x", encoding="utf-8") as stream:
-            json.dump(value, stream, indent=2)
+            json.dump(document, stream, indent=2)
             stream.flush()
             os.fsync(stream.fileno())
+        if os.name == "posix":
+            descriptor = os.open(args.output.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
         print(
             json.dumps(
                 {
                     "verified": True,
                     "operation": args.operation,
                     "evidence_sha256": hashlib.sha256(args.output.read_bytes()).hexdigest(),
+                    "observation": document,
                 }
             )
         )

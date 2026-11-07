@@ -93,4 +93,4 @@ for p in P('/boot/firmware').rglob('*'):
 ensure(not findings, findings)
 ensure(not subprocess.check_output(['dpkg', '--audit'], text=True).strip(), 'Lifecycle assertion failed')
 verify_retained(retained)
-print(json.dumps({'result': 'PASS', 'remaining_inventoried_paths': remaining, 'remaining_product_paths': findings, 'retained_operator_data': retained, 'services_package_dkms_modules_devices_group': 'absent', 'scanned': ['root-filesystem', '/run', '/boot/firmware'], 'excluded': sorted(exclude), 'device': rootdev}, indent=2))
+print(json.dumps({'result': 'PASS', 'remaining_inventoried_paths': remaining, 'remaining_product_paths': findings, 'retained_operator_data': retained, 'retention_proof': json.loads(os.environ.get('LIFECYCLE_RETENTION_PROOF','null')), 'services_package_dkms_modules_devices_group': 'absent', 'scanned': ['root-filesystem', '/run', '/boot/firmware'], 'excluded': sorted(exclude), 'device': rootdev}, indent=2))

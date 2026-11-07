@@ -104,10 +104,18 @@ def pi_public_request(
     config = json.loads(config_path.read_text(encoding="utf-8"))
     validate(config, "lifecycle-pi-bench")
     installer_url(installer_branch)
-    if installer_branch == "devel" and config.get("candidate_release_tag"):
+    override = config.get("candidate_release_tag") or config.get("candidate_local")
+    if installer_branch == "devel" and override:
         raise ValueError("default public devel acceptance cannot pin a candidate release")
-    if installer_branch != "devel" and not config.get("candidate_release_tag"):
-        raise ValueError("selected branch requires an explicit candidate_release_tag")
+    if installer_branch != "devel" and not override:
+        raise ValueError("selected branch requires an explicit candidate release or local artifact")
+    if file_sha(Path(config["baseline_local"])) != config["baseline_sha256"]:
+        raise ValueError("baseline bytes differ from verified input")
+    if (
+        config.get("candidate_local")
+        and file_sha(Path(config["candidate_local"])) != config["candidate_sha256"]
+    ):
+        raise ValueError("candidate bytes differ from verified input")
     executable = str(Path(sys.executable).resolve())
     root = Path(str(files("wsprrypi_qualification")))
     immutable = [
@@ -120,6 +128,8 @@ def pi_public_request(
         Path(config["baseline_local"]),
         pi / "scripts/install.sh",
     ]
+    if config.get("candidate_local"):
+        immutable.append(Path(config["candidate_local"]))
     inputs = [{"path": str(p), "sha256": file_sha(p)} for p in immutable]
     output_root = state_root / "observations"
     steps = []
@@ -133,6 +143,7 @@ def pi_public_request(
         baseline: bool = False,
         compare: str | None = None,
         component: str = "pi",
+        retained_from: str | None = None,
     ) -> None:
         argv = [
             executable,
@@ -153,6 +164,8 @@ def pi_public_request(
             argv += ["--baseline"]
         if compare:
             argv += ["--compare", str(output_root / (compare + ".json"))]
+        if retained_from:
+            argv += ["--retained-from", str(output_root / (retained_from + ".json"))]
         steps.append(
             {
                 "id": name,
@@ -175,6 +188,8 @@ def pi_public_request(
 
     add("00-before", "snapshot", "inspect", "baseline")
     add("00-absent", "audit", "verify", "initial-absence")
+    if config.get("candidate_local"):
+        add("00-candidate", "stage-candidate", "effect", "candidate-stage")
     add("01-install", "install", "effect", "install")
     add("01-seed", "seed", "effect", "distinctive-settings")
     add("01-ready", "verify", "verify", "fresh-ready")
@@ -192,11 +207,19 @@ def pi_public_request(
     add("06-ready", "verify", "verify", "upgrade-settings-modules", compare="05-ready")
     add("07-uninstall", "uninstall", "effect", "uninstall")
     add("07-marker", "retire-marker", "cleanup", "marker")
-    add("08-absence", "audit", "verify", "final-absence")
+    retained_from = "05-ready" if config.get("rolling_ini_backup") else None
+    add("08-absence", "audit", "verify", "final-absence", retained_from=retained_from)
     add("08-shared", "snapshot", "verify", "shared-preserved", compare="00-before")
     # Provider state is independently audited, even though the public installer
     # integrates both owners. This closes RP1's separate verification duty.
-    add("08-provider", "audit", "verify", "provider-absence", component="rp1")
+    add(
+        "08-provider",
+        "audit",
+        "verify",
+        "provider-absence",
+        component="rp1",
+        retained_from=retained_from,
+    )
     return {
         "schema_version": 1,
         "operation": "test",

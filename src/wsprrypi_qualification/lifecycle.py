@@ -670,6 +670,15 @@ def run(
                 status = "cleanup_failure"
                 checkpoint["recovery_required"] = True
                 save(directory / "checkpoint.json", checkpoint)
+            completed_steps = [s for s in request["steps"] if s["id"] in checkpoint["completed"]]
+            if (
+                status == "pass"
+                and any(s["expect_exit"] != 0 for s in completed_steps)
+                and not any(
+                    s["phase"] == "recover" and s["expect_exit"] == 0 for s in completed_steps
+                )
+            ):
+                status = "expected_refusal"
             result = {
                 "schema_version": 1,
                 "controller_cleanup": controller_cleanup,
@@ -690,7 +699,7 @@ def run(
                 campaign_id=directory.name,
                 mode=None,
                 stage="terminal",
-                status="completed" if status == "pass" else "failed",
+                status="completed" if status in {"pass", "expected_refusal"} else "failed",
                 detail=status,
             )
             return result
@@ -722,10 +731,17 @@ def report(directory: Path) -> dict[str, Any]:
         raise LifecycleError("missing-check list contradicts completed verification")
     if result.get("controller_cleanup") and result["status"] != "cleanup_failure":
         raise LifecycleError("controller cleanup failure contradicts result status")
-    if result["status"] == "pass" and (
-        result["missing_checks"]
+    if result["status"] in {"pass", "expected_refusal"} and (
+        plan["blockers"]
+        or result["missing_checks"]
         or result["recovery_required"]
         or result["completed"] != [s["id"] for s in plan["request"]["steps"]]
     ):
         raise LifecycleError("pass contradicts required checks or recovery duties")
+    if result["status"] == "expected_refusal":
+        completed = [s for s in plan["request"]["steps"] if s["id"] in result["completed"]]
+        if not any(s["expect_exit"] != 0 for s in completed) or any(
+            s["phase"] == "recover" and s["expect_exit"] == 0 for s in completed
+        ):
+            raise LifecycleError("expected refusal contradicts the completed scenario")
     return result

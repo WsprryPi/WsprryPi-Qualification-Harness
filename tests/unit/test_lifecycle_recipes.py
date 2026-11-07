@@ -288,6 +288,42 @@ def test_public_system_keeps_component_gates_and_requires_real_handoff(
     pi["retained_paths"] = {"/var/lib/rp1-gpclk-dkms": {}}
     with pytest.raises(ValueError, match="Additional properties"):
         lc.validate(pi, "lifecycle-pi-bench")
+    pi.pop("candidate_release_tag")
+    candidate = tmp_path / "candidate"
+    candidate.write_bytes(b"verified local artifact fixture")
+    pi.update(
+        candidate_local=str(candidate),
+        candidate_remote="/bench/candidate",
+        candidate_sha256=lc.file_sha(candidate),
+        rolling_ini_backup=True,
+        retained_paths={
+            "/usr/local/etc/wsprrypi.ini.pre_migration.bak": {
+                "kind": "file",
+                "uid": 0,
+                "gid": 0,
+                "mode": 420,
+                "reason": "rolling fixture",
+                "sha256": "d" * 64,
+            }
+        },
+    )
+    pi_path.write_text(json.dumps(pi))
+    local = recipes.pi_public_request(
+        pi_path, state, checkout, checkout, installer_branch="codex/lifecycle-release"
+    )
+    assert lc.compose(local)["blockers"] == []
+    ids = [s["id"] for s in local["steps"]]
+    assert ids.index("00-candidate") < ids.index("01-install")
+    for step in local["steps"]:
+        if step["id"] in {"08-absence", "08-provider"}:
+            assert "--retained-from" in step["command"]["argv"]
+        if step["id"] == "03-absence":
+            assert "--retained-from" not in step["command"]["argv"]
+    candidate.write_bytes(b"changed")
+    with pytest.raises(ValueError, match="candidate bytes"):
+        recipes.pi_public_request(
+            pi_path, state, checkout, checkout, installer_branch="codex/lifecycle-release"
+        )
 
 
 def test_lifecycle_run_named_directory_is_not_mistaken_for_rf(
@@ -558,6 +594,8 @@ def test_selected_streamed_branch_is_explicit_and_hash_bound(tmp_path, monkeypat
         ],
     )
     assert lifecycle_pi.main() == 0
+    assert lifecycle_pi.main() == 1
+    assert len(calls) == 1  # Reused evidence refuses before another host operation.
     command = calls[0]
     assert "refs/heads/codex/lifecycle-release" in command
     assert "REPO_BRANCH=codex/lifecycle-release" in command
@@ -602,3 +640,89 @@ def test_pi_child_adapter_needs_no_virtualenv_packages(tmp_path):
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["verified"] is True
     assert json.loads(output.read_text())["host"] == "fixture"
+
+
+def test_rolling_backup_uses_verified_pre_upgrade_ini_and_rejects_tampering(tmp_path):
+    from wsprrypi_qualification import lifecycle_pi as pi
+
+    config = {
+        "rolling_ini_backup": True,
+        "expected_hostname": "fixture",
+        "baseline_sha256": "a" * 64,
+        "retained_paths": {
+            pi.INI_BACKUP: {
+                "kind": "file",
+                "uid": 0,
+                "gid": 0,
+                "mode": 420,
+                "reason": "rolling backup",
+                "sha256": "b" * 64,
+            }
+        },
+    }
+    snapshot = {"host": "fixture", "binary_sha256": "a" * 64, "ini_sha256": "c" * 64}
+    path = tmp_path / "verified.json"
+    document = pi.observation_document(snapshot, "verify")
+    path.write_text(json.dumps(document))
+    resolved = pi.rolling_retention(config, path)
+    assert resolved["retained_paths"][pi.INI_BACKUP]["sha256"] == "c" * 64
+    assert config["retained_paths"][pi.INI_BACKUP]["sha256"] == "b" * 64
+    assert resolved["retention_proof"]["sha256"] == lc.file_sha(path)
+    for bad in [dict(snapshot, host="other"), dict(snapshot, binary_sha256="d" * 64)]:
+        path.write_text(json.dumps(pi.observation_document(bad, "verify")))
+        with pytest.raises(ValueError, match="pre-upgrade baseline"):
+            pi.rolling_retention(config, path)
+    path.write_text(json.dumps(pi.observation_document(snapshot, "snapshot")))
+    with pytest.raises(ValueError, match="wrong operation"):
+        pi.rolling_retention(config, path)
+    document["ini_sha256"] = "d" * 64
+    path.write_text(json.dumps(document))
+    with pytest.raises(ValueError, match="proof changed"):
+        pi.rolling_retention(config, path)
+    path.write_text(json.dumps({"verification_error": "failed", "observed": snapshot}))
+    with pytest.raises(ValueError, match="successful producer proof"):
+        pi.rolling_retention(config, path)
+    with pytest.raises(ValueError, match="explicitly selected"):
+        pi.rolling_retention(dict(config, rolling_ini_backup=False), path)
+
+
+@pytest.mark.parametrize("adapter", ["pico_cycle.py.txt", "pi_usb_handoff.py.txt"])
+def test_reused_remote_evidence_refuses_before_device_or_api_access(tmp_path, adapter):
+    output = tmp_path / "retained.json"
+    output.write_text("keep original evidence")
+    assets = Path(recipes.__file__).parent / "lifecycle_assets"
+    args = ["probe", "--before", str(tmp_path / "missing"), "--output", str(output)]
+    if adapter.startswith("pico"):
+        args = [
+            "erase",
+            "--installer",
+            "/missing-core",
+            "--installer-sha256",
+            "a" * 64,
+            "--schema",
+            "/missing-schema",
+            "--schema-sha256",
+            "b" * 64,
+            "--device",
+            "0123456789ABCDEF",
+            "--parent",
+            "1-2",
+            "--state-dir",
+            "/missing-state",
+            "--bundle",
+            "/missing-bundle",
+            "--picotool",
+            "/missing-tool",
+            "--output",
+            str(output),
+        ]
+    result = subprocess.run(
+        [sys.executable, "-S", str(assets / adapter), *args],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode != 0
+    assert "evidence destination required" in result.stderr
+    assert "FileNotFoundError" not in result.stderr
+    assert output.read_text() == "keep original evidence"

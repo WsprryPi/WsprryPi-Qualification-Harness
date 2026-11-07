@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -406,3 +407,29 @@ def test_dirty_release_inputs_cannot_reuse_a_clean_source_identity() -> None:
     value["components"]["pi"]["dirty_sha256"] = "e" * 64
     with pytest.raises(lc.LifecycleError, match="build-input identity mismatch"):
         release_graph(value)
+
+
+@pytest.mark.parametrize("recover", [False, True])
+def test_expected_refusal_is_distinct_and_supported_recovery_can_pass(recipe, recover):
+    recipe["steps"][1]["expect_exit"] = 17
+    recipe["steps"][1]["command"]["argv"][-1] += ";raise SystemExit(17)"
+    if recover:
+        step = copy.deepcopy(recipe["steps"][1])
+        step.update(id="recover", phase="recover", expect_exit=0)
+        step["command"]["argv"][-1] = 'import json;print(json.dumps({"safe":True}))'
+        recipe["steps"].insert(2, step)
+    plan = lc.compose(recipe)
+    directory = Path(recipe["state_root"]) / "refusal"
+    result = lc.run(plan, directory, confirm=plan["plan_sha256"])
+    assert result["status"] == ("pass" if recover else "expected_refusal")
+    assert lc.report(directory) == result
+
+
+def test_report_refuses_forged_expected_refusal(recipe):
+    plan = lc.compose(recipe)
+    directory = Path(recipe["state_root"]) / "refusal"
+    result = lc.run(plan, directory, confirm=plan["plan_sha256"])
+    result["status"] = "expected_refusal"
+    (directory / "result.json").write_text(json.dumps(result))
+    with pytest.raises(lc.LifecycleError, match="expected refusal contradicts"):
+        lc.report(directory)
