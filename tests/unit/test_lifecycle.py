@@ -245,6 +245,7 @@ def release_request() -> dict:
     for name in ("pi", "pico", "rp1"):
         inputs = {
             "source": "a" * 40,
+            "dirty_sha256": "d" * 64,
             "version": "1.0.0-rc.1",
             "board": "fixture",
             "profile": "test",
@@ -256,6 +257,7 @@ def release_request() -> dict:
             k: "a" * 40 for k in ("source", "tooling_source", "test_source", "embedded_source")
         }
         value.update(
+            dirty_sha256="d" * 64,
             build_inputs=inputs,
             version="1.0.0-rc.1",
             tag="v1.0.0-rc.1",
@@ -395,3 +397,12 @@ def test_blocked_preflight_never_runs_cleanup_for_unowned_baseline(recipe: dict)
     assert result["status"] == "blocked_prerequisite"
     assert len(result["records"]) == 1
     assert not result["recovery_required"]
+
+
+def test_dirty_release_inputs_cannot_reuse_a_clean_source_identity() -> None:
+    from wsprrypi_qualification.lifecycle_release import release_graph
+
+    value = release_request()
+    value["components"]["pi"]["dirty_sha256"] = "e" * 64
+    with pytest.raises(lc.LifecycleError, match="build-input identity mismatch"):
+        release_graph(value)

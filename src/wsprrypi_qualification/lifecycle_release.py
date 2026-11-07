@@ -15,6 +15,7 @@ from wsprrypi_qualification.lifecycle_recipes import release_order
 def ci_input_key(component: str, components: dict[str, Any]) -> str:
     keys = (
         "source",
+        "dirty_sha256",
         "tooling_source",
         "test_source",
         "embedded_source",
@@ -50,6 +51,7 @@ def release_graph(request: dict[str, Any]) -> dict[str, Any]:
     required = {
         "build_inputs",
         "changed",
+        "dirty_sha256",
         "source",
         "tooling_source",
         "test_source",
@@ -107,6 +109,7 @@ def release_graph(request: dict[str, Any]) -> dict[str, Any]:
             digest(value["build_inputs"]) != value["build_inputs_sha256"]
             or value["build_inputs"]["source"] != value["embedded_source"]
             or value["build_inputs"]["version"] != value["version"]
+            or value["build_inputs"]["dirty_sha256"] != value["dirty_sha256"]
         ):
             raise LifecycleError("build-input identity mismatch: " + component)
         if value["ci_input_sha256"] != ci_input_key(component, components):

@@ -52,7 +52,8 @@
             "ci_conclusion",
             "required_jobs",
             "successful_jobs",
-            "build_inputs"
+            "build_inputs",
+            "dirty_sha256"
           ],
           "properties": {
             "source": {
@@ -160,8 +161,13 @@
                 "profile",
                 "compiler",
                 "dependencies",
-                "generator"
+                "generator",
+                "dirty_sha256"
               ]
+            },
+            "dirty_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
             }
           }
         },
@@ -188,7 +194,8 @@
             "ci_conclusion",
             "required_jobs",
             "successful_jobs",
-            "build_inputs"
+            "build_inputs",
+            "dirty_sha256"
           ],
           "properties": {
             "source": {
@@ -296,8 +303,13 @@
                 "profile",
                 "compiler",
                 "dependencies",
-                "generator"
+                "generator",
+                "dirty_sha256"
               ]
+            },
+            "dirty_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
             }
           }
         },
@@ -324,7 +336,8 @@
             "ci_conclusion",
             "required_jobs",
             "successful_jobs",
-            "build_inputs"
+            "build_inputs",
+            "dirty_sha256"
           ],
           "properties": {
             "source": {
@@ -432,8 +445,13 @@
                 "profile",
                 "compiler",
                 "dependencies",
-                "generator"
+                "generator",
+                "dirty_sha256"
               ]
+            },
+            "dirty_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
             }
           }
         }
