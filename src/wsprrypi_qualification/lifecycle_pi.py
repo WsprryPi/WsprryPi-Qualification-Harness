@@ -269,9 +269,8 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     config = json.loads(args.config.read_text(encoding="utf-8"))
-    from wsprrypi_qualification.lifecycle import validate
-
-    validate(config, "lifecycle-pi-bench")
+    # The parent validates and hash-binds the bench schema. This child uses
+    # the pinned base interpreter and deliberately needs only the standard library.
     value: dict[str, Any] | None = None
     try:
         if args.operation == "stage-baseline":

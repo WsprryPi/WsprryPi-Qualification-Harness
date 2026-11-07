@@ -11,7 +11,18 @@ import subprocess
 import stat
 P = pathlib.Path
 def verify_retained(records):
+    files={'/usr/local/etc/wsprrypi.ini.pre_migration.bak',
+           '/etc/apache2/sites-available/wsprrypi.conf.wsprrypi.bak',
+           '/usr/local/etc/wsprrypi.ini.wtp-devices.json',
+           '/usr/local/etc/wsprrypi.ini.wtp-assignments.json',
+           '/usr/local/etc/wsprrypi.ini.usb-logs.json'}
+    directories={'/root/.wsprrypi-wtp','/var/lib/wsprrypi'}
     for name, policy in records.items():
+        ensure((name in files and policy.get('kind')=='file') or
+               (name in directories and policy.get('kind')=='empty_directory'), 'Unsupported retained path')
+        expected={'kind','uid','gid','mode','reason'}|({'sha256'} if policy['kind']=='file' else set())
+        ensure(set(policy)==expected and isinstance(policy['reason'],str) and policy['reason'], 'Invalid retention descriptor')
+        ensure(all(type(policy[k]) is int for k in ('uid','gid','mode')), 'Invalid retention metadata')
         path=P(name)
         ensure(not any(p.is_symlink() for p in (path,*path.parents)), 'Symlink retained path')
         info=path.lstat()

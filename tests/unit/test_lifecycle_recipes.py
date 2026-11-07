@@ -487,6 +487,8 @@ def test_retained_operator_paths_require_exact_bytes_and_empty_directory(tmp_pat
         }
     }
     assert scope["verify_retained"](record) == {name}
+    with pytest.raises(RuntimeError, match="Unsupported retained path"):
+        scope["verify_retained"]({"/var/lib/rp1-gpclk-dkms": next(iter(record.values()))})
     path.write_bytes(b"changed")
     with pytest.raises(RuntimeError, match="bytes changed"):
         scope["verify_retained"](record)
@@ -576,3 +578,27 @@ def test_selected_streamed_branch_is_explicit_and_hash_bound(tmp_path, monkeypat
         retained = json.loads(failed.read_text())
         assert retained["observed"] == observed
         assert "executable bytes differ" in retained["verification_error"]
+
+
+def test_pi_child_adapter_needs_no_virtualenv_packages(tmp_path):
+    import os
+
+    config = tmp_path / "bench.json"
+    config.write_text(json.dumps({"expected_hostname": "fixture"}))
+    output = tmp_path / "snapshot.json"
+    program = (
+        "import sys;from wsprrypi_qualification import lifecycle_pi as pi;"
+        'pi.probe=lambda *args:{"host":"fixture"};'
+        'sys.argv=["pi","snapshot",sys.argv[1],"--output",sys.argv[2]];'
+        "raise SystemExit(pi.main())"
+    )
+    result = subprocess.run(
+        [str(Path(sys.executable).resolve()), "-S", "-c", program, str(config), str(output)],
+        env={**os.environ, "PYTHONPATH": str(Path(recipes.__file__).parent.parent)},
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["verified"] is True
+    assert json.loads(output.read_text())["host"] == "fixture"
