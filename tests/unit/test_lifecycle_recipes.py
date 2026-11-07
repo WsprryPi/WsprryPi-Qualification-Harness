@@ -303,7 +303,10 @@ def test_lifecycle_run_named_directory_is_not_mistaken_for_rf(
     assert len(observed) == 1
 
 
-def test_system_probe_uses_production_mutation_intent_header(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("http_refusal", [False, True])
+def test_system_probe_uses_production_mutation_intent_header(
+    tmp_path, monkeypatch, http_refusal
+) -> None:
     """Discovery identify is read-only in effect but uses the protected POST contract."""
     import io
     import os
@@ -347,6 +350,12 @@ def test_system_probe_uses_production_mutation_intent_header(tmp_path, monkeypat
             assert request.get_header("Content-type") == "application/json"
             assert request.get_header("X-wsprrypico-request") == "1"
             assert json.loads(request.data)["settings"]["Device ID"] == "device"
+            if http_refusal:
+                import urllib.error
+
+                raise urllib.error.HTTPError(
+                    request.full_url, 409, "Conflict", {}, io.BytesIO(b"shared_lock_refusal")
+                )
             value = {
                 "binding": "usb",
                 "output_active": False,
@@ -363,10 +372,16 @@ def test_system_probe_uses_production_mutation_intent_header(tmp_path, monkeypat
     )
     prior_umask = os.umask(0o077)
     try:
-        runpy.run_path(
-            str(Path(recipes.__file__).parent / "lifecycle_assets/pi_usb_handoff.py.txt")
-        )
+        asset = str(Path(recipes.__file__).parent / "lifecycle_assets/pi_usb_handoff.py.txt")
+        if http_refusal:
+            with pytest.raises(RuntimeError, match=r"409.*shared_lock_refusal"):
+                runpy.run_path(asset)
+        else:
+            runpy.run_path(asset)
     finally:
         os.umask(prior_umask)
     assert len(calls) == 2
-    assert json.loads(output.read_text())["verified"] is True
+    if http_refusal:
+        assert not output.exists()
+    else:
+        assert json.loads(output.read_text())["verified"] is True

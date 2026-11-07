@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import urllib.request
+import urllib.error
 
 
 def require(condition, message):
@@ -42,8 +43,12 @@ if args.operation == 'probe':
         data=json.dumps(body).encode(), method='POST',
         headers={'Content-Type': 'application/json', 'Origin': base,
                  'X-WsprryPico-Request': '1'})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        observation = json.load(response)
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            observation = json.load(response)
+    except urllib.error.HTTPError as error:
+        detail = error.read(32768).decode('utf-8', errors='replace')
+        raise RuntimeError(f'Production identity probe refused ({error.code}): {detail}') from error
     require(observation['binding'] == 'usb' and observation['output_active'] is False,
             'Production probe did not establish RF-inactive USB state')
     require(observation['device_id'] == before['target']['device_id'] and

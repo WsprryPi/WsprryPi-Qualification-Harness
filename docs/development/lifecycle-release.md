@@ -77,6 +77,8 @@ The native matrix executes genuine preflight/APT/dpkg/DKMS and controlled failur
 
 The maintained public system profile adds a real production Pi USB identity lease between standalone Pico observations, then verifies unchanged physical identity, boot and saved semantics after standalone reacquisition. It does not enroll the Pico, select a transmit route, submit a job or program firmware through the Pi web UI. Stage the packaged `pi_usb_handoff.py.txt` next to the staged Pico cycle as `pi_usb_handoff.py`. The Pico bench's candidate bundle must independently identify the currently installed firmware. Use fresh output destinations for each request:
 
+Both production callers must support opening another user's existing serial lock without `O_CREAT`; Linux protected-file policy can otherwise refuse cross-user handoff in the shared sticky directory. Retain any refusal and its response body. Never unlink the lock, change its ownership, relax the system policy, or substitute an unpublished binary while claiming public-system acceptance. When the necessary product fix is only on an unmerged feature branch, validate that exact binary through an explicitly selected local-binary recipe and report public-system acceptance as unresolved until a suitable published build is available.
+
 ```text
 wsprrypi-qualification lifecycle system-public-plan PI-BENCH.json PICO-BENCH.json --state-root /durable/controller-state --pi-source /absolute/Pi-worktree --rp1-source /absolute/RP1-checkout --pico-source /absolute/Pico-feature-worktree --output SYSTEM-PUBLIC.json
 wsprrypi-qualification lifecycle plan SYSTEM-PUBLIC.json --output SYSTEM-PUBLIC-PLAN.json
