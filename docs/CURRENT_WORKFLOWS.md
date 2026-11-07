@@ -398,3 +398,7 @@ See [simultaneous-reference analysis](development/simultaneous-reference.md).
 Experimental device-neutral WTP transaction control and offline validation are
 documented in [WTP control](development/wtp-control.md). The portable adapter API
 is `wtp_control.run_transaction`; the CLI is `validate-wtp-transaction`.
+
+## RF-disabled lifecycle and releases
+
+`lifecycle source`, `plan`, `pi-public-plan`, `pico-plan`, `system-public-plan`, `system-plan` and `release-plan` resolve reviewable inputs without host/device access or CI dispatch. `execute` confirms the exact plan; `status`, `report`, `resume` and `recover` retain evidence and owning-component recovery duties. Component scopes are Pi, Pico and RP1, with an explicit coordinated system scope. Follow the [lifecycle/release guide](development/lifecycle-release.md); it identifies maintained native tests, platform adapters, independent verification, publishing opt-ins and physical/public gates. These commands never route through RF `complete-test`.

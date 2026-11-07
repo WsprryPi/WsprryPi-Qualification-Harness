@@ -14,6 +14,10 @@ MODULES = (
     "wsprrypi_qualification.real_session",
     "wsprrypi_qualification.receiver_calibration",
     "wsprrypi_qualification.turnkey_campaign",
+    "wsprrypi_qualification.lifecycle",
+    "wsprrypi_qualification.lifecycle_pi",
+    "wsprrypi_qualification.lifecycle_recipes",
+    "wsprrypi_qualification.lifecycle_release",
 )
 SCHEMAS = (
     "application-plan.schema.json",
@@ -23,11 +27,22 @@ SCHEMAS = (
     "turnkey-campaign-request.schema.json",
     "resolved-turnkey-campaign-plan.schema.json",
     "turnkey-campaign-result.schema.json",
+    "lifecycle-request.schema.json",
+    "lifecycle-plan.schema.json",
+    "lifecycle-result.schema.json",
+    "lifecycle-checkpoint.schema.json",
+    "lifecycle-release-request.schema.json",
+    "lifecycle-pi-bench.schema.json",
+    "lifecycle-pico-bench.schema.json",
 )
 ASSETS = (
     "deployment_assets/helper-config.example.json",
     "deployment_assets/wspq-capability-helper.service.in",
     "deployment_assets/wspq-gpio-inspect",
+    "lifecycle_assets/pi_snapshot.py.txt",
+    "lifecycle_assets/pi_absence.py.txt",
+    "lifecycle_assets/pico_cycle.py.txt",
+    "lifecycle_assets/pi_usb_handoff.py.txt",
 )
 
 

@@ -28,3 +28,12 @@ approved evidence store; do not commit them to this harness.
 Experimental device-neutral WTP transaction control and offline validation are
 documented in [WTP control](development/wtp-control.md). The portable adapter API
 is `wtp_control.run_transaction`; the CLI is `validate-wtp-transaction`.
+
+## Product lifecycle boundary
+
+| Capability | Production entry points | Schemas and verification |
+| --- | --- | --- |
+| RF-disabled component/system plans and durable execution | `lifecycle.py`, `lifecycle_cli.py`, `lifecycle_recipes.py`, `lifecycle_pi.py`, packaged Linux/USB adapters | `lifecycle-request`, `lifecycle-plan`, `lifecycle-checkpoint`, `lifecycle-result`, typed Pi/Pico bench inputs; `test_lifecycle.py`; source/artifact invalidation, scope refusal, intent/checkpoint, concurrency, interruption, child evidence and cleanup precedence |
+| Release/CI selection and partial-publication retention | `lifecycle_release.py`, selected publishing phases in `lifecycle.py` | `lifecycle-release-request`; exact fixed-pair CI keys, artifact inputs, independent scope, publication opt-in and guarded tag argument tests |
+
+See [the guide](development/lifecycle-release.md) for supported profiles and the distinction between software tests, native package evidence, physical USB/Pi services and RF qualification.

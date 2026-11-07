@@ -215,3 +215,7 @@ Receiver calibration never supplies or alters WsprryPi transmitter PPM.
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+
+## Lifecycle and release operations
+
+Use `wsprrypi-qualification lifecycle --help` for RF-disabled component/system plans, maintained public Pi acceptance, identified Pico fresh/preserve requests, release selection and durable execution/status/report/recovery. Read the [lifecycle guide](docs/development/lifecycle-release.md) for schemas, production-test reuse, prerequisites, exact boundaries and remaining physical acceptance requirements. Lifecycle evidence has separate result meanings from RF qualification.

@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsprrypi.org/schemas/lifecycle-result.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "lifecycle-result"
+    },
+    "plan_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "status": {
+      "enum": [
+        "pass",
+        "expected_refusal",
+        "unexpected_failure",
+        "blocked_prerequisite",
+        "abort",
+        "inconclusive",
+        "cleanup_failure"
+      ]
+    },
+    "completed": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "missing_checks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "recovery_required": {
+      "type": "boolean"
+    },
+    "published_components": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "step": {
+            "type": "string",
+            "minLength": 1
+          },
+          "phase": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1
+          },
+          "log": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "step",
+          "phase",
+          "status",
+          "log",
+          "sha256"
+        ]
+      }
+    },
+    "controller_cleanup": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "controller_error": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "plan_sha256",
+    "status",
+    "completed",
+    "missing_checks",
+    "recovery_required",
+    "published_components",
+    "records"
+  ]
+}

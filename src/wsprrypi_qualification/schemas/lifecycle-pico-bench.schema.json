@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "known_hosts": {
+      "type": "string",
+      "minLength": 1
+    },
+    "serial": {
+      "type": "string",
+      "pattern": "^[0-9A-F]{16}$"
+    },
+    "parent": {
+      "type": "string",
+      "minLength": 1
+    },
+    "installer_local": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schema_local": {
+      "type": "string",
+      "minLength": 1
+    },
+    "remote_installer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "remote_schema": {
+      "type": "string",
+      "minLength": 1
+    },
+    "remote_adapter": {
+      "type": "string",
+      "minLength": 1
+    },
+    "transaction_state": {
+      "type": "string",
+      "minLength": 1
+    },
+    "picotool": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "baseline_bundle": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidate_bundle": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "machine_id_sha256",
+        "hostname",
+        "os_id",
+        "os_version",
+        "kernel",
+        "board_model"
+      ],
+      "properties": {
+        "machine_id_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "hostname": {
+          "type": "string",
+          "minLength": 1
+        },
+        "os_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "os_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kernel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "board_model": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "required": [
+    "host",
+    "known_hosts",
+    "serial",
+    "parent",
+    "installer_local",
+    "schema_local",
+    "remote_installer",
+    "remote_schema",
+    "remote_adapter",
+    "transaction_state",
+    "picotool",
+    "evidence_root",
+    "baseline_bundle",
+    "candidate_bundle",
+    "target_identity"
+  ]
+}

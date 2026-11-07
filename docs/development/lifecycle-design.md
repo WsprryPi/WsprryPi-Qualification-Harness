@@ -1,0 +1,18 @@
+# Lifecycle orchestration design and reuse map
+
+Lifecycle operations have a separate plan, checkpoint and result contract from RF qualification. The portable controller records exact inputs, runs bounded production commands through local or strict SSH adapters, and retains recovery duties after an interrupted effect. It never uses `complete-test` and never enables RF.
+
+| Owner | Reused production boundary | Evidence class and gaps |
+| --- | --- | --- |
+| Pi | `scripts/tests/installer_dependency_test.sh`, `installer_bootstrap_test.py`, `ci-installer-offline-test`, ownership, INI migration, service recovery, RP1 helper and picotool tests | Mostly sandboxed software tests; actual streamed bootstrap, API readiness and independent removal need Linux bench execution |
+| RP1 | `tests/check_provider_lifecycle.py`, `tests/provider_package_removal_linux.py`, `engineering/contracts/provider-lifecycle.md`, `engineering/operations/package-lifecycle.md` | First is contract/fake coverage; second uses genuine package/preflight/APT/dpkg/DKMS in a disposable Linux environment and forbids live module/service operations |
+| Pico | `scripts/usb_installer.py`, `tests/usb_installer_tests.py`, `engineering/development/usb-installer.md` | Reuse device locks, image verification/reference, settings comparison, guarded BOOTSEL, flash geometry, recovery and postboot hold; add opt-in guarded software BOOTSEL to erase in the owning repository |
+| Harness | `transports.LocalCommandTransport`, `progress.ProgressReporter`, packaged JSON Schema convention | Reuse process termination and progress; lifecycle checkpoints distinguish effect intent from successful assertion and never infer completion from child exit alone |
+
+The historical eight-step runner, snapshot and absence audit are migration inputs. Their algorithms require parameterization: derive invoking home, module inventory and expected hashes, remove fixed host identity and module counts, retain whole logs, and make every readiness/absence assertion explicit. They cannot remain runtime dependencies.
+
+Plans select independent `pi`, `pico`, `rp1` or coordinated `system` scope. A normal Pi 5 profile declares RP1 mutation; a Pi-isolated profile must use a production path that actually excludes it. Commands cannot silently expand mutation scope. Plans expose all missing required checks as blockers rather than treating omitted scenarios as passing. Release graphs order dependency validation/public availability before Pi selection and acceptance, and retain partial-publication checkpoints. Product publication requires a separately selected publishing operation; validation plans do not publish.
+
+Input identities include source HEAD, dirty state including untracked bytes, command executable and file hashes, artifacts, dependency/toolchain/board inputs and expected final state. CI reuse requires the complete input key, successful conclusions and all required jobs; any mismatch explains a new canonical run. Tests of host orchestration alone do not change the shared control wire contract. A later protocol-facing change requires both exact-source Pi/Pico network and USB suites.
+
+Controller state belongs in durable storage outside Git and product trees. A controller lock serializes a run; target/device locks must be held by production adapters. Every effect writes intent before execution; after controller loss, resume requires a successful read-only state inspection and an explicit continuation decision. No ambiguous effect is automatically replayed. Recovery invokes the owning component's supported recovery command and independently verifies final state. Cleanup failure has precedence over scenario success.

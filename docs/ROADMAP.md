@@ -47,3 +47,7 @@ the Si5351 backend and the GPIO backend used by Broadcom/DMA WsprryPi versions.
 This repository retains no campaign qualification data. Results remain
 configuration-specific and belong with the target project or an approved
 evidence store.
+
+## Lifecycle acceptance gates
+
+The maintained [lifecycle guide](development/lifecycle-release.md) defines executable planning, controller and production-adapter boundaries. Retain separately selected physical fault/power-loss cases, introduced-setting migration fixtures, genuine published RP1 version increases, real Pi/Pico controller handoff and exact-source canonical CI as evidence gates. A local/native/fixture pass does not close an unavailable physical/public gate.

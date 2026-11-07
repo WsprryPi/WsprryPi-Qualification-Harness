@@ -71,6 +71,10 @@ def capability_report() -> dict[str, Any]:
             "typed route planning, exact-digest confirmation, deterministic hardware-free "
             "rehearsal, and dispatch to the maintained real-session or live-keyed coordinator"
         ),
+        "product_lifecycle": (
+            "RF-disabled component/system plans, durable production lifecycle execution, "
+            "independent verification, release/CI selection and owning-component recovery"
+        ),
         "complete_test_campaign": (
             "two-host, exact-SDR selectable TONE, WSPR, QRSS, FSKCW, and DFCW "
             "composition with an all-mode default, hardware-free rehearsal, and "

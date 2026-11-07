@@ -1,0 +1,88 @@
+def ensure(value, message='Lifecycle assertion failed'):
+    if not value:
+        raise RuntimeError(message)
+import configparser
+import hashlib
+import json
+import os
+import pathlib
+import socket
+import subprocess
+import urllib.error
+import urllib.request
+P = pathlib.Path
+
+def run(args):
+    r = subprocess.run(args, capture_output=True, text=True, timeout=60)
+    return {'returncode': r.returncode, 'stdout': r.stdout.strip(), 'stderr': r.stderr.strip()}
+
+def sha(p):
+    return hashlib.sha256(P(p).read_bytes()).hexdigest()
+d = {'host': socket.gethostname(), 'kernel': run(['uname', '-r'])['stdout']}
+b = P('/usr/local/bin/wsprrypi')
+d['binary_exists'] = b.is_file()
+if b.is_file():
+    d.update(binary_sha256=sha(b), version=run([str(b), '--version']))
+d['service'] = run(['systemctl', 'show', 'wsprrypi.service', '-p', 'LoadState', '-p', 'ActiveState', '-p', 'SubState', '-p', 'UnitFileState'])
+d['package'] = run(['dpkg-query', '-W', '-f=${db:Status-Status} ${Version}\n', 'rp1-gpclk-dkms'])
+d['dkms'] = run(['/usr/sbin/dkms', 'status'])
+d['dpkg_audit'] = run(['dpkg', '--audit'])
+ini = P('/usr/local/etc/wsprrypi.ini')
+d['ini_exists'] = ini.exists()
+if ini.exists():
+    c = configparser.ConfigParser(interpolation=None, strict=False)
+    c.read(ini)
+    sem = {s: {k: v.lower() if v.lower() in ['true', 'false'] else v for k, v in c[s].items()} for s in c.sections()}
+    d['ini_sha256'] = sha(ini)
+    d['settings_sha256'] = hashlib.sha256(json.dumps(sem, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    d['safety'] = {k: sem.get('Operation', {}).get(k) for k in ['transmit', 'enable on boot', 'transmit backend']}
+record = P('/var/lib/rp1-gpclk-dkms/provider-installation.json')
+if record.exists():
+    value = json.loads(record.read_text())
+    d['provider'] = {k: value.get(k) for k in ['sourceCommit', 'channel', 'tag', 'output', 'routeActivation']}
+facade = P('/var/lib/rp1-gpclk-dkms/facade/active.json')
+if facade.exists():
+    v = json.loads(facade.read_text())
+    d['provider_tooling_sha256'] = sha(v['entrypoint'])
+runtime = P('/usr/lib/rp1-gpclk-dkms/runtime_provider.py')
+if runtime.exists():
+    r = run(['python3', '-B', str(runtime), 'inspect'])
+    if r['returncode'] == 0:
+        v = json.loads(r['stdout'])
+        d['runtime'] = {k: v.get(k) for k in ['state', 'routeSelected', 'safety', 'reboot']}
+        d['runtime']['outputEnabled'] = v.get('manager', {}).get('query', {}).get('state', {}).get('outputEnabled')
+    else:
+        d['runtime_error'] = r
+d['provider_modules'] = {n: P('/sys/module', n).exists() for n in ['rp1_gpclk_dkms', 'rp1_route_controller']}
+d['provider_devices'] = {n: P('/dev', n).exists() for n in ['rp1-gpclk', 'rp1-route-admin']}
+d['module_artifacts'] = sorted([{'path': str(p), 'mtime_ns': p.stat().st_mtime_ns, 'sha256': sha(p)} for stem in ['rp1_gpclk_dkms', 'rp1_route_controller'] for p in P('/lib/modules').glob('*/updates/dkms/' + stem + '.ko*')], key=lambda x: x['path'])
+d['source_trees'] = [str(p) for p in P('/usr/src').glob('rp1-gpclk-dkms-*')]
+d['http'] = {}
+for name, url in [('ui', 'http://127.0.0.1/wsprrypi/'), ('apache_root', 'http://127.0.0.1/'), ('api', 'http://127.0.0.1:31415/'), ('config', 'http://127.0.0.1:31415/config')]:
+    try:
+        with urllib.request.urlopen(url, timeout=5) as response:
+            body = response.read(2 * 1024 * 1024)
+            if name == 'config':
+                v=json.loads(body)
+                fixture=json.loads(os.environ.get('LIFECYCLE_SETTINGS_FIXTURE','{}'))
+                d['api_fixture']={section:{key:v[section][key] for key in fields} for section,fields in fixture.items()}
+            d['http'][name] = {'status': response.status, 'sha256': hashlib.sha256(body).hexdigest()}
+    except urllib.error.HTTPError as e:
+        d['http'][name] = {'status': e.code}
+    except Exception as e:
+        d['http'][name] = {'error': str(e)}
+d['tcp'] = {}
+for port in [31415, 31416]:
+    try:
+        with socket.create_connection(('127.0.0.1', port), timeout=2):
+            d['tcp'][str(port)] = True
+    except OSError:
+        d['tcp'][str(port)] = False
+d['shared_hashes'] = {str(p): sha(p) for p in [P('/boot/firmware/config.txt'), P('/etc/apache2/sites-available/000-default.conf'), P('/usr/local/bin/picotool')] if p.is_file()}
+d['picotool_path'] = str(P('/usr/local/bin/picotool').resolve())
+d['picotool_version'] = run(['/usr/local/bin/picotool', 'version']) if P('/usr/local/bin/picotool').exists() else None
+d['marker'] = (P(os.environ['LIFECYCLE_INVOKING_HOME']) / 'finished').exists()
+d['apache_config'] = run(['/usr/sbin/apache2ctl', 'configtest'])
+d['package_files'] = run(['dpkg-query', '-L', 'rp1-gpclk-dkms'])
+d['module_policy'] = {'modules': ['rp1_gpclk_dkms', 'rp1_route_controller'], 'dkms_registrations': d['dkms']['stdout']}
+print(json.dumps(d, indent=2))
