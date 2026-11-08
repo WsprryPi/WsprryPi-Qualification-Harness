@@ -675,3 +675,28 @@ def test_missed_transmitter_job_is_failed_not_a_fixture_block():
         )
         == "cleanup_failed"
     )
+
+
+@pytest.mark.parametrize(
+    "mutation", ["synthetic_capture", "synthetic_analyzer", "generator", "analyzer"]
+)
+def test_live_result_rejects_declared_synthetic_or_unbound_analysis(mutation):
+    from wsprrypi_qualification.pico_results import _validate_analysis_identity
+
+    plan = make_plan()
+    revision = plan["analyzer_source"]["revision"]
+    expected = dict(generator=dict(source_revision=revision))
+    measured = dict(
+        capture=dict(synthetic=False), analyzer=dict(synthetic=False, source_revision=revision)
+    )
+    _validate_analysis_identity(plan, expected, measured)
+    if mutation == "synthetic_capture":
+        measured["capture"]["synthetic"] = True
+    elif mutation == "synthetic_analyzer":
+        measured["analyzer"]["synthetic"] = True
+    elif mutation == "generator":
+        expected["generator"]["source_revision"] = "b" * 40
+    else:
+        measured["analyzer"]["source_revision"] = "b" * 40
+    with pytest.raises(PicoWireError, match="synthetic or mismatched"):
+        _validate_analysis_identity(plan, expected, measured)

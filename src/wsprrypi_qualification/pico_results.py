@@ -167,6 +167,19 @@ def _validate_wspr(directory: Path, plan: dict[str, Any], start_ns: int) -> str:
     return outcome
 
 
+def _validate_analysis_identity(
+    plan: dict[str, Any], expected: dict[str, Any], measured: dict[str, Any]
+) -> None:
+    revision = plan["analyzer_source"]["revision"]
+    if (
+        expected["generator"]["source_revision"] != revision
+        or measured["analyzer"]["source_revision"] != revision
+        or measured["analyzer"]["synthetic"] is not False
+        or measured["capture"]["synthetic"] is not False
+    ):
+        raise PicoWireError("Pico live analysis has synthetic or mismatched source evidence")
+
+
 def _validate_frame(
     directory: Path,
     frame: dict[str, Any],
@@ -293,11 +306,7 @@ def _validate_frame(
             or cw["source"]["compiler_sha256"] != plan["compiler"]["sha256"]
         ):
             raise PicoWireError("Pico analyzer source binding differs")
-        if (
-            expected["generator"]["source_revision"] != plan["analyzer_source"]["revision"]
-            or measured["analyzer"]["source_revision"] != plan["analyzer_source"]["revision"]
-        ):
-            raise PicoWireError("Harness generator/analyzer identity differs from the plan")
+        _validate_analysis_identity(plan, expected, measured)
         _validate_events(cw, expected)
         if _within(measured["capture"]["path"], directory) != iq:
             raise PicoWireError("CW observations use another capture")
