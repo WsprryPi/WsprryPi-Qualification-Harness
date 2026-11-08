@@ -229,6 +229,31 @@ def test_bad_decimal_and_utf8_limits_are_strict():
         validate_contract(value, "wtp", "helloRequest")
 
 
+def test_complete_merge_update_uses_current_closed_contract():
+    value = {
+        "contract": "Wsprry-Control/1",
+        "schema": "config-update",
+        "target": {"scope": "member", "device_id": "a" * 32, "boot_id": "b" * 32},
+        "mode": "merge",
+        "config": {
+            "enabled": False,
+            "station": {"callsign": "AA0NT", "locator": "EM18", "power_dbm": 37},
+            "wifi": {"ssid": "test-network", "password": "test-password"},
+            "schedules": [],
+        },
+    }
+    validate_contract(value, "control", "config-update")
+    for key, invalid in (("enabled", 1), ("schedules", {}), ("unknown", True)):
+        bad = copy.deepcopy(value)
+        bad["config"][key] = invalid
+        with pytest.raises(PicoWireError):
+            validate_contract(bad, "control", "config-update")
+    bad = copy.deepcopy(value)
+    bad["contract"] = "Wsprry-Control/2"
+    with pytest.raises(PicoWireError):
+        validate_contract(bad, "control", "config-update")
+
+
 class ProcessStream:
     """Bounded test transport for actual production driver stdin/stdout."""
 
