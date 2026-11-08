@@ -118,6 +118,7 @@ def source_files(path: Path) -> dict[str, str]:
         subprocess.check_output(
             ["git", "-c", "core.fsmonitor=false", "-C", str(path), "ls-files", "--stage", "-z"],
             timeout=60,
+            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
         )
         .decode()
         .split("\0")

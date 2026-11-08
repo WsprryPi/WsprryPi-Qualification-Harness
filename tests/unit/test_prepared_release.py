@@ -392,3 +392,18 @@ def test_corrupt_continuation_shape_refuses_before_public_transport(tmp_path: Pa
     with pytest.raises(ValueError, match="prepared-release-state"):
         release.publish(state, ready["prepared_sha256"], service, enable_publication=True)
     assert not service.events
+
+
+def test_source_inventory_ignores_ambient_git_repository_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = repository(tmp_path / "original café source", "pico")
+    foreign = repository(tmp_path / "foreign source", "pi")
+    (foreign / "foreign-only.txt").write_text("independent work", encoding="utf-8")
+    subprocess.run(["git", "-C", str(foreign), "add", "foreign-only.txt"], check=True)
+    expected = release.source_files(original)
+    monkeypatch.setenv("GIT_DIR", str(foreign / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(foreign))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(foreign / ".git/index"))
+    assert release.source_files(original) == expected
+    assert (foreign / "foreign-only.txt").read_text(encoding="utf-8") == "independent work"
