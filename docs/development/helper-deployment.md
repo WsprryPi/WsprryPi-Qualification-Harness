@@ -43,6 +43,16 @@ expected helper/configuration hashes at startup. A runtime-bound configuration
 containing a plan digest is rejected. A universal receiver authorization never
 imports these facts or authorizes transmission.
 
+For TONE and WSPR composition, the resolved `remote_helper` privilege-wrapper
+path and SHA-256 describe the transmitter's file. In a split-host run, the
+coordinator verifies that file through the pinned transmitter SSH connection
+before starting either helper. This read-only probe uses the transmitter's
+`/usr/bin/python3` (Python 3.11 or newer), closed stdin, non-interactive SSH,
+strict host-key checking, and the helper-verification deadline. A failed probe,
+missing file, or hash mismatch blocks helper startup. The receiver's local
+wrapper may have different bytes or be absent. Same-host role composition
+continues to verify the wrapper locally.
+
 The deployment document is not passed directly to the persistent helper. After
 validation, the maintained `runtime_helper_config()` translator emits the
 helper's smaller runtime schema; write that generated document to the configured
