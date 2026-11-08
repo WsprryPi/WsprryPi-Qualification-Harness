@@ -95,6 +95,10 @@ class CanonicalReleaseAdapter:
                 " ".join(argv[:3]),
             )
         lc.save(directory / ("command-" + secrets.token_hex(8) + ".json"), record, new=True)
+        require(
+            not record["timed_out"] and not record["cancelled"] and record["cleanup_verified"],
+            "canonical command supervision or cleanup failed; inspect retained command record",
+        )
         if not allow_failure:
             require(
                 record["assertions_passed"],
@@ -217,9 +221,15 @@ class CanonicalReleaseAdapter:
         require(
             re.fullmatch("sha256:[0-9a-f]{64}", image), "immutable Docker image identity required"
         )
+        owner = secrets.token_hex(16)
+        container = "wspq-prepared-" + owner
         argv = [
             *self.command("docker"),
             "run",
+            "--name",
+            container,
+            "--label",
+            "wsprrypi.qualification.owner=" + owner,
             "--rm",
             "--read-only",
             "--cap-drop=ALL",
@@ -254,9 +264,47 @@ class CanonicalReleaseAdapter:
             argv += ["--tmpfs", "/source/build:rw,exec,mode=1777"]
         for host, target in mounts.items():
             argv += ["-v", str(host) + ":" + target]
-        return self.run(
-            [*argv, "--entrypoint", arguments[0], image, *arguments[1:]], root, timeout=timeout
-        )
+        try:
+            return self.run(
+                [*argv, "--entrypoint", arguments[0], image, *arguments[1:]], root, timeout=timeout
+            )
+        finally:
+            # Docker daemon children are outside the local CLI process tree.
+            # Inspect our unique identity even after cancellation; never remove
+            # a container merely because its name matches an expected prefix.
+            inspected = self.run(
+                [*self.command("docker"), "inspect", "--type", "container", container],
+                root,
+                timeout=30,
+                allow_failure=True,
+            )
+            if inspected["return_code"] == 0:
+                observed = json.loads(inspected["stdout"])
+                require(
+                    len(observed) == 1
+                    and observed[0]["Config"]["Labels"].get("wsprrypi.qualification.owner") == owner
+                    and observed[0]["Image"] == image,
+                    "container cleanup refused foreign ownership; inspect retained command log",
+                )
+                identifier = observed[0]["Id"]
+                self.run(
+                    [*self.command("docker"), "rm", "--force", identifier],
+                    root,
+                    timeout=30,
+                    allow_failure=True,
+                )
+                inspected = self.run(
+                    [*self.command("docker"), "inspect", "--type", "container", identifier],
+                    root,
+                    timeout=30,
+                    allow_failure=True,
+                )
+            require(
+                inspected["return_code"] != 0
+                and re.search(r"no such (?:object|container)", inspected["stderr"], re.I),
+                "container cleanup could not verify absence; "
+                "retain state and inspect owned container",
+            )
 
     def prepare(self, name: str, spec: dict[str, Any], root: Path) -> dict[str, Any]:
         self.preparing = True
@@ -321,7 +369,7 @@ class CanonicalReleaseAdapter:
         for target in TARGETS:
             directory = builds / target
             binary = regular(directory / "wsprrypi")
-            metadata = regular(directory / "build-metadata.hpp").read_text()
+            metadata = regular(directory / "build-metadata.hpp").read_text(encoding="utf-8")
             fields = dict(re.findall(r'^#define (MAKE_[A-Z_]+) "([^"\n]*)"$', metadata, re.M))
             require(
                 fields.get("MAKE_COMMIT") == revision
@@ -331,9 +379,9 @@ class CanonicalReleaseAdapter:
             )
             embedded.add(fields["MAKE_TAG"])
             build_branches.add(fields["MAKE_RAW_BRH"])
-            sums = (directory / "SHA256SUMS").read_text()
+            sums = (directory / "SHA256SUMS").read_text(encoding="utf-8")
             require(lc.file_sha(binary) in sums, "Pi export checksum differs: " + target)
-            image = (directory / "build-image-id.txt").read_text().strip()
+            image = (directory / "build-image-id.txt").read_text(encoding="utf-8").strip()
             images[target] = image
             self.docker(
                 image,
@@ -386,7 +434,9 @@ class CanonicalReleaseAdapter:
             for record in records:
                 shutil.copy2(builds / record["target"] / "wsprrypi", assets / record["name"])
             (assets / "SHA256SUMS").write_text(
-                "".join(r["sha256"] + "  " + r["name"] + "\n" for r in records)
+                "".join(r["sha256"] + "  " + r["name"] + "\n" for r in records),
+                encoding="ascii",
+                newline="\n",
             )
             manifest = {
                 "schema_version": 1,
@@ -416,7 +466,7 @@ class CanonicalReleaseAdapter:
             require(
                 lc.file_sha(assets / record["name"]) == record["sha256"], "Pi packet bytes changed"
             )
-        tree = ast.parse((src / "scripts/rp1_gpclk_dkms_install.py").read_text())
+        tree = ast.parse((src / "scripts/rp1_gpclk_dkms_install.py").read_text(encoding="utf-8"))
         default = next(
             (
                 n.value.value
@@ -688,7 +738,7 @@ class CanonicalReleaseAdapter:
                 "import importlib.util,json,sys;from pathlib import Path;"
                 "s=importlib.util.spec_from_file_location('c'," + repr(str(helper)) + ");"
                 "c=importlib.util.module_from_spec(s);s.loader.exec_module(c);"
-                "v=json.loads(Path(" + repr(str(request)) + ").read_text());"
+                "v=json.loads(Path(" + repr(str(request)) + ").read_text(encoding='utf-8'));"
                 "\ntry:c.verify_prepared_publication(c.Https(),v['release'],v['manifest'])"
                 "\nexcept c.PublicationPending:sys.exit(3)"
             )

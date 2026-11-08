@@ -121,7 +121,9 @@ def repository(directory: Path, role: str) -> Path:
 def request_for(root: Path, scope: str = "system") -> dict[str, Any]:
     root = root.resolve()
     root.mkdir(exist_ok=True)
-    repos = {n: repository(root / (n + " source with spaces"), n) for n in release.REPOSITORIES}
+    repos = {
+        n: repository(root / (n + " source café with spaces"), n) for n in release.REPOSITORIES
+    }
     version = "1.0.0-test.1"
     components = {
         "pi": {
@@ -224,7 +226,7 @@ def test_changed_missing_or_substituted_inputs_refuse_before_publication(
     elif change == "source":
         (state / "sources/pico/source.txt").write_text("changed source")
     else:
-        (state / "evidence").mkdir()
+        (state / "evidence").mkdir(exist_ok=True)
         (state / "evidence/invented.json").write_text("{}")
     assert release.status(state)["status"] == "invalidated"
     with pytest.raises((ValueError, OSError)):

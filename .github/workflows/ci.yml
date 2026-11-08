@@ -69,6 +69,7 @@ jobs:
           tests/unit/test_simultaneous_reference.py
           tests/unit/test_carrier.py
           tests/unit/test_prepared_release.py
+          tests/unit/test_prepared_release_adapters.py
           tests/unit/test_lifecycle.py
           tests/unit/test_lifecycle_recipes.py
           tests/unit/test_paths.py

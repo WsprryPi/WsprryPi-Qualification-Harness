@@ -1,0 +1,80 @@
+"""A failed Docker CLI cannot leave an unexamined daemon child or remove a foreign one."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from wsprrypi_qualification import lifecycle as lc
+from wsprrypi_qualification.prepared_release_adapters import CanonicalReleaseAdapter
+
+IMAGE = "sha256:" + "a" * 64
+
+
+class Daemon(CanonicalReleaseAdapter):
+    def __init__(self, *, failure: str = "") -> None:
+        super().__init__({})
+        self.failure = failure
+        self.exists = False
+        self.owner = ""
+        self.calls: list[list[str]] = []
+
+    def command(self, name: str) -> list[str]:
+        return [name]
+
+    def run(self, argv: list[str], root: Path, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(argv)
+        if argv[1] == "run":
+            self.owner = argv[argv.index("--label") + 1].split("=", 1)[1]
+            if self.failure:
+                self.exists = True
+                raise lc.LifecycleError("interrupted canonical build")
+            return {"return_code": 0, "stdout": "{}", "stderr": ""}
+        if argv[1] == "rm":
+            if self.failure != "cleanup":
+                self.exists = False
+            return {"return_code": 0, "stdout": "", "stderr": ""}
+        assert argv[1:4] == ["inspect", "--type", "container"]
+        if not self.exists:
+            return {"return_code": 1, "stdout": "[]", "stderr": "Error: No such object"}
+        value = [
+            {
+                "Id": "b" * 64,
+                "Image": IMAGE,
+                "Config": {
+                    "Labels": {
+                        "wsprrypi.qualification.owner": "foreign"
+                        if self.failure == "foreign"
+                        else self.owner
+                    }
+                },
+            }
+        ]
+        return {"return_code": 0, "stdout": json.dumps(value), "stderr": ""}
+
+
+def test_success_still_verifies_daemon_container_absent(tmp_path: Path) -> None:
+    adapter = Daemon()
+    adapter.docker(IMAGE, {}, ["python3", "--version"], tmp_path)
+    assert any(call[1] == "inspect" for call in adapter.calls)
+    assert not any(call[1] == "rm" for call in adapter.calls)
+
+
+@pytest.mark.parametrize("failure", ["owned", "foreign", "cleanup"])
+def test_interrupted_cli_inspects_ownership_and_verifies_cleanup(
+    tmp_path: Path, failure: str
+) -> None:
+    adapter = Daemon(failure=failure)
+    message = {
+        "owned": "interrupted canonical",
+        "foreign": "foreign ownership",
+        "cleanup": "cleanup could not verify",
+    }[failure]
+    with pytest.raises(ValueError, match=message):
+        adapter.docker(IMAGE, {}, ["python3", "--version"], tmp_path)
+    assert any(call[1] == "inspect" for call in adapter.calls)
+    assert any(call[1] == "rm" for call in adapter.calls) is (failure != "foreign")
+    assert adapter.exists is (failure != "owned")

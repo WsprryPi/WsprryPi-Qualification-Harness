@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -74,6 +75,7 @@ def git(path: Path, *args: str) -> str:
     return subprocess.check_output(
         ["git", "-c", "core.fsmonitor=false", "-C", str(path), *args],
         text=True,
+        encoding="utf-8",
         timeout=60,
         env=environment,
     ).strip()
@@ -143,8 +145,9 @@ def source_files(path: Path) -> dict[str, str]:
 
 def tools(request: dict[str, Any]) -> dict[str, Any]:
     result = {}
-    for name in ("git", "python", "gh", "docker"):
-        argv = request.get("tools", {}).get(name, [sys.executable if name == "python" else name])
+    for name in ("source_git", "git", "python", "gh", "docker"):
+        default = sys.executable if name == "python" else "git" if name == "source_git" else name
+        argv = request.get("tools", {}).get(name, [default])
         executable = shutil.which(argv[0])
         if executable is None:
             result[name] = {"argv": argv, "available": False}
@@ -287,34 +290,50 @@ def check_plan(value: dict[str, Any]) -> None:
         )
 
 
-def freeze_source(identity: dict[str, Any], destination: Path) -> dict[str, Any]:
-    subprocess.run(
-        ["git", "clone", "--no-local", "--no-checkout", identity["path"], str(destination)],
-        check=True,
-        capture_output=True,
-        timeout=180,
-    )
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(destination),
-            "remote",
-            "set-url",
-            "origin",
-            "https://github.com/" + identity["repository"] + ".git",
-        ],
-        check=True,
-        timeout=30,
-    )
-    args = (
-        ["checkout", "-B", identity["branch"], identity["commit"]]
-        if identity["branch"]
-        else ["checkout", "--detach", identity["commit"]]
-    )
-    subprocess.run(
-        ["git", "-C", str(destination), *args], check=True, capture_output=True, timeout=60
-    )
+def freeze_source(
+    identity: dict[str, Any], destination: Path, tool: dict[str, Any]
+) -> dict[str, Any]:
+    environment = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    evidence = destination.parent.parent / "evidence"
+    evidence.mkdir(mode=0o700, exist_ok=True)
+    executable = Path(tool["resolved_executable"])
+    require(lc.file_sha(executable) == tool["inputs"][str(executable)], "source Git tool changed")
+    steps = [
+        (["clone", "--no-local", "--no-checkout", identity["path"], str(destination)], 180),
+        (
+            [
+                "-C",
+                str(destination),
+                "remote",
+                "set-url",
+                "origin",
+                "https://github.com/" + identity["repository"] + ".git",
+            ],
+            30,
+        ),
+        (
+            ["-C", str(destination), "checkout", "-B", identity["branch"], identity["commit"]]
+            if identity["branch"]
+            else ["-C", str(destination), "checkout", "--detach", identity["commit"]],
+            60,
+        ),
+    ]
+    for arguments, timeout in steps:
+        record = lc.execute_command(
+            {
+                "command": {
+                    "argv": [str(executable), "-c", "core.fsmonitor=false", *arguments],
+                    "cwd": str(destination.parent),
+                    "timeout_s": timeout,
+                    "environment": environment,
+                    "inputs": [{"path": str(executable), "sha256": lc.file_sha(executable)}],
+                },
+                "expect_exit": 0,
+                "expect_json": {},
+            }
+        )
+        lc.save(evidence / ("source-git-" + secrets.token_hex(8) + ".json"), record, new=True)
+        require(record["assertions_passed"], "source freezing failed; inspect retained Git record")
     return {
         **identity,
         "original_path": identity["path"],
@@ -371,7 +390,9 @@ def prepare(value: dict[str, Any], confirmed: str, adapter: ReleaseAdapter) -> d
     lc.save(root / "state.json", state, new=True)
     try:
         for key, identity in value["sources"].items():
-            frozen[key] = freeze_source(identity, root / "sources" / key.replace(":", "-"))
+            frozen[key] = freeze_source(
+                identity, root / "sources" / key.replace(":", "-"), value["tools"]["source_git"]
+            )
         request = json.loads(json.dumps(value["request"]))
         packets = {}
         for name in ORDER:
