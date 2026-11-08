@@ -628,3 +628,61 @@ def test_production_usb_audit_reconstructs_fragmented_management_and_wtp(pico_bu
     (tmp_path / "wire.jsonl").write_text("\n".join(lines) + "\n")
     with pytest.raises(PicoWireError):
         validate_wire_audit(tmp_path / "wire.jsonl", set(), management.hello["target"])
+
+
+@pytest.mark.parametrize("drop_fails", [False, True])
+def test_cdc_close_drops_session_and_releases_resources_even_on_failure(monkeypatch, drop_fails):
+    import sys
+    from types import SimpleNamespace
+
+    from wsprrypi_qualification.pico_serial import SerialStream
+
+    dropped, released, closed = [], [], []
+
+    def ioctl(fd, operation, *_args):
+        if operation == 1:
+            dropped.append(fd)
+            if drop_fails:
+                raise OSError("injected DTR failure")
+        else:
+            released.append(fd)
+
+    monkeypatch.setitem(sys.modules, "fcntl", SimpleNamespace(ioctl=ioctl))
+    monkeypatch.setitem(
+        sys.modules, "termios", SimpleNamespace(TIOCMBIC=1, TIOCM_DTR=2, TIOCNXCL=3)
+    )
+    monkeypatch.setattr(os, "close", lambda fd: closed.append(fd))
+    stream = SerialStream.__new__(SerialStream)
+    stream.fd = 42  # An injected descriptor; no physical file/device is opened.
+    stream._exclusive = True
+    stream._session_started = True
+    if drop_fails:
+        with pytest.raises(OSError, match="DTR failure"):
+            stream.close()
+    else:
+        stream.close()
+    assert dropped == released == closed == [42]
+    assert stream.fd is None
+    stream.close()
+    assert closed == [42]
+
+
+def test_partial_cdc_open_never_drops_an_unowned_session(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from wsprrypi_qualification.pico_serial import SerialStream
+
+    def forbidden(*_args):
+        raise AssertionError("Cleanup modified another session before ownership")
+
+    closed = []
+    monkeypatch.setitem(sys.modules, "fcntl", SimpleNamespace(ioctl=forbidden))
+    monkeypatch.setitem(sys.modules, "termios", SimpleNamespace())
+    monkeypatch.setattr(os, "close", lambda fd: closed.append(fd))
+    stream = SerialStream.__new__(SerialStream)
+    stream.fd = 42
+    stream._exclusive = False
+    stream._session_started = False
+    stream.close()
+    assert closed == [42]

@@ -43,14 +43,18 @@ class SerialStream:
 
         self.fd: int | None = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
         self.cancellation = cancellation
+        self._exclusive = False
+        self._session_started = False
         try:
             fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             fcntl.ioctl(self.fd, termios.TIOCEXCL)
+            self._exclusive = True
             attributes = termios.tcgetattr(self.fd)
             attributes[:4] = [0, 0, termios.CS8 | termios.CREAD | termios.CLOCAL, 0]
             attributes[4:6] = [termios.B115200, termios.B115200]
             attributes[6][termios.VMIN] = attributes[6][termios.VTIME] = 0
             termios.tcsetattr(self.fd, termios.TCSANOW, attributes)
+            self._session_started = True
             fcntl.ioctl(self.fd, termios.TIOCMBIC, struct.pack("I", termios.TIOCM_DTR))
             time.sleep(0.1)
             termios.tcflush(self.fd, termios.TCIOFLUSH)
@@ -98,12 +102,20 @@ class SerialStream:
     def close(self) -> None:
         import fcntl
         import os
+        import struct
         import termios
 
         if self.fd is not None:
             fd, self.fd = self.fd, None
             try:
-                fcntl.ioctl(fd, termios.TIOCNXCL)
+                try:
+                    # Explicitly close the firmware CDC session; raw termios
+                    # must not leave DTR asserted after releasing the host fd.
+                    if self._session_started:
+                        fcntl.ioctl(fd, termios.TIOCMBIC, struct.pack("I", termios.TIOCM_DTR))
+                finally:
+                    if self._exclusive:
+                        fcntl.ioctl(fd, termios.TIOCNXCL)
             finally:
                 os.close(fd)
 
