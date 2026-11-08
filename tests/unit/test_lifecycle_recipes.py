@@ -145,13 +145,14 @@ def test_station_fixture_cannot_select_backend_or_enable_output() -> None:
     ast.parse(configuration_script("restart", fixture))
 
 
-def test_documented_lifecycle_commands_parse_without_execution() -> None:
+@pytest.mark.parametrize("guide_name", ["lifecycle-release.md", "prepared-releases.md"])
+def test_documented_lifecycle_commands_parse_without_execution(guide_name: str) -> None:
     import shlex
 
     from wsprrypi_qualification.cli import _parser
 
     root = Path(recipes.__file__).parents[2]
-    guide = (root / "docs/development/lifecycle-release.md").read_text()
+    guide = (root / "docs/development" / guide_name).read_text(encoding="utf-8")
     for line in guide.splitlines():
         if line.startswith("wsprrypi-qualification lifecycle ") and not line.endswith("--help"):
             arguments = shlex.split(line)[1:]
