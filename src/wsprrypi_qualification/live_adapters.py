@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -2041,13 +2042,70 @@ def build_production_adapters(
             for field in ("path", "config_path")
         ):
             raise RealSessionError("helper or configuration path is unsafe for execution")
-    remote_wrapper = Path(plan["remote_helper"]["privilege_wrapper_path"])
+    remote_wrapper = plan["remote_helper"]["privilege_wrapper_path"]
     if (
-        not remote_wrapper.is_absolute()
-        or not remote_wrapper.is_file()
-        or artifact(remote_wrapper)["sha256"] != plan["remote_helper"]["privilege_wrapper_sha256"]
+        not isinstance(remote_wrapper, str)
+        or not remote_wrapper.startswith("/")
+        or "\x00" in remote_wrapper
     ):
-        raise RealSessionError("remote helper privilege wrapper identity changed")
+        raise RealSessionError("remote helper privilege wrapper path must be absolute")
+    ssh_arguments = (
+        str(ssh_executable),
+        "-o",
+        f"ConnectTimeout={plan['deadlines']['helper_s']:g}",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        f"UserKnownHostsFile={known_hosts}",
+        "--",
+        plan["host"],
+    )
+    expected_wrapper_sha256 = plan["remote_helper"]["privilege_wrapper_sha256"]
+    if topology == "split_host_ssh":
+        # The wrapper belongs to the transmitter, not this receiver's filesystem.
+        # Use the same pinned SSH destination as the helper, without elevation.
+        probe_command = shlex.join(
+            (
+                "/usr/bin/python3",
+                "-c",
+                "import hashlib,sys\n"
+                "with open(sys.argv[1], 'rb') as stream:\n"
+                " print(hashlib.file_digest(stream, 'sha256').hexdigest())",
+                remote_wrapper,
+            )
+        )
+        try:
+            wrapper_identity = subprocess.run(
+                (*ssh_arguments, probe_command),
+                stdin=subprocess.DEVNULL,
+                shell=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=helper_verification_deadline(plan),
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired, UnicodeError) as error:
+            raise RealSessionError(
+                "remote helper privilege wrapper verification failed on transmitter"
+            ) from error
+        if (
+            wrapper_identity.returncode != 0
+            or wrapper_identity.stdout.strip() != expected_wrapper_sha256
+        ):
+            raise RealSessionError(
+                "remote helper privilege wrapper identity changed on transmitter"
+            )
+    else:
+        local_wrapper = Path(remote_wrapper)
+        if (
+            not local_wrapper.is_absolute()
+            or not local_wrapper.is_file()
+            or artifact(local_wrapper)["sha256"] != expected_wrapper_sha256
+        ):
+            raise RealSessionError("remote helper privilege wrapper identity changed")
     if plan["receiver_helper"]["privilege_wrapper_path"] is not None:
         raise RealSessionError("local receiver helper must not use a privilege wrapper")
     receiver_helper = Path(plan["receiver_helper"]["path"])
@@ -2086,7 +2144,7 @@ def build_production_adapters(
     work_directory.mkdir(parents=True, exist_ok=False)
     digest = helper_configuration_plan_sha256(plan)
     remote_command = (
-        f"{remote_wrapper} -n {plan['remote_helper']['path']} --serve "
+        f"{shlex.quote(remote_wrapper)} -n {plan['remote_helper']['path']} --serve "
         f"--config {plan['remote_helper']['config_path']} "
         f"--plan-sha256 {digest} "
         f"--helper-sha256 {plan['remote_helper']['sha256']} "
@@ -2111,18 +2169,7 @@ def build_production_adapters(
                 plan["remote_helper"]["config_sha256"],
             )
             if topology == "same_host_roles"
-            else (
-                str(ssh_executable),
-                "-o",
-                f"ConnectTimeout={plan['deadlines']['helper_s']:g}",
-                "-o",
-                "StrictHostKeyChecking=yes",
-                "-o",
-                f"UserKnownHostsFile={known_hosts}",
-                "--",
-                plan["host"],
-                remote_command,
-            )
+            else (*ssh_arguments, remote_command)
         )
         tx_transport = PersistentHelperTransport(
             tx_arguments, cleanup_timeout_s=plan["deadlines"]["cleanup_s"]
