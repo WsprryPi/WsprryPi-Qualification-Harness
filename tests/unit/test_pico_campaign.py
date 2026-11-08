@@ -529,3 +529,79 @@ def test_cli_production_compiler_rehearsal_and_validation(tmp_path, monkeypatch,
     result = json.loads(capsys.readouterr().out)
     assert not result["qualification_claim"]
     assert main(["validate-complete-test", result["output_directory"]]) == 0
+
+
+@pytest.mark.parametrize("mutation", ["tool", "wav", "audio", "data", "arguments"])
+def test_decoder_artifact_and_tool_tampering_refused(tmp_path, mutation):
+    from wsprrypi_qualification.offline import artifact
+    from wsprrypi_qualification.pico_results import _decoder_bindings
+
+    directory = tmp_path / "wspr-1-1"
+    directory.mkdir()
+    data = directory / "wsprd-data"
+    data.mkdir()
+    wav = directory / "slot.wav"
+    wav.write_bytes(b"test artifact only")
+    audio_path = directory / "audio.json"
+    audio_path.write_text("{}")
+    tool = dict(path="selected wsprd", sha256="a" * 64)
+    (tmp_path / "controller.json").write_text(json.dumps(dict(tools=dict(wsprd=tool))))
+    document = dict(
+        wav=artifact(wav),
+        audio_evidence=artifact(audio_path),
+        tool=dict(tool, version_query=dict(arguments=[tool["path"], "--version"])),
+        decoder_data_directory=str(data),
+        decoder_data_artifacts=[],
+        arguments=[tool["path"], "-a", str(data), str(wav)],
+    )
+    audio = dict(output=artifact(wav))
+    _decoder_bindings(directory, document, audio)
+    if mutation == "tool":
+        document["tool"]["sha256"] = "b" * 64
+    elif mutation == "wav":
+        document["wav"]["sha256"] = "b" * 64
+    elif mutation == "audio":
+        document["audio_evidence"]["sha256"] = "b" * 64
+    elif mutation == "data":
+        (data / "unindexed-output").write_text("must be indexed")
+    else:
+        document["arguments"].append("--unrecorded-option")
+    with pytest.raises(PicoWireError):
+        _decoder_bindings(directory, document, audio)
+
+
+def test_production_fractional_dot_timing_survives_independent_reference_quantization():
+    compiler = os.environ.get("WSPQ_PICO_COMPILER")
+    if compiler is None:
+        pytest.skip("Explicit production encoder integration")
+    config = configuration()
+    config["protocol"]["dot_seconds"] = 0.7
+    config["protocol"]["tone_seconds"] = 3.5
+    plan = compose_pico_campaign(config, Path(compiler))
+    assert len(plan["modes"]) == 5
+
+
+def test_stale_compiler_inputs_are_refused_before_live_access(tmp_path):
+    import shutil
+
+    compiler, source = os.environ.get("WSPQ_PICO_COMPILER"), os.environ.get("WSPQ_PICO_SOURCE")
+    if compiler is None or source is None:
+        pytest.skip("Explicit production encoder integration")
+    source = Path(source)
+    candidate = tmp_path / "candidate source"
+    for name in ("src/encoding", "src/wtp"):
+        shutil.copytree(source / name, candidate / name)
+    for name in (
+        "engineering/protocol/control-1.schema.json",
+        "engineering/protocol/wtp-1.schema.json",
+        "scripts/usb_installer.py",
+    ):
+        destination = candidate / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source / name, destination)
+    with (candidate / "src/encoding/wspr.cpp").open("a") as handle:
+        handle.write("\n// test-only changed compiler input\n")
+    config = configuration()
+    config["pico_source"] = str(candidate)
+    with pytest.raises(PicoWireError, match="different encoder inputs"):
+        compose_pico_campaign(config, Path(compiler))

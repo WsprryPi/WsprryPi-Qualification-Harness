@@ -70,11 +70,45 @@ def settings_match(initial: dict[str, Any], final: dict[str, Any]) -> bool:
     )
 
 
+def _decoder_bindings(directory: Path, document: dict[str, Any], audio: dict[str, Any]) -> None:
+    wav = _within(document["wav"]["path"], directory)
+    metadata = directory / "audio.json"
+    tools = _read(directory.parent / "controller.json")["tools"]
+    if (
+        artifact(wav) != document["wav"]
+        or audio["output"] != document["wav"]
+        or document["audio_evidence"] != artifact(metadata)
+        or document["tool"]["path"] != tools["wsprd"]["path"]
+        or document["tool"]["sha256"] != tools["wsprd"]["sha256"]
+        or document["tool"]["version_query"]["arguments"] != [tools["wsprd"]["path"], "--version"]
+    ):
+        raise PicoWireError("Decoder tool, WAV, or audio artifact binding differs")
+    data = Path(document["decoder_data_directory"])
+    if data.is_symlink() or data.resolve() != directory.resolve() / "wsprd-data":
+        raise PicoWireError("Decoder data directory differs")
+    if document["arguments"] != [
+        tools["wsprd"]["path"],
+        "-a",
+        str(data.resolve()),
+        str(wav.resolve()),
+    ]:
+        raise PicoWireError("Decoder arguments differ from retained artifacts")
+    indexed = []
+    for record in document["decoder_data_artifacts"]:
+        path = _within(record["path"], data)
+        if artifact(path) != record or path in indexed:
+            raise PicoWireError("Decoder data artifact differs or is duplicated")
+        indexed.append(path)
+    if set(indexed) != set(data.iterdir()):
+        raise PicoWireError("Decoder data inventory is incomplete")
+
+
 def _validate_wspr(directory: Path, plan: dict[str, Any], start_ns: int) -> str:
     config = plan["configuration"]
     p = config["protocol"]
     document = _read(directory / "decode.json", "decoder-evidence.schema.json")
     audio = _read(directory / "audio.json", "audio-conversion.schema.json")
+    _decoder_bindings(directory, document, audio)
     slot = datetime.fromisoformat(document["slot_utc"].replace("Z", "+00:00"))
     if (
         start_ns != int(slot.timestamp()) * 1_000_000_000 + 2_000_000_000
@@ -282,7 +316,7 @@ def _validate_frame(
         raise PicoWireError("Pico frame outcome contradicts transaction or measurements")
 
 
-def validate_pico_bundle(
+def _validate_pico_bundle(
     bundle: Path, *, result_document: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     if bundle.is_symlink():
@@ -394,3 +428,21 @@ def validate_pico_bundle(
     ):
         raise PicoWireError("Pico qualification claim contradicts aggregate outcome")
     return result
+
+
+def validate_pico_bundle(
+    bundle: Path, *, result_document: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Normalize malformed cross-document evidence into a closed validation refusal."""
+    try:
+        return _validate_pico_bundle(bundle, result_document=result_document)
+    except (
+        KeyError,
+        TypeError,
+        IndexError,
+        OverflowError,
+        UnicodeError,
+        wave.Error,
+        EOFError,
+    ) as error:
+        raise PicoWireError("Malformed Pico result evidence") from error

@@ -276,8 +276,11 @@ def validate_pico_plan(plan: dict[str, Any]) -> None:
         timeline = generate_expected_events(reference)[1:-1]
         events = []
         for event in timeline:
-            start = int(ns(Decimal(str(event["start_s"])) - 2))
-            duration = ns(Decimal(str(event["end_s"])) - Decimal(str(event["start_s"])))
+            # Reference generation uses float seconds. Quantize its boundaries,
+            # not each accumulated duration, to the transport's integer ns grid.
+            start = round((event["start_s"] - 2) * 1_000_000_000)
+            end_boundary = round((event["end_s"] - 2) * 1_000_000_000)
+            duration = str(end_boundary - start)
             value: dict[str, Any] = dict(
                 offset_ns=str(start), duration_ns=duration, rf_on=event["rf_state"] != "off"
             )
