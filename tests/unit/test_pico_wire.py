@@ -256,9 +256,24 @@ class ProcessStream:
 
     def read(self, maximum, deadline):
         try:
-            return self.incoming.get(timeout=max(0, deadline - time.monotonic()))
+            first = self.incoming.get(timeout=max(0, deadline - time.monotonic()))
         except queue.Empty as error:
             raise TimeoutError("Production driver response") from error
+        if not first:
+            return first
+        data = bytearray(first)
+        # A serial read returns available bytes up to its bound. Do not turn
+        # each queued pipe byte into an artificial fsync-heavy USB read.
+        while len(data) < maximum:
+            try:
+                part = self.incoming.get_nowait()
+            except queue.Empty:
+                break
+            if not part:
+                self.incoming.put(part)
+                break
+            data.extend(part)
+        return bytes(data)
 
     def close(self):
         self.process.stdin.close()
