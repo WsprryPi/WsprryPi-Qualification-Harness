@@ -95,6 +95,8 @@ wsprrypi-qualification lifecycle execute SYSTEM-PLAN.json /durable/controller-st
 
 ## Release planning, CI selection and publication
 
+For the operator goal “prepare/test now, exit, publish the tested bytes later,” use the [retained release commands](prepared-releases.md). The graph below remains a read-only selection API; retained sessions implement its concrete handoff and checkpointed owner operations.
+
 ```text
 wsprrypi-qualification lifecycle release-plan RELEASE-REQUEST.json --output RELEASE-GRAPH.json
 ```
@@ -138,7 +140,7 @@ wsprrypi-qualification lifecycle plan SYSTEM-RELEASE-VALIDATION.json --output RE
 wsprrypi-qualification lifecycle execute RELEASE-VALIDATION.json /durable/controller-state/release-validation-001 --confirm-plan-sha256 SHA256
 ```
 
-The same forms support independent Pico/Pi/RP1 release validation requests. Exact supported canonical commands and asset promotion rules come from the selected owning source. No generic central job replaces Pico canonical verification, Pi's checked-in Debian recipes or RP1 native package acceptance. `tag_push_arguments` provides compare-and-swap tag movement only when movement and the exact prior remote object ID are explicitly selected. No command implicitly forces a tag. Publication is outside this implementation task's live scope.
+The same forms support independent Pico/Pi/RP1 release validation requests. Exact supported canonical commands and asset promotion rules come from the selected owning source. No generic central job replaces Pico canonical verification, Pi's checked-in Debian recipes or RP1 native package acceptance. `tag_push_arguments` provides compare-and-swap tag movement only when movement and the exact prior remote object ID are explicitly selected. No command implicitly forces a tag. Publication requires a separately selected operation and current authority.
 
 ## Interruption and recovery
 
@@ -175,3 +177,5 @@ wsprrypi-qualification lifecycle execute FEATURE-PLAN.json /durable/controller-s
 Pi observations include a producer digest and operation identity; comparison and rolling-backup checks require a successful snapshot/verification producer. Full observations are also retained inline in command logs, including remote Pico/handoff observations. Used output names, redirected parents and missing/private evidence prerequisites refuse before host/device effects; a failed observation never becomes a successful comparison baseline. These hashes establish integrity within the trusted controller workflow, not author authentication.
 
 An expected nonzero refusal with all required independent checks satisfied ends as `expected_refusal`. A scenario that additionally completes a successful owning `recover` phase and final checks may end as `pass`. Missing checks, ambiguous effects and cleanup failures retain their unsuccessful meanings in either case.
+
+Pico preserve-mode baselines must be compatible with the installed storage generation and release ancestry. An older firmware refusal before programming is not a failed upgrade; retain that result and use a separately selected fresh preparation when an erase is authorized. Never erase to disguise a preserve-mode incompatibility. Standalone RP1 package replacement/removal and runtime activation are separate profiles: runtime administration requires the consumer-owned application companion. A package-only continuation must not invoke runtime-update preparation merely to remove a passive package.

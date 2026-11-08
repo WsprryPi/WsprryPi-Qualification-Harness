@@ -219,3 +219,5 @@ This project is licensed under the [MIT License](LICENSE).
 ## Lifecycle and release operations
 
 Use `wsprrypi-qualification lifecycle --help` for RF-disabled component/system plans, maintained public Pi acceptance, identified Pico fresh/preserve requests, release selection and durable execution/status/report/recovery. Read the [lifecycle guide](docs/development/lifecycle-release.md) for schemas, production-test reuse, prerequisites, exact boundaries and remaining physical acceptance requirements. Lifecycle evidence has separate result meanings from RF qualification.
+
+Prepare and test exact release artifacts now, exit, and publish them later with the [retained release workflow](docs/development/prepared-releases.md). Independent Pi/Pico/RP1 and coordinated system operations retain sources, hashes, validation and partial-publication checkpoints outside Git.

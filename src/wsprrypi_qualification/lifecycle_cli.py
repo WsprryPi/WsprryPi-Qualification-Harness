@@ -16,6 +16,9 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         "lifecycle", help="RF-disabled component/system lifecycle plans and execution"
     )
     commands = parser.add_subparsers(dest="lifecycle_action", required=True)
+    from wsprrypi_qualification.prepared_release_cli import add_parser as add_prepared
+
+    add_prepared(commands)
     release = commands.add_parser(
         "release-plan",
         help="select independent/system release order, artifact promotion and canonical CI",
@@ -107,6 +110,15 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
 def dispatch(args: argparse.Namespace) -> int:
     try:
         action = args.lifecycle_action
+        from wsprrypi_qualification.prepared_release_cli import (
+            ACTIONS,
+        )
+        from wsprrypi_qualification.prepared_release_cli import (
+            dispatch as prepared_dispatch,
+        )
+
+        if action in ACTIONS:
+            return prepared_dispatch(args)
         if action == "release-plan":
             from wsprrypi_qualification.lifecycle_release import release_graph
 

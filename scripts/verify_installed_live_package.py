@@ -18,6 +18,9 @@ MODULES = (
     "wsprrypi_qualification.lifecycle_pi",
     "wsprrypi_qualification.lifecycle_recipes",
     "wsprrypi_qualification.lifecycle_release",
+    "wsprrypi_qualification.prepared_release",
+    "wsprrypi_qualification.prepared_release_adapters",
+    "wsprrypi_qualification.prepared_release_cli",
 )
 SCHEMAS = (
     "application-plan.schema.json",
@@ -34,6 +37,10 @@ SCHEMAS = (
     "lifecycle-release-request.schema.json",
     "lifecycle-pi-bench.schema.json",
     "lifecycle-pico-bench.schema.json",
+    "prepared-release-request.schema.json",
+    "prepared-release-plan.schema.json",
+    "prepared-release-prepared.schema.json",
+    "prepared-release-state.schema.json",
 )
 ASSETS = (
     "deployment_assets/helper-config.example.json",
