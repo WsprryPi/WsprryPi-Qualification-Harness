@@ -1,0 +1,479 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scope",
+    "components",
+    "pi_dependency_selections",
+    "publication_selected"
+  ],
+  "properties": {
+    "scope": {
+      "enum": [
+        "pi",
+        "pico",
+        "rp1",
+        "system"
+      ]
+    },
+    "publication_selected": {
+      "type": "boolean"
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pi",
+        "pico",
+        "rp1"
+      ],
+      "properties": {
+        "pi": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "tooling_source",
+            "test_source",
+            "embedded_source",
+            "artifact_sha256",
+            "build_inputs_sha256",
+            "verified_build_inputs_sha256",
+            "ci_input_sha256",
+            "successful_ci_input_sha256",
+            "changed",
+            "move_existing_tag",
+            "published",
+            "version",
+            "tag",
+            "canonical_ci",
+            "prior_remote_oid",
+            "ci_conclusion",
+            "required_jobs",
+            "successful_jobs",
+            "build_inputs",
+            "dirty_sha256"
+          ],
+          "properties": {
+            "source": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "tooling_source": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "test_source": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "embedded_source": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "artifact_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "build_inputs_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "verified_build_inputs_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "ci_input_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "successful_ci_input_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "changed": {
+              "type": "boolean"
+            },
+            "move_existing_tag": {
+              "type": "boolean"
+            },
+            "published": {
+              "type": "boolean"
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1
+            },
+            "canonical_ci": {
+              "type": "string",
+              "minLength": 1
+            },
+            "prior_remote_oid": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ci_conclusion": {
+              "enum": [
+                "success",
+                "failure",
+                "cancelled",
+                "timed_out",
+                "skipped",
+                "missing",
+                "pending"
+              ]
+            },
+            "required_jobs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "successful_jobs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "build_inputs": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": [
+                "source",
+                "version",
+                "board",
+                "profile",
+                "compiler",
+                "dependencies",
+                "generator",
+                "dirty_sha256"
+              ]
+            },
+            "dirty_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "pico": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "tooling_source",
+            "test_source",
+            "embedded_source",
+            "artifact_sha256",
+            "build_inputs_sha256",
+            "verified_build_inputs_sha256",
+            "ci_input_sha256",
+            "successful_ci_input_sha256",
+            "changed",
+            "move_existing_tag",
+            "published",
+            "version",
+            "tag",
+            "canonical_ci",
+            "prior_remote_oid",
+            "ci_conclusion",
+            "required_jobs",
+            "successful_jobs",
+            "build_inputs",
+            "dirty_sha256"
+          ],
+          "properties": {
+            "source": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "tooling_source": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "test_source": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "embedded_source": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "artifact_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "build_inputs_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "verified_build_inputs_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "ci_input_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "successful_ci_input_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "changed": {
+              "type": "boolean"
+            },
+            "move_existing_tag": {
+              "type": "boolean"
+            },
+            "published": {
+              "type": "boolean"
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1
+            },
+            "canonical_ci": {
+              "type": "string",
+              "minLength": 1
+            },
+            "prior_remote_oid": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ci_conclusion": {
+              "enum": [
+                "success",
+                "failure",
+                "cancelled",
+                "timed_out",
+                "skipped",
+                "missing",
+                "pending"
+              ]
+            },
+            "required_jobs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "successful_jobs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "build_inputs": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": [
+                "source",
+                "version",
+                "board",
+                "profile",
+                "compiler",
+                "dependencies",
+                "generator",
+                "dirty_sha256"
+              ]
+            },
+            "dirty_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "rp1": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "tooling_source",
+            "test_source",
+            "embedded_source",
+            "artifact_sha256",
+            "build_inputs_sha256",
+            "verified_build_inputs_sha256",
+            "ci_input_sha256",
+            "successful_ci_input_sha256",
+            "changed",
+            "move_existing_tag",
+            "published",
+            "version",
+            "tag",
+            "canonical_ci",
+            "prior_remote_oid",
+            "ci_conclusion",
+            "required_jobs",
+            "successful_jobs",
+            "build_inputs",
+            "dirty_sha256"
+          ],
+          "properties": {
+            "source": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "tooling_source": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "test_source": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "embedded_source": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "artifact_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "build_inputs_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "verified_build_inputs_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "ci_input_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "successful_ci_input_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "changed": {
+              "type": "boolean"
+            },
+            "move_existing_tag": {
+              "type": "boolean"
+            },
+            "published": {
+              "type": "boolean"
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1
+            },
+            "canonical_ci": {
+              "type": "string",
+              "minLength": 1
+            },
+            "prior_remote_oid": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ci_conclusion": {
+              "enum": [
+                "success",
+                "failure",
+                "cancelled",
+                "timed_out",
+                "skipped",
+                "missing",
+                "pending"
+              ]
+            },
+            "required_jobs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "successful_jobs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "build_inputs": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": [
+                "source",
+                "version",
+                "board",
+                "profile",
+                "compiler",
+                "dependencies",
+                "generator",
+                "dirty_sha256"
+              ]
+            },
+            "dirty_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "pi_dependency_selections": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pico",
+        "rp1"
+      ],
+      "properties": {
+        "pico": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "rp1": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

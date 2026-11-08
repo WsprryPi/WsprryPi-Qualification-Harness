@@ -1,0 +1,96 @@
+def ensure(value, message='Lifecycle assertion failed'):
+    if not value:
+        raise RuntimeError(message)
+import grp
+import hashlib
+import json
+import os
+import pathlib
+import re
+import subprocess
+import stat
+P = pathlib.Path
+def verify_retained(records):
+    files={'/usr/local/etc/wsprrypi.ini.pre_migration.bak',
+           '/etc/apache2/sites-available/wsprrypi.conf.wsprrypi.bak',
+           '/usr/local/etc/wsprrypi.ini.wtp-devices.json',
+           '/usr/local/etc/wsprrypi.ini.wtp-assignments.json',
+           '/usr/local/etc/wsprrypi.ini.usb-logs.json'}
+    directories={'/root/.wsprrypi-wtp','/var/lib/wsprrypi'}
+    for name, policy in records.items():
+        ensure((name in files and policy.get('kind')=='file') or
+               (name in directories and policy.get('kind')=='empty_directory'), 'Unsupported retained path')
+        expected={'kind','uid','gid','mode','reason'}|({'sha256'} if policy['kind']=='file' else set())
+        ensure(set(policy)==expected and isinstance(policy['reason'],str) and policy['reason'], 'Invalid retention descriptor')
+        ensure(all(type(policy[k]) is int for k in ('uid','gid','mode')), 'Invalid retention metadata')
+        path=P(name)
+        ensure(not any(p.is_symlink() for p in (path,*path.parents)), 'Symlink retained path')
+        info=path.lstat()
+        ensure(info.st_uid==policy['uid'] and info.st_gid==policy['gid'] and
+               stat.S_IMODE(info.st_mode)==policy['mode'], 'Retained ownership/mode changed')
+        if policy['kind']=='empty_directory':
+            ensure(stat.S_ISDIR(info.st_mode) and not any(path.iterdir()), 'Retained directory is not empty')
+        else:
+            ensure(stat.S_ISREG(info.st_mode) and info.st_nlink==1, 'Unsafe retained file')
+            ensure(hashlib.sha256(path.read_bytes()).hexdigest()==policy['sha256'], 'Retained bytes changed')
+    return set(records)
+retained=json.loads(os.environ.get('LIFECYCLE_RETAINED_PATHS','{}'))
+verified_retained=verify_retained(retained)
+paths = json.loads(os.environ['LIFECYCLE_OWNED_PATHS'])
+remaining = [p for p in paths if (P(p).exists() or P(p).is_symlink()) and p not in verified_retained]
+ensure(not remaining, remaining)
+for name in ['wsprrypi.service', 'wsprrypi-log.service', 'wsprrypi-rp1-reconcile.service', 'rp1-gpclk-route-manager.socket']:
+    out = subprocess.check_output(['systemctl', 'show', name, '-p', 'LoadState', '-p', 'ActiveState'], text=True)
+    ensure('LoadState=not-found' in out and 'ActiveState=inactive' in out, (name, out))
+units = subprocess.check_output(['systemctl', 'list-unit-files', '--no-pager'], text=True)
+ensure(not re.search('(?im)^(wsprrypi|rp1-gpclk-route-manager)', units), 'Lifecycle assertion failed')
+try:
+    grp.getgrnam('rp1-gpclk-route')
+except KeyError:
+    pass
+else:
+    raise AssertionError('RP1 group remains')
+ensure(subprocess.run(['dpkg-query', '-W', 'rp1-gpclk-dkms'], capture_output=True).returncode != 0, 'Lifecycle assertion failed')
+ensure('rp1-gpclk' not in subprocess.check_output(['/usr/sbin/dkms', 'status'], text=True), 'Lifecycle assertion failed')
+for n in ['rp1_gpclk_dkms', 'rp1_route_controller']:
+    ensure(not P('/sys/module', n).exists(), 'Lifecycle assertion failed')
+for n in ['rp1-gpclk', 'rp1-route-admin']:
+    ensure(not P('/dev', n).exists(), 'Lifecycle assertion failed')
+artifacts = [str(p) for stem in ['rp1_gpclk_dkms', 'rp1_route_controller'] for p in P('/lib/modules').glob('*/updates/dkms/' + stem + '.ko*')]
+ensure(not artifacts, artifacts)
+findings = []
+rootdev = P('/').stat().st_dev
+exclude = {'/proc', '/sys', '/dev', '/run', str(P(os.environ['LIFECYCLE_INVOKING_HOME']) / '.codex'), '/root/.codex', str(P(os.environ['LIFECYCLE_EVIDENCE_ROOT']))}
+
+def related(name):
+    low = name.lower()
+    return 'wsprrypi' in low and 'wsprrypico' not in low or bool(re.search('rp1[-_].*(gpclk|route)', low)) or low in ['wspr.ini', 'wspr.log']
+for directory, dirs, files in os.walk('/', topdown=True, followlinks=False):
+    kept = []
+    for name in dirs:
+        p = P(directory) / name
+        if str(p) in exclude:
+            continue
+        if related(name) and str(p) not in verified_retained:
+            findings.append(str(p))
+        try:
+            if p.is_symlink() or p.stat().st_dev != rootdev:
+                continue
+        except OSError:
+            continue
+        kept.append(name)
+    dirs[:] = kept
+    for name in files:
+        if related(name) and str(P(directory) / name) not in verified_retained:
+            findings.append(str(P(directory) / name))
+for directory, dirs, files in os.walk('/run', topdown=True, followlinks=False):
+    for name in dirs + files:
+        if related(name):
+            findings.append(str(P(directory) / name))
+for p in P('/boot/firmware').rglob('*'):
+    if related(p.name):
+        findings.append(str(p))
+ensure(not findings, findings)
+ensure(not subprocess.check_output(['dpkg', '--audit'], text=True).strip(), 'Lifecycle assertion failed')
+verify_retained(retained)
+print(json.dumps({'result': 'PASS', 'remaining_inventoried_paths': remaining, 'remaining_product_paths': findings, 'retained_operator_data': retained, 'retention_proof': json.loads(os.environ.get('LIFECYCLE_RETENTION_PROOF','null')), 'services_package_dkms_modules_devices_group': 'absent', 'scanned': ['root-filesystem', '/run', '/boot/firmware'], 'excluded': sorted(exclude), 'device': rootdev}, indent=2))

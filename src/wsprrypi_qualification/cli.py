@@ -12,7 +12,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-from wsprrypi_qualification import __version__, sdr_calibration
+from wsprrypi_qualification import __version__, lifecycle_cli, sdr_calibration
 from wsprrypi_qualification.application_shims import (
     ApplicationPlanError,
     validate_application_plan,
@@ -581,6 +581,7 @@ def _parser() -> argparse.ArgumentParser:
         help="semantically validate an authenticated complete-test aggregate bundle",
     )
     validate_complete.add_argument("bundle", type=Path)
+    lifecycle_cli.add_parser(subparsers)
     return parser
 
 
@@ -592,10 +593,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "run-cw-live-keyed",
         "turnkey-campaign",
         "complete-test",
+        "lifecycle",
     }.intersection(arguments):
         print("live RF and hardware actions are unavailable in the portable CLI", file=sys.stderr)
         return 2
     args = _parser().parse_args(arguments)
+    if args.command == "lifecycle":
+        return lifecycle_cli.dispatch(args)
     if args.command == "runtime-identity":
         print(
             json.dumps(

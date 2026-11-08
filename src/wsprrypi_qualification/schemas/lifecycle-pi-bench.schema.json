@@ -1,0 +1,344 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expected_hostname": {
+      "type": "string",
+      "minLength": 1
+    },
+    "home": {
+      "type": "string",
+      "minLength": 1
+    },
+    "known_hosts": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "remote_lock": {
+      "type": "string",
+      "minLength": 1
+    },
+    "baseline_local": {
+      "type": "string",
+      "minLength": 1
+    },
+    "baseline_remote": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provider_source": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "baseline_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "candidate_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "provider_tooling_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "eligible_kernels": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "owned_paths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "installer_url": {
+      "const": "https://raw.githubusercontent.com/WsprryPi/WsprryPi/refs/heads/devel/scripts/install.sh"
+    },
+    "settings_fixture": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "WSPR": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "Call Sign": {
+              "type": "string",
+              "minLength": 1
+            },
+            "Grid Square": {
+              "type": "string",
+              "minLength": 1
+            },
+            "TX Power": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 60
+            }
+          }
+        },
+        "CW": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "Message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            }
+          }
+        }
+      }
+    },
+    "target_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "machine_id_sha256",
+        "hostname",
+        "os_id",
+        "os_version",
+        "kernel",
+        "board_model"
+      ],
+      "properties": {
+        "machine_id_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "hostname": {
+          "type": "string",
+          "minLength": 1
+        },
+        "os_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "os_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kernel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "board_model": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "provider_idle_route": {
+      "enum": [
+        "gpio4",
+        "gpio20"
+      ]
+    },
+    "candidate_release_tag": {
+      "type": "string",
+      "pattern": "^v[0-9][A-Za-z0-9.+_-]*$"
+    },
+    "retained_paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "/usr/local/etc/wsprrypi.ini.pre_migration.bak": {
+          "$ref": "#/$defs/retainedFile"
+        },
+        "/etc/apache2/sites-available/wsprrypi.conf.wsprrypi.bak": {
+          "$ref": "#/$defs/retainedFile"
+        },
+        "/usr/local/etc/wsprrypi.ini.wtp-devices.json": {
+          "$ref": "#/$defs/retainedFile"
+        },
+        "/usr/local/etc/wsprrypi.ini.wtp-assignments.json": {
+          "$ref": "#/$defs/retainedFile"
+        },
+        "/usr/local/etc/wsprrypi.ini.usb-logs.json": {
+          "$ref": "#/$defs/retainedFile"
+        },
+        "/root/.wsprrypi-wtp": {
+          "$ref": "#/$defs/retainedEmptyDirectory"
+        },
+        "/var/lib/wsprrypi": {
+          "$ref": "#/$defs/retainedEmptyDirectory"
+        }
+      }
+    },
+    "candidate_local": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidate_remote": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rolling_ini_backup": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "host",
+    "expected_hostname",
+    "home",
+    "known_hosts",
+    "evidence_root",
+    "remote_lock",
+    "baseline_local",
+    "baseline_remote",
+    "provider_source",
+    "baseline_sha256",
+    "candidate_sha256",
+    "provider_tooling_sha256",
+    "eligible_kernels",
+    "owned_paths",
+    "target_identity"
+  ],
+  "$defs": {
+    "retainedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "file"
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "kind",
+        "uid",
+        "gid",
+        "mode",
+        "reason",
+        "sha256"
+      ]
+    },
+    "retainedEmptyDirectory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "empty_directory"
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "uid",
+        "gid",
+        "mode",
+        "reason"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "candidate_local"
+        ]
+      },
+      "then": {
+        "required": [
+          "candidate_remote"
+        ],
+        "not": {
+          "required": [
+            "candidate_release_tag"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "candidate_remote"
+        ]
+      },
+      "then": {
+        "required": [
+          "candidate_local"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "rolling_ini_backup": {
+            "const": true
+          }
+        },
+        "required": [
+          "rolling_ini_backup"
+        ]
+      },
+      "then": {
+        "required": [
+          "retained_paths"
+        ],
+        "properties": {
+          "retained_paths": {
+            "required": [
+              "/usr/local/etc/wsprrypi.ini.pre_migration.bak"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+"""Linux bench: production Pi USB identity lease and independent handoff checks.
+
+No catalog registration, selected-route mutation, job submission or RF operation.
+"""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import urllib.request
+import urllib.error
+
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('operation', choices=('probe', 'verify'))
+parser.add_argument('--before', type=Path, required=True)
+parser.add_argument('--after', type=Path)
+parser.add_argument('--probe', type=Path)
+parser.add_argument('--output', type=Path, required=True)
+args = parser.parse_args()
+os.umask(0o077)
+require(not args.output.exists() and not args.output.is_symlink(), 'Fresh handoff evidence destination required before USB access')
+require(args.output.parent.is_dir() and not any(p.is_symlink() for p in args.output.parents), 'Physical handoff evidence directory required')
+before = json.loads(args.before.read_text())
+require(before.get('safe') is True and before.get('rf_enabled') is False,
+        'Independent idle/output-disabled snapshot required')
+if args.operation == 'probe':
+    base = 'http://127.0.0.1:31415'
+    with urllib.request.urlopen(base + '/api/control/v1/host/discovery', timeout=10) as response:
+        inventory = json.load(response)
+    candidates = [value for value in inventory['usb']['candidates']
+                  if value['settings'].get('USB Serial') == before['serial']]
+    require(len(candidates) == 1, 'Exact USB identity must be discovered once')
+    candidate = candidates[0]
+    settings = candidate['settings']
+    require(settings['Transport'] == 'usb', 'Unexpected transport')
+    settings['Device ID'] = before['target']['device_id']
+    body = {'discovery_id': candidate['id'], 'settings': settings}
+    request = urllib.request.Request(base + '/api/control/v1/host/discovery/identify',
+        data=json.dumps(body).encode(), method='POST',
+        headers={'Content-Type': 'application/json', 'Origin': base,
+                 'X-WsprryPico-Request': '1'})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            observation = json.load(response)
+    except urllib.error.HTTPError as error:
+        detail = error.read(32768).decode('utf-8', errors='replace')
+        raise RuntimeError(f'Production identity probe refused ({error.code}): {detail}') from error
+    require(observation['binding'] == 'usb' and observation['output_active'] is False,
+            'Production probe did not establish RF-inactive USB state')
+    require(observation['device_id'] == before['target']['device_id'] and
+            observation['boot_id'] == before['target']['boot_id'],
+            'Identity/boot changed during Pi acquisition')
+    result = {'verified': True, 'operation': 'probe', 'observation': observation,
+              'before_sha256': hashlib.sha256(args.before.read_bytes()).hexdigest()}
+else:
+    require(args.after is not None and args.probe is not None, 'Both retained observations required')
+    after = json.loads(args.after.read_text())
+    probe = json.loads(args.probe.read_text())
+    require(after.get('safe') is True and after.get('rf_enabled') is False,
+            'Standalone reacquisition must verify safe state')
+    require(after['target'] == before['target'] and after['serial'] == before['serial'] and
+            after['parent'] == before['parent'], 'Device changed across controller handoff')
+    require(after['semantics'] == before['semantics'], 'Handoff changed saved semantics')
+    require(probe.get('verified') is True and
+            probe['before_sha256'] == hashlib.sha256(args.before.read_bytes()).hexdigest(),
+            'Probe is not bound to this before observation')
+    require(probe['observation']['device_id'] == after['target']['device_id'] and
+            probe['observation']['boot_id'] == after['target']['boot_id'] and
+            probe['observation']['output_active'] is False, 'Probe/reacquisition identity mismatch')
+    result = {'verified': True, 'operation': 'verify', 'usb_handoff': True,
+              'fixed_compatibility': True, 'rf_enabled': False,
+              'device_id': after['target']['device_id'], 'boot_id': after['target']['boot_id']}
+with args.output.open('x') as output:
+    json.dump(result, output, indent=2)
+    output.flush()
+    os.fsync(output.fileno())
+if os.name=='posix':
+    directory=os.open(args.output.parent,os.O_RDONLY|os.O_DIRECTORY)
+    try:os.fsync(directory)
+    finally:os.close(directory)
+print(json.dumps({'verified': True, 'operation': args.operation,
+                  'usb_handoff': args.operation == 'verify',
+                  'fixed_compatibility': args.operation == 'verify',
+                  'evidence_sha256': hashlib.sha256(args.output.read_bytes()).hexdigest(),
+                  'observation': result}))

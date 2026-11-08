@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "plan_sha256",
+    "completed",
+    "published_components",
+    "recovery_required",
+    "records",
+    "pending",
+    "unverified_components",
+    "touched_components"
+  ],
+  "properties": {
+    "plan_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "completed": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "published_components": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "recovery_required": {
+      "type": "boolean"
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "step": {
+            "type": "string",
+            "minLength": 1
+          },
+          "phase": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1
+          },
+          "log": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "step",
+          "phase",
+          "status",
+          "log",
+          "sha256"
+        ]
+      }
+    },
+    "pending": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "unverified_components": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "pi",
+          "pico",
+          "rp1"
+        ]
+      }
+    },
+    "touched_components": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "pi",
+          "pico",
+          "rp1"
+        ]
+      }
+    }
+  }
+}

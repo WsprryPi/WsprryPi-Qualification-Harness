@@ -468,3 +468,11 @@ live authorization, physical receiver/source ownership, clock observations,
 non-interference checks, hard capture bounds and verified cleanup. The API does
 not initialize a transmitter or supply a Pico/USB implementation. WTP completion
 alone never qualifies RF. See `docs/development/wtp-control.md`.
+
+## RF-disabled product lifecycle operations
+
+The `lifecycle` CLI has separate request/plan/result schemas and statuses: `pass`, `expected_refusal`, `unexpected_failure`, `blocked_prerequisite`, `abort`, `inconclusive` and `cleanup_failure`. These do not change RF result meanings in section 7. Explicit current authority must cover every host/device/service/install/removal effect. Plans remain local and read-only; execution confirms the exact plan, source/artifact inputs, component ownership, deadlines and final-state checks. RF remains disabled and no receiver/path configuration is required. Normal Pi 5 public installation explicitly includes RP1 mutation; isolated scope must use a production path that actually excludes it. Cleanup failure prevents success, and missing required checks never pass.
+
+Lifecycle controller state and retained inputs live in durable storage outside source and disposable/managed product trees. Intent is checkpointed before effects; ambiguous effects are inspected and recovered through their owning product rather than automatically replayed. Release publication requires a selected release plan and separate explicit execution enablement. Partial delivery remains recorded; it is never treated as atomic cross-repository rollback. See [the maintained guide](docs/development/lifecycle-release.md).
+
+Neutral provider state is the default. A declared configured idle route additionally requires its exact route identity, disabled output, closed endpoint, no lease/owner and quiescent clock/DMA/GPIO evidence. Retained operator files require exact predeclared hashes, ownership, modes and reasons; a retained empty directory must remain empty. No provider/package/code tree can be exempted. An explicitly selected streamed feature branch is distinct from default public devel acceptance and cannot satisfy that public gate by substitution.

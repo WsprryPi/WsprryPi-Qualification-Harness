@@ -445,3 +445,7 @@ remote to the controller, execution is delegated to the receiver host, which
 coordinates the transmitter. The SDR selector must uniquely match receiver-side
 SoapySDR discovery before transmission. `--configuration` and `--rehearse` are
 advanced development surfaces, not normal live prerequisites.
+
+## Product lifecycle and release requests
+
+Use [`lifecycle --help`](development/lifecycle-release.md) for RF-disabled installation/removal/firmware/release orchestration. Read the lifecycle guide, input/result schemas and owning production tests before deriving commands. `complete-test` does not authorize destructive lifecycle operations. Resolve all selected component mutations, exact source pairs, physical USB identity, verified baseline/candidate bundles, private durable recovery storage and final states before execution. Keep public acceptance distinct from checked-out/feature-source integration. An unavailable exact-source canonical CI or physical gate remains unresolved; never merge a companion merely to run it.

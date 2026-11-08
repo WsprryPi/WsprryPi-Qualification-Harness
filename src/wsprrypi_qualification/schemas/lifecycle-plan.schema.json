@@ -1,0 +1,466 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsprrypi.org/schemas/lifecycle-plan.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "lifecycle-plan"
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "operation": {
+          "enum": [
+            "test",
+            "release"
+          ]
+        },
+        "scope": {
+          "enum": [
+            "pi",
+            "pico",
+            "rp1",
+            "system"
+          ]
+        },
+        "profile": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rf_enabled": {
+          "const": false
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "component": {
+                "enum": [
+                  "pi",
+                  "pico",
+                  "rp1"
+                ]
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "dirty_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "component",
+              "path",
+              "revision",
+              "dirty_sha256"
+            ]
+          },
+          "minItems": 1
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "path",
+              "sha256"
+            ]
+          }
+        },
+        "inputs": {
+          "type": "object"
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "state_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "protected_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "final_states": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required_checks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              },
+              "component": {
+                "enum": [
+                  "pi",
+                  "pico",
+                  "rp1"
+                ]
+              },
+              "phase": {
+                "enum": [
+                  "inspect",
+                  "effect",
+                  "verify",
+                  "cleanup",
+                  "recover",
+                  "publish",
+                  "public_acceptance"
+                ]
+              },
+              "check": {
+                "type": "string",
+                "minLength": 1
+              },
+              "command": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "argv": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "minItems": 1
+                  },
+                  "cwd": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "timeout_s": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 7200
+                  },
+                  "inputs": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "sha256": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "sha256"
+                      ]
+                    }
+                  },
+                  "environment": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "argv",
+                  "cwd",
+                  "timeout_s",
+                  "inputs",
+                  "environment"
+                ]
+              },
+              "expect_exit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              },
+              "expect_json": {
+                "type": "object"
+              },
+              "mutates": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "pi",
+                    "pico",
+                    "rp1"
+                  ]
+                }
+              },
+              "replay_safe": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "component",
+              "phase",
+              "check",
+              "command",
+              "expect_exit",
+              "expect_json",
+              "mutates",
+              "replay_safe"
+            ]
+          },
+          "minItems": 1
+        },
+        "ci": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "component": {
+                "enum": [
+                  "pi",
+                  "pico",
+                  "rp1",
+                  "harness"
+                ]
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1
+              },
+              "input_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "conclusion": {
+                "enum": [
+                  "success",
+                  "failure",
+                  "cancelled",
+                  "skipped",
+                  "pending",
+                  "missing"
+                ]
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1
+              },
+              "required_jobs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "successful_jobs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "required": [
+              "component",
+              "workflow",
+              "input_sha256",
+              "conclusion",
+              "url",
+              "required_jobs",
+              "successful_jobs"
+            ]
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "operation",
+        "scope",
+        "profile",
+        "rf_enabled",
+        "sources",
+        "artifacts",
+        "inputs",
+        "resources",
+        "state_root",
+        "protected_paths",
+        "final_states",
+        "required_checks",
+        "steps",
+        "ci"
+      ]
+    },
+    "input_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "plan_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "ci_selection": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "component": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workflow": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reuse": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "component",
+          "workflow",
+          "reuse",
+          "reason",
+          "url"
+        ]
+      }
+    },
+    "publication_enabled": {
+      "type": "boolean"
+    },
+    "controller": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "python",
+        "version",
+        "modules",
+        "source"
+      ],
+      "properties": {
+        "python": {
+          "type": "object",
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "version": {
+          "type": "string"
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        "source": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "request",
+    "input_sha256",
+    "plan_sha256",
+    "blockers",
+    "ci_selection",
+    "publication_enabled"
+  ]
+}
