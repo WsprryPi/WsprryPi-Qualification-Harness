@@ -3,11 +3,15 @@
 import copy
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from wsprrypi_qualification.cw_contracts import CwContractError, _validate_events
+from wsprrypi_qualification.cw_reference import generate_expected_events
 from wsprrypi_qualification.offline import validate_document
 from wsprrypi_qualification.pico_campaign import (
     check_admission,
@@ -15,7 +19,7 @@ from wsprrypi_qualification.pico_campaign import (
     cw_analysis_plan,
     validate_configuration,
 )
-from wsprrypi_qualification.pico_live import run_pico_campaign
+from wsprrypi_qualification.pico_live import PicoLiveAdapter, run_pico_campaign
 from wsprrypi_qualification.pico_wire import PicoWireError
 from wsprrypi_qualification.progress import ProgressReporter
 from wsprrypi_qualification.receiver_calibration import disabled_binding
@@ -701,3 +705,79 @@ def test_live_result_rejects_declared_synthetic_or_unbound_analysis(mutation):
         measured["analyzer"]["source_revision"] = "b" * 40
     with pytest.raises(PicoWireError, match="synthetic or mismatched"):
         _validate_analysis_identity(plan, expected, measured)
+
+
+@pytest.mark.parametrize("engine", ["pio-dma-gp2", "si5351"])
+@pytest.mark.parametrize("lead_in", [2, 7.287371873855591])
+def test_pico_tone_contract_accepts_real_capture_lead_in(engine, lead_in):
+    plan = cw_analysis_plan(
+        make_plan(configuration(engine)), "tone", "20260815T120000Z-capture-lead-in", lead_in
+    )
+    expected = {
+        "protocol_definition": plan["protocol"]["definition"],
+        "events": generate_expected_events(plan),
+    }
+    _validate_events(plan, expected)
+
+
+@pytest.mark.parametrize("engine", ["pio-dma-gp2", "si5351"])
+@pytest.mark.parametrize("boundary", [0, 1, 2, 5])
+def test_pico_tone_contract_still_rejects_one_ulp_boundary_drift(engine, boundary):
+    plan = cw_analysis_plan(
+        make_plan(configuration(engine)),
+        "tone",
+        "20260815T120000Z-capture-boundary",
+        7.287371873855591,
+    )
+    expected = {
+        "protocol_definition": plan["protocol"]["definition"],
+        "events": generate_expected_events(plan),
+    }
+    end = math.nextafter(expected["events"][boundary]["end_s"], math.inf)
+    expected["events"][boundary]["end_s"] = end
+    expected["events"][boundary + 1]["start_s"] = end
+    with pytest.raises(CwContractError):
+        _validate_events(plan, expected)
+
+
+@pytest.mark.parametrize("engine", ["pio-dma-gp2", "si5351"])
+def test_pico_produced_capture_metadata_is_accepted_by_acquired_replay(
+    tmp_path, monkeypatch, engine
+):
+    # Signal measurement is separate; exercise the real metadata producer and
+    # replay consumer together without opening a device or declaring live RF.
+    from wsprrypi_qualification.cw_replay import _load_acquired_inputs
+
+    adapter = object.__new__(PicoLiveAdapter)
+    adapter.plan = make_plan(configuration(engine))
+    capture_path = tmp_path / "fixture.cf32"
+    capture_path.write_bytes(bytes(480000 * 8))
+    capture = SimpleNamespace(
+        output_path=capture_path,
+        metadata_path=tmp_path / "unused-native-metadata.json",
+        sample_rate_hz=12000,
+        sample_count=480000,
+        center_frequency_hz=14094000,
+    )
+
+    def fixture_measurement(*args, **kwargs):
+        args[4].write_text('{"fixture_measurement_only":true}')
+        return {"analysis_outcome": "passed", "observations": []}, {}
+
+    monkeypatch.setattr(
+        "wsprrypi_qualification.pico_live.analyze_synthetic_iq",
+        fixture_measurement,
+    )
+    monkeypatch.setattr(
+        "wsprrypi_qualification.pico_live.analyze_carrier",
+        lambda *args, **kwargs: {"gate_outcome": "passed"},
+    )
+    snapshot = {
+        "si5351": {"boot_active": {"drive_ma": 8}},
+        "status": {"standalone": {"gpio_drive_ma": 12}},
+        "ntp-observations": {"nominal_sample_hz": 138000000},
+    }
+    adapter.analyze("tone", tmp_path, snapshot, capture, capture, None, 7.287371873855591)
+    _load_acquired_inputs(
+        tmp_path / "mode-plan.json", tmp_path / "expected.json", tmp_path / "acquired.json"
+    )

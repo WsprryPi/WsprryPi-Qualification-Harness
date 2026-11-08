@@ -657,7 +657,7 @@ class PicoLiveAdapter:
             bias_tee_enabled=False,
             first_read_discarded=True,
             receiver=cw["receiver"],
-            acquired_utc=datetime.now(UTC).isoformat(),
+            acquired_utc=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             synthetic=False,
         )
         write_json_new(
