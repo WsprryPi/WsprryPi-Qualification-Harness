@@ -282,7 +282,10 @@ class CanonicalReleaseAdapter:
                 observed = json.loads(inspected["stdout"])
                 require(
                     len(observed) == 1
-                    and observed[0]["Config"]["Labels"].get("wsprrypi.qualification.owner") == owner
+                    and (observed[0]["Config"].get("Labels") or {}).get(
+                        "wsprrypi.qualification.owner"
+                    )
+                    == owner
                     and observed[0]["Image"] == image,
                     "container cleanup refused foreign ownership; inspect retained command log",
                 )

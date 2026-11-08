@@ -40,17 +40,16 @@ class Daemon(CanonicalReleaseAdapter):
         assert argv[1:4] == ["inspect", "--type", "container"]
         if not self.exists:
             return {"return_code": 1, "stdout": "[]", "stderr": "Error: No such object"}
+        labels = {
+            "wsprrypi.qualification.owner": "foreign" if self.failure == "foreign" else self.owner
+        }
+        if self.failure == "unlabelled":
+            labels = None
         value = [
             {
                 "Id": "b" * 64,
                 "Image": IMAGE,
-                "Config": {
-                    "Labels": {
-                        "wsprrypi.qualification.owner": "foreign"
-                        if self.failure == "foreign"
-                        else self.owner
-                    }
-                },
+                "Config": {"Labels": labels},
             }
         ]
         return {"return_code": 0, "stdout": json.dumps(value), "stderr": ""}
@@ -63,7 +62,7 @@ def test_success_still_verifies_daemon_container_absent(tmp_path: Path) -> None:
     assert not any(call[1] == "rm" for call in adapter.calls)
 
 
-@pytest.mark.parametrize("failure", ["owned", "foreign", "cleanup"])
+@pytest.mark.parametrize("failure", ["owned", "foreign", "unlabelled", "cleanup"])
 def test_interrupted_cli_inspects_ownership_and_verifies_cleanup(
     tmp_path: Path, failure: str
 ) -> None:
@@ -71,10 +70,13 @@ def test_interrupted_cli_inspects_ownership_and_verifies_cleanup(
     message = {
         "owned": "interrupted canonical",
         "foreign": "foreign ownership",
+        "unlabelled": "foreign ownership",
         "cleanup": "cleanup could not verify",
     }[failure]
     with pytest.raises(ValueError, match=message):
         adapter.docker(IMAGE, {}, ["python3", "--version"], tmp_path)
     assert any(call[1] == "inspect" for call in adapter.calls)
-    assert any(call[1] == "rm" for call in adapter.calls) is (failure != "foreign")
+    assert any(call[1] == "rm" for call in adapter.calls) is (
+        failure not in {"foreign", "unlabelled"}
+    )
     assert adapter.exists is (failure != "owned")
