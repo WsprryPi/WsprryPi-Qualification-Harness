@@ -42,8 +42,10 @@
     "backend": {
       "enum": [
         "gpio",
-      "si5351",
-      "rp1_gpclk"
+        "si5351",
+        "rp1_gpclk",
+        "pico_gpio",
+        "pico_si5351"
       ]
     },
     "hardware_profile": {
@@ -55,56 +57,143 @@
       "minLength": 1
     },
     "source": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "parent_revision",
-        "submodule_revision"
-      ],
-      "properties": {
-        "parent_revision": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "parent_revision",
+            "submodule_revision"
+          ],
+          "properties": {
+            "parent_revision": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "submodule_revision": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            }
+          }
         },
-        "submodule_revision": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "target_kind",
+            "source_revision",
+            "compiler_sha256"
+          ],
+          "properties": {
+            "target_kind": {
+              "const": "pico"
+            },
+            "source_revision": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "compiler_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
         }
-      }
+      ]
     },
     "transmitter": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["host", "output", "model", "drive_value", "drive_unit", "clock_reference"],
+      "required": [
+        "host",
+        "output",
+        "model",
+        "drive_value",
+        "drive_unit",
+        "clock_reference"
+      ],
       "properties": {
-        "host": {"type": "string", "minLength": 1},
-        "output": {"type": "string", "minLength": 1},
-        "model": {"type": "string", "minLength": 1},
-        "drive_value": {"type": "number"},
-        "drive_unit": {"type": "string", "minLength": 1},
-        "clock_reference": {"type": "string", "minLength": 1}
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "output": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "drive_value": {
+          "type": "number"
+        },
+        "drive_unit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clock_reference": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "receiver": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["host", "driver", "device_identity"],
+      "required": [
+        "host",
+        "driver",
+        "device_identity"
+      ],
       "properties": {
-        "host": {"type": "string", "minLength": 1},
-        "driver": {"type": "string", "minLength": 1},
-        "device_identity": {"type": "string", "minLength": 1}
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "driver": {
+          "type": "string",
+          "minLength": 1
+        },
+        "device_identity": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "rf_path": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["attenuation_db", "filter_state", "termination", "antenna_state", "safe_input_basis"],
+      "required": [
+        "attenuation_db",
+        "filter_state",
+        "termination",
+        "antenna_state",
+        "safe_input_basis"
+      ],
       "properties": {
-        "attenuation_db": {"type": ["number", "null"], "minimum": 0},
-        "filter_state": {"type": "string", "minLength": 1},
-        "termination": {"type": "string", "minLength": 1},
-        "antenna_state": {"type": "string", "minLength": 1},
-        "safe_input_basis": {"type": "string", "minLength": 1}
+        "attenuation_db": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "filter_state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "termination": {
+          "type": "string",
+          "minLength": 1
+        },
+        "antenna_state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "safe_input_basis": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "protocol": {
@@ -163,23 +252,38 @@
           "exclusiveMinimum": 0
         },
         "pre_quiet_seconds": {
-          "type": ["number", "null"],
+          "type": [
+            "number",
+            "null"
+          ],
           "exclusiveMinimum": 0
         },
         "post_quiet_seconds": {
-          "type": ["number", "null"],
+          "type": [
+            "number",
+            "null"
+          ],
           "exclusiveMinimum": 0
         },
         "intra_element_gap_units": {
-          "type": ["number", "null"],
+          "type": [
+            "number",
+            "null"
+          ],
           "exclusiveMinimum": 0
         },
         "inter_character_gap_units": {
-          "type": ["number", "null"],
+          "type": [
+            "number",
+            "null"
+          ],
           "exclusiveMinimum": 0
         },
         "inter_word_gap_units": {
-          "type": ["number", "null"],
+          "type": [
+            "number",
+            "null"
+          ],
           "exclusiveMinimum": 0
         },
         "tone_cycles": {
@@ -309,12 +413,27 @@
     "frequency_contract": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["nominal_frequency_hz", "requested_transmit_frequency_offset_hz", "effective_transmit_frequency_hz", "application"],
+      "required": [
+        "nominal_frequency_hz",
+        "requested_transmit_frequency_offset_hz",
+        "effective_transmit_frequency_hz",
+        "application"
+      ],
       "properties": {
-        "nominal_frequency_hz": {"type": "number", "exclusiveMinimum": 0},
-        "requested_transmit_frequency_offset_hz": {"type": "integer"},
-        "effective_transmit_frequency_hz": {"type": "number", "exclusiveMinimum": 0},
-        "application": {"const": "exactly_once_before_child_plan_composition"}
+        "nominal_frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "requested_transmit_frequency_offset_hz": {
+          "type": "integer"
+        },
+        "effective_transmit_frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "application": {
+          "const": "exactly_once_before_child_plan_composition"
+        }
       }
     }
   },
@@ -371,9 +490,15 @@
                 "type": "number",
                 "exclusiveMinimum": 0
               },
-              "intra_element_gap_units": {"const": null},
-              "inter_character_gap_units": {"const": null},
-              "inter_word_gap_units": {"const": null},
+              "intra_element_gap_units": {
+                "const": null
+              },
+              "inter_character_gap_units": {
+                "const": null
+              },
+              "inter_word_gap_units": {
+                "const": null
+              },
               "tone_cycles": {
                 "type": "integer"
               },
@@ -416,11 +541,21 @@
               "secondary_frequency_hz": {
                 "const": null
               },
-              "pre_quiet_seconds": {"type": "number"},
-              "post_quiet_seconds": {"type": "number"},
-              "intra_element_gap_units": {"type": "number"},
-              "inter_character_gap_units": {"type": "number"},
-              "inter_word_gap_units": {"type": "number"},
+              "pre_quiet_seconds": {
+                "type": "number"
+              },
+              "post_quiet_seconds": {
+                "type": "number"
+              },
+              "intra_element_gap_units": {
+                "type": "number"
+              },
+              "inter_character_gap_units": {
+                "type": "number"
+              },
+              "inter_word_gap_units": {
+                "type": "number"
+              },
               "tone_cycles": {
                 "const": null
               },
@@ -463,11 +598,21 @@
               "secondary_frequency_hz": {
                 "type": "number"
               },
-              "pre_quiet_seconds": {"type": "number"},
-              "post_quiet_seconds": {"type": "number"},
-              "intra_element_gap_units": {"type": "number"},
-              "inter_character_gap_units": {"type": "number"},
-              "inter_word_gap_units": {"type": "number"},
+              "pre_quiet_seconds": {
+                "type": "number"
+              },
+              "post_quiet_seconds": {
+                "type": "number"
+              },
+              "intra_element_gap_units": {
+                "type": "number"
+              },
+              "inter_character_gap_units": {
+                "type": "number"
+              },
+              "inter_word_gap_units": {
+                "type": "number"
+              },
               "tone_cycles": {
                 "const": null
               },
@@ -476,6 +621,66 @@
               },
               "tone_off_seconds": {
                 "const": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "backend": {
+            "enum": [
+              "pico_gpio",
+              "pico_si5351"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "target_kind",
+              "source_revision",
+              "compiler_sha256"
+            ],
+            "properties": {
+              "target_kind": {
+                "const": "pico"
+              },
+              "source_revision": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "compiler_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "parent_revision",
+              "submodule_revision"
+            ],
+            "properties": {
+              "parent_revision": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "submodule_revision": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
               }
             }
           }

@@ -1,0 +1,546 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "schema",
+        "target",
+        "saved",
+        "selection",
+        "execution_engine",
+        "storage_healthy"
+      ],
+      "properties": {
+        "contract": {
+          "const": "Wsprry-Control/1"
+        },
+        "schema": {
+          "const": "rf-calibration"
+        },
+        "target": {
+          "$ref": "pico-control.schema.json#/$defs/application/$defs/target"
+        },
+        "saved": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "manual_ppm",
+                "mode"
+              ],
+              "properties": {
+                "manual_ppm": {
+                  "type": "string",
+                  "pattern": "^-?(?:0|[1-9][0-9]{0,2})\\.[0-9]{3}$"
+                },
+                "mode": {
+                  "const": "manual"
+                }
+              }
+            }
+          ]
+        },
+        "selection": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "candidate",
+                "candidate_correction_ppb",
+                "candidate_uncertainty_ppb",
+                "saved_ntp_available",
+                "saved_ntp",
+                "candidate_age_ns",
+                "topology_supported",
+                "independent_rf_verified",
+                "ntp_rf_supported",
+                "next_ppb",
+                "next_generation",
+                "next_source",
+                "reason",
+                "prepared_ppb",
+                "prepared_source",
+                "prepared_generation"
+              ],
+              "properties": {
+                "candidate": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "qualified",
+                    "utc_rate_ppb",
+                    "uncertainty_ppb",
+                    "generation",
+                    "sampled_raw_ns",
+                    "span_ns",
+                    "samples",
+                    "reason"
+                  ],
+                  "properties": {
+                    "qualified": {
+                      "type": "boolean"
+                    },
+                    "utc_rate_ppb": {
+                      "type": "integer",
+                      "minimum": -2147483648,
+                      "maximum": 2147483647
+                    },
+                    "uncertainty_ppb": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 4294967295
+                    },
+                    "generation": {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]{0,19})$",
+                      "x-maximum": "18446744073709551615"
+                    },
+                    "sampled_raw_ns": {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]{0,19})$",
+                      "x-maximum": "18446744073709551615"
+                    },
+                    "span_ns": {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]{0,19})$",
+                      "x-maximum": "18446744073709551615"
+                    },
+                    "samples": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 4294967295
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "candidate_correction_ppb": {
+                  "type": "null"
+                },
+                "candidate_uncertainty_ppb": {
+                  "const": 0
+                },
+                "saved_ntp_available": {
+                  "const": false
+                },
+                "saved_ntp": {
+                  "type": "null"
+                },
+                "candidate_age_ns": {
+                  "const": "0"
+                },
+                "topology_supported": {
+                  "const": false
+                },
+                "independent_rf_verified": {
+                  "const": false
+                },
+                "ntp_rf_supported": {
+                  "const": false
+                },
+                "next_ppb": {
+                  "type": "integer",
+                  "minimum": -100000,
+                  "maximum": 100000
+                },
+                "next_generation": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]{0,19})$",
+                  "x-maximum": "18446744073709551615"
+                },
+                "next_source": {
+                  "enum": [
+                    "manual",
+                    "gps"
+                  ]
+                },
+                "reason": {
+                  "enum": [
+                    "gps_calibration_required",
+                    "gps_calibrated",
+                    "manual_mode"
+                  ]
+                },
+                "prepared_ppb": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": -100000,
+                      "maximum": 100000
+                    }
+                  ]
+                },
+                "prepared_source": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "enum": [
+                        "manual",
+                        "gps"
+                      ]
+                    }
+                  ]
+                },
+                "prepared_generation": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]{0,19})$",
+                      "x-maximum": "18446744073709551615"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "execution_engine": {
+          "type": "string",
+          "minLength": 1
+        },
+        "storage_healthy": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "schema",
+        "target",
+        "firmware",
+        "active_source",
+        "source_disagreement",
+        "source_revision",
+        "nominal_sample_hz",
+        "image_hash_binding",
+        "clock_generation",
+        "utc_rate_ppb",
+        "sync_age_ns",
+        "network"
+      ],
+      "properties": {
+        "contract": {
+          "const": "Wsprry-Control/1"
+        },
+        "schema": {
+          "const": "ntp-observations"
+        },
+        "target": {
+          "$ref": "pico-control.schema.json#/$defs/application/$defs/target"
+        },
+        "firmware": {
+          "type": "string",
+          "minLength": 1
+        },
+        "active_source": {
+          "enum": [
+            "none",
+            "sntp",
+            "controller",
+            "browser",
+            "gps",
+            "disagreement"
+          ]
+        },
+        "source_disagreement": {
+          "type": "boolean"
+        },
+        "source_revision": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "nominal_sample_hz": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200000000
+        },
+        "image_hash_binding": {
+          "const": "external_manifest"
+        },
+        "clock_generation": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "x-maximum": "18446744073709551615"
+        },
+        "utc_rate_ppb": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "sync_age_ns": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "x-maximum": "18446744073709551615"
+        },
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "link_status",
+            "ipv4"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "link_status": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "ipv4": {
+              "type": "string",
+              "maxLength": 15
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "schema",
+        "target",
+        "writable",
+        "saved",
+        "state",
+        "pause_pending",
+        "next_start_utc_ns",
+        "last_start_utc_ns",
+        "last_job_id",
+        "last_result",
+        "last_error"
+      ],
+      "properties": {
+        "contract": {
+          "const": "Wsprry-Control/1"
+        },
+        "schema": {
+          "const": "message-schedule"
+        },
+        "target": {
+          "$ref": "pico-control.schema.json#/$defs/application/$defs/target"
+        },
+        "writable": {
+          "type": "boolean"
+        },
+        "saved": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "first_start_utc_ns",
+                "period_s",
+                "expires_utc_s",
+                "message"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "first_start_utc_ns": {
+                  "$ref": "pico-wtp.schema.json#/$defs/u64"
+                },
+                "period_s": {
+                  "type": "integer",
+                  "minimum": 60,
+                  "maximum": 86400,
+                  "multipleOf": 60
+                },
+                "expires_utc_s": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "message": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "mode",
+                    "frequency_nhz",
+                    "allow_frequency_adjustment",
+                    "message",
+                    "space_frequency_nhz",
+                    "timing",
+                    "repeat_count",
+                    "repeat_gap_ns"
+                  ],
+                  "properties": {
+                    "mode": {
+                      "enum": [
+                        "qrss",
+                        "fskcw",
+                        "dfcw"
+                      ]
+                    },
+                    "frequency_nhz": {
+                      "$ref": "pico-wtp.schema.json#/$defs/u64"
+                    },
+                    "allow_frequency_adjustment": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "space_frequency_nhz": {
+                      "$ref": "pico-wtp.schema.json#/$defs/u64"
+                    },
+                    "timing": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "dot_ns",
+                        "dash_ns",
+                        "intra_gap_ns",
+                        "character_gap_ns",
+                        "word_gap_ns"
+                      ],
+                      "properties": {
+                        "dot_ns": {
+                          "$ref": "pico-wtp.schema.json#/$defs/u64"
+                        },
+                        "dash_ns": {
+                          "$ref": "pico-wtp.schema.json#/$defs/u64"
+                        },
+                        "intra_gap_ns": {
+                          "$ref": "pico-wtp.schema.json#/$defs/u64"
+                        },
+                        "character_gap_ns": {
+                          "$ref": "pico-wtp.schema.json#/$defs/u64"
+                        },
+                        "word_gap_ns": {
+                          "$ref": "pico-wtp.schema.json#/$defs/u64"
+                        }
+                      }
+                    },
+                    "repeat_count": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 512
+                    },
+                    "repeat_gap_ns": {
+                      "$ref": "pico-wtp.schema.json#/$defs/u64"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "empty",
+            "loaded",
+            "armed",
+            "running",
+            "complete",
+            "aborted",
+            "missed",
+            "failed",
+            "not_configured",
+            "unavailable",
+            "recovery_required",
+            "pausing",
+            "paused",
+            "suspended",
+            "restart_required",
+            "waiting_for_time",
+            "waiting",
+            "expired",
+            "waiting_for_transmitter"
+          ]
+        },
+        "pause_pending": {
+          "type": "boolean"
+        },
+        "next_start_utc_ns": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "pico-wtp.schema.json#/$defs/u64"
+            }
+          ]
+        },
+        "last_start_utc_ns": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "pico-wtp.schema.json#/$defs/u64"
+            }
+          ]
+        },
+        "last_job_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "pico-wtp.schema.json#/$defs/id"
+            }
+          ]
+        },
+        "last_result": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "enum": [
+                "complete",
+                "failed",
+                "aborted",
+                "missed"
+              ]
+            }
+          ]
+        },
+        "last_error": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "pico-wtp.schema.json#/$defs/error"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

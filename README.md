@@ -1,6 +1,6 @@
 # WsprryPi Qualification Harness
 
-Cross-platform tooling for bounded WsprryPi transmitter qualification,
+Cross-platform tooling for bounded WsprryPi and WsprryPico transmitter qualification,
 exact-count SDR capture, offline signal analysis, independent WSPR decoding,
 and lifecycle verification.
 
@@ -34,6 +34,8 @@ The maintained package provides:
   confirmation, and routing to the existing production coordinators;
 - simple `complete-test TRANSMITTER_HOST RECEIVER_HOST --sdr SELECTOR --enable-rf`
   orchestration for the ordered TONE, WSPR, QRSS, FSKCW, and DFCW campaign; and
+- distinct Pico USB campaigns for GPIO and Si5351, each with or without GPS/PPS,
+  using production encoders, finite jobs, and separate correction subcases; and
 - schema-validated result bundles with explicit cleanup and qualification states.
 
 Hardware-free results, replays, mock lifecycles, and host preflights cannot
@@ -49,6 +51,9 @@ ignored temporary output, not a repository archive.
 A working conducted test rig can run the default five-mode campaign against
 Si5351 and against the GPIO backend used by Broadcom/DMA WsprryPi versions.
 That statement records rig capability, not portable qualification evidence.
+
+See the [Pico RF campaign guide](docs/development/pico-rf-campaign.md) for
+configuration, compiler preparation, rehearsal, supported live hosts, and evidence.
 
 ## Start here
 

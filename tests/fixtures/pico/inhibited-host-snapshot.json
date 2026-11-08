@@ -1,0 +1,615 @@
+{
+  "capabilities": {
+    "contract": "Wsprry-Control/1",
+    "wtp": {
+      "profiles": [
+        "rf-events/1"
+      ],
+      "modes": [
+        "wspr",
+        "qrss",
+        "fskcw",
+        "dfcw",
+        "cw",
+        "tone"
+      ],
+      "engine": "inhibited-no-rf",
+      "frequency_ranges": [
+        {
+          "minimum_nhz": "1",
+          "maximum_nhz": "18446744073709551615"
+        }
+      ],
+      "max_payload_bytes": 65536,
+      "max_events": 512,
+      "max_job_duration_ns": "86400000000000",
+      "minimum_arm_lead_ns": "100000000",
+      "maximum_arm_ahead_ns": "604800000000000",
+      "maximum_arm_uncertainty_ns": "1000000",
+      "maximum_holdover_age_ns": "0",
+      "output_disable_timeout_ns": "100000000",
+      "minimum_lease_ms": 5000,
+      "maximum_lease_ms": 60000,
+      "response_cache_entries": 8,
+      "response_cache_ttl_seconds": 300,
+      "terminal_record_entries": 8,
+      "terminal_record_ttl_seconds": 3600
+    },
+    "logging": {
+      "schema": "logging",
+      "path": "/api/control/v1/logging"
+    },
+    "field_access": {
+      "schema": "field-access",
+      "path": "/api/control/v1/consumer/field",
+      "time": "/api/control/v1/consumer/time",
+      "challenge": "/api/control/v1/consumer/time/challenge",
+      "submit": "/api/control/v1/consumer/time/submit",
+      "carrier": "consumer_ap",
+      "holdover_s": 3600,
+      "drift_ppb": 50000,
+      "initial_uncertainty_ns": "250000000",
+      "fallback_after_s": 60,
+      "fallback_window_s": 600,
+      "fallback_reopen_s": 300,
+      "station_stable_s": 30,
+      "authentication": "pico_password",
+      "utc_uncertainty_policy": "informational"
+    },
+    "ntp_observations": {
+      "schema": "ntp-observations",
+      "path": "/api/control/v1/ntp-observations"
+    },
+    "standalone_frequency": {
+      "schema": "standalone-frequency",
+      "path": "/api/control/v1/standalone-frequency",
+      "method": "PUT",
+      "units": "Hz",
+      "reference": "wspr_usb_dial",
+      "activation": "next_job",
+      "default": 14095600
+    },
+    "rf_calibration": {
+      "schema": "rf-calibration",
+      "path": "/api/control/v1/rf-calibration",
+      "method": "PUT",
+      "units": "ppm",
+      "precision": 3,
+      "minimum": "-100.000",
+      "maximum": "100.000",
+      "default_mode": "manual",
+      "activation": "next_preparation"
+    },
+    "filter_selector": {
+      "schema": "filter-selector",
+      "path": "/api/control/v1/filter-selector"
+    },
+    "amplifier_timing": {
+      "schema": "amplifier-timing",
+      "path": "/api/control/v1/amplifier-timing",
+      "method": "PUT",
+      "units": "ms",
+      "minimum": 0,
+      "maximum": 1000,
+      "default_lead_ms": 200,
+      "default_tail_ms": 200,
+      "activation": "restart",
+      "scope": "complete_job"
+    },
+    "gpio_drive": {
+      "schema": "gpio-drive",
+      "read": "/api/control/v1/gpio-drive",
+      "write": "/api/control/v1/gpio-drive",
+      "method": "PUT",
+      "values": [
+        2,
+        4,
+        8,
+        12
+      ],
+      "default": 12,
+      "units": "mA",
+      "engine": "pio",
+      "activation": "restart",
+      "config": "/api/control/v1/config",
+      "update": "/api/control/v1/config/update",
+      "update_schema": "config-update",
+      "hardware": "/api/control/v1/hardware",
+      "application": "/api/control/v1/application",
+      "progress": "/api/control/v1/progress",
+      "progress_schema": "progress"
+    },
+    "si5351": {
+      "schema": "si5351",
+      "read": "/api/control/v1/si5351",
+      "config": "/api/control/v1/config",
+      "update": "/api/control/v1/config/update",
+      "update_schema": "config-update",
+      "activation": "restart",
+      "supported_device": "si5351a_10_msop",
+      "addresses": [
+        96
+      ],
+      "reference_hz": [
+        25000000,
+        27000000
+      ],
+      "reference_sources": [
+        "crystal",
+        "external_xa"
+      ],
+      "crystal_load_pf": [
+        6,
+        8,
+        10
+      ],
+      "drive_ma": [
+        2,
+        4,
+        6,
+        8
+      ],
+      "outputs": [
+        0,
+        1,
+        2
+      ],
+      "capture_gps": [
+        1,
+        3,
+        5,
+        7,
+        9,
+        11,
+        13,
+        15,
+        17,
+        19,
+        21,
+        27
+      ],
+      "reference_uses": [
+        "measurement_only",
+        "trusted_local"
+      ],
+      "default_reference_use": "measurement_only",
+      "automatic_calibration": true,
+      "gps": true,
+      "execution_gate": "qualified_profile_or_engineering_build",
+      "maximum_tones": 4,
+      "maximum_events": 512,
+      "minimum_transition_ns": "10000000",
+      "manual_correction_limit_ppb": 100000,
+      "trusted_uncertainty_maximum_ppb": 100000,
+      "maximum_measurement_age_ns": "30000000000",
+      "minimum_measurement_window_ns": "10000000000",
+      "maximum_measurement_window_ns": "60000000000",
+      "reference_loss_policy": "retain_timer_rate_center_with_utc_holdover",
+      "frequency_disagreement": "inhibit_utc_admission",
+      "i2c_hz": 100000,
+      "completion_control_timeout_ns": "8000000",
+      "ordinary_profile": {
+        "id": "qrp-labs-rev6-25mhz-clk0-8ma",
+        "qualified": true,
+        "system_clock_hz": 138000000,
+        "i2c_pair": 1,
+        "address": 96,
+        "reference_hz": 25000000,
+        "reference_source": "external_xa",
+        "crystal_load_pf": null,
+        "transmit_output": 0,
+        "drive_ma": 8,
+        "loopback_output": 2,
+        "loopback_input_gp": 7,
+        "allow_none": true,
+        "rf_gate_gp": null,
+        "reference_uses": [
+          "measurement_only",
+          "trusted_local"
+        ],
+        "modes": [
+          "wspr",
+          "tone",
+          "qrss",
+          "fskcw",
+          "dfcw"
+        ],
+        "frequency_points_hz": [
+          137500,
+          475700,
+          1838100,
+          3570100,
+          5288700,
+          7050000,
+          10140200,
+          14097100,
+          18106100,
+          21096100,
+          24926100,
+          28126100,
+          40001000,
+          50294500,
+          60001000,
+          70400000,
+          144490500
+        ]
+      },
+      "trusted_epoch_sources": [
+        "ntp",
+        "browser",
+        "gps"
+      ],
+      "frequency_minimum_nhz": "8000000000000",
+      "frequency_maximum_nhz": "160000000000000000",
+      "transmit_strategies": [
+        "fixed_pll_multisynth",
+        "fixed_integer_multisynth_pll"
+      ],
+      "vhf_pll_family": {
+        "denominator_minimum": 983040,
+        "denominator_maximum": 1048575,
+        "denominator_span_maximum": 4095,
+        "common_p1": true,
+        "maximum_candidate_evaluations": 32768
+      }
+    },
+    "gps": {
+      "schema": "gps",
+      "read": "/api/control/v1/gps",
+      "config": "/api/control/v1/config",
+      "update": "/api/control/v1/config/update",
+      "update_schema": "config-update",
+      "activation": "restart",
+      "receivers": [
+        "qlg3",
+        "e108"
+      ],
+      "rx_gps": [
+        1,
+        5,
+        9,
+        13,
+        17,
+        21
+      ],
+      "tx_gps": [
+        0,
+        4,
+        8,
+        12,
+        16,
+        20,
+        28
+      ],
+      "bauds": [
+        9600,
+        19200,
+        38400,
+        115200
+      ],
+      "pps_polarities": [
+        "rising",
+        "falling"
+      ],
+      "utc_second_offsets": [
+        -1,
+        0,
+        1
+      ],
+      "pairing": "qualified_unique_captured_edge_rmc",
+      "receiver_uncertainty_maximum_us": 100000,
+      "capture_uncertainty_maximum_us": 100000,
+      "position_maximum_age_s": 3600,
+      "calibration_maximum_age_s": 86400,
+      "calibration_window_ns": [
+        "10000000000",
+        "60000000000"
+      ],
+      "manual_correction": "residual_scale_composition",
+      "location_sources": [
+        "manual",
+        "gps"
+      ],
+      "daylight_policies": [
+        "always",
+        "day",
+        "night"
+      ],
+      "source_loss": "retain_rate_grow_uncertainty",
+      "gps_holdover_ns": "3600000000000",
+      "first_party_uncertainty_veto": false,
+      "pps_offset_limit_ns": 500000000,
+      "pps_gps": [
+        1,
+        3,
+        5,
+        7,
+        9,
+        11,
+        13,
+        15,
+        17,
+        19,
+        21,
+        27
+      ],
+      "pps_capture": "input_only_pwm_gated_timestamp",
+      "pwm_slice_policy": "exclusive_from_si5351_loopback",
+      "message_delay_maximum_ms": 1999,
+      "message_delay_span_maximum_ms": 999,
+      "pulse_history_edges": 5
+    },
+    "operations_status": {
+      "schema": "operations",
+      "path": "/api/control/v1/operations",
+      "utc_uncertainty_policy": "informational"
+    },
+    "amplifier_enable": {
+      "schema": "amplifier-enable",
+      "pins": "/api/control/v1/pins",
+      "validate": "/api/control/v1/pins/validate",
+      "config": "/api/control/v1/config",
+      "update": "/api/control/v1/config/update",
+      "update_schema": "config-update",
+      "hardware": "/api/control/v1/hardware",
+      "application": "/api/control/v1/application",
+      "progress": "/api/control/v1/progress",
+      "progress_schema": "progress",
+      "default_pin": null,
+      "default_active_high": false,
+      "activation": "restart",
+      "execution": "inhibited_inactive_only"
+    },
+    "message_jobs": {
+      "operation": "LOAD_MESSAGE",
+      "max_characters": 32,
+      "tail_ns": "1000",
+      "max_repeat_count": 512,
+      "modes": [
+        "qrss",
+        "fskcw",
+        "dfcw"
+      ]
+    },
+    "message_schedule": {
+      "schema": "message-schedule",
+      "path": "/api/control/v1/message-schedule",
+      "pause": "/api/control/v1/message-schedule/pause",
+      "min_period_s": 60,
+      "max_period_s": 86400,
+      "max_storage_bytes": 1984,
+      "preparation_lead_ns": "2000000000"
+    },
+    "features": {
+      "config": true,
+      "schedules": true,
+      "jobs": true,
+      "network": true,
+      "application": true,
+      "station": true,
+      "hardware": true,
+      "consumer_setup_identity": false,
+      "station_live_apply": false,
+      "softap": true,
+      "ble": true,
+      "restart": false
+    },
+    "application_resources": {
+      "schema": "application",
+      "read": "/api/control/v1/application",
+      "station": "/api/control/v1/station",
+      "config": "/api/control/v1/config",
+      "update": "/api/control/v1/config/update",
+      "hardware": "/api/control/v1/hardware"
+    },
+    "configuration_updates": {
+      "schema": "config-update",
+      "path": "/api/control/v1/config/update",
+      "method": "POST",
+      "modes": [
+        "merge"
+      ],
+      "max_update_bytes": 2048,
+      "max_config_bytes": 1800
+    },
+    "management_carriers": {
+      "schema": "management",
+      "path": "/api/control/v1/management"
+    },
+    "active_job_connections": false,
+    "saved_progress": {
+      "schema": "progress",
+      "read": "/api/control/v1/progress",
+      "save": "/api/control/v1/progress/update",
+      "apply": "/api/control/v1/progress/apply",
+      "max_bytes": 2048
+    },
+    "max_network_connections": 2,
+    "max_wtp_connections": 1,
+    "max_pending_connections": 1,
+    "max_handshakes": 1,
+    "max_body_bytes": 32768
+  },
+  "config": {
+    "contract": "Wsprry-Control/1",
+    "config": null
+  },
+  "status": {
+    "contract": "Wsprry-Control/1",
+    "job": {
+      "boot_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "state": "empty",
+      "output_active": false,
+      "owner_id": null,
+      "job_id": null,
+      "terminal_records": []
+    },
+    "standalone": {
+      "ok": true,
+      "configured": false,
+      "enabled": false,
+      "allow_unqualified_frequency": false,
+      "allow_non_amateur_frequency": false,
+      "gpio_drive_ma": 12,
+      "boot_gpio_drive_ma": 12,
+      "suspended": false,
+      "expires_utc_s": 0,
+      "owner_id": null,
+      "job_id": null,
+      "boot_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "utc_now_ns": "0",
+      "monotonic_now_ns": "0",
+      "sync_age_ns": "18446744073709551615",
+      "station": null,
+      "schedules": [],
+      "schedule_dial_frequency_nhz": null,
+      "frequency_required": true,
+      "engine": "inhibited-no-rf",
+      "storage_healthy": true,
+      "reboot_required": false,
+      "watermark_utc_ns": "0",
+      "clock_state": "unsynchronized",
+      "uncertainty_ns": "18446744073709551615",
+      "state": "empty",
+      "last_error": null,
+      "last_job": "",
+      "wspr_frame": 0,
+      "wspr_frames": 0,
+      "wspr_pair_pending": false,
+      "output_active": false
+    },
+    "network": {
+      "enabled": false,
+      "link_status": 0,
+      "ipv4": "0.0.0.0",
+      "configured_hostname": "",
+      "mdns_state": "unconfigured",
+      "mdns_reason": ""
+    },
+    "transport": null
+  },
+  "hardware": {
+    "contract": "Wsprry-Control/1",
+    "schema": "hardware",
+    "target": {
+      "scope": "member",
+      "device_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "boot_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "saved": null,
+    "saved_generation": null,
+    "active": null,
+    "active_revision": null,
+    "pending_restart": false,
+    "application_error": null,
+    "execution_engine": "inhibited-no-rf",
+    "storage_healthy": true,
+    "gpio_drive": {
+      "schema": "gpio-drive",
+      "target": {
+        "scope": "member",
+        "device_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "boot_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "saved": null,
+      "boot_active": 12,
+      "pad_readback": null,
+      "pending_restart": false,
+      "application_error": null,
+      "rf_gp": 2,
+      "execution_engine": "inhibited-no-rf",
+      "storage_healthy": true
+    }
+  },
+  "gps": {
+    "contract": "Wsprry-Control/1",
+    "schema": "gps",
+    "target": {
+      "scope": "member",
+      "device_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "boot_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "saved": null,
+    "boot_active": null,
+    "pending_restart": false,
+    "storage_healthy": true,
+    "runtime": null
+  },
+  "si5351": {
+    "contract": "Wsprry-Control/1",
+    "schema": "si5351",
+    "target": {
+      "scope": "member",
+      "device_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "boot_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "saved": null,
+    "boot_active": null,
+    "pending_restart": false,
+    "physically_qualified": false,
+    "qualification": null,
+    "execution_engine": "inhibited-no-rf",
+    "runtime": null,
+    "storage_healthy": true
+  },
+  "ntp-observations": {
+    "contract": "Wsprry-Control/1",
+    "schema": "ntp-observations",
+    "target": {
+      "scope": "member",
+      "device_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "boot_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "firmware": "usb-pair-host-harness",
+    "active_source": "none",
+    "source_disagreement": false,
+    "source_revision": "unreported",
+    "nominal_sample_hz": 0,
+    "image_hash_binding": "external_manifest",
+    "clock_generation": "0",
+    "utc_rate_ppb": 0,
+    "sync_age_ns": "18446744073709551615",
+    "network": {
+      "enabled": false,
+      "link_status": 0,
+      "ipv4": "0.0.0.0"
+    }
+  },
+  "rf-calibration": {
+    "contract": "Wsprry-Control/1",
+    "schema": "rf-calibration",
+    "target": {
+      "scope": "member",
+      "device_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "boot_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "saved": null,
+    "selection": null,
+    "execution_engine": "inhibited-no-rf",
+    "storage_healthy": true
+  },
+  "message-schedule": {
+    "contract": "Wsprry-Control/1",
+    "schema": "message-schedule",
+    "target": {
+      "scope": "member",
+      "device_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "boot_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "writable": true,
+    "saved": null,
+    "state": "not_configured",
+    "pause_pending": false,
+    "next_start_utc_ns": null,
+    "last_start_utc_ns": null,
+    "last_job_id": null,
+    "last_result": null,
+    "last_error": null
+  },
+  "target": {
+    "scope": "member",
+    "device_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "boot_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "revision": "\"8f6889e3c0100befe6e8108abc73911df12cfe3ae2d444455549c43808554d8c\""
+}

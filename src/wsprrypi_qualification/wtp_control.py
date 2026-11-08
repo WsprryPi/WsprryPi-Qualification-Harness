@@ -118,6 +118,13 @@ def run_transaction(
     verify_inactive: Callable[[], dict[str, Any]],
     wall_ns: Callable[[], int] = time.time_ns,
     monotonic: Callable[[], float] = time.monotonic,
+    expected_boot_id: str | None = None,
+    maximum_events: int = 162,
+    maximum_duration_ns: int = 110_592_000_000,
+    maximum_start_uncertainty_ns: int = 20_000_000,
+    minimum_arm_lead_ns: int = 100_000_000,
+    maximum_arm_ahead_ns: int = 9_000_000_000,
+    before_cleanup: Callable[[], None] = lambda: None,
 ) -> dict[str, Any]:
     """Load one complete job, arm locally, and require matching terminal evidence.
 
@@ -126,7 +133,13 @@ def run_transaction(
     ABORT is attempted even when LOAD/ARM replies were lost. Physical disconnect
     remains the caller's fallback when transport cleanup is unavailable.
     """
-    validate_event_job(job, maximum_events=162, maximum_duration_ns=110_592_000_000)
+    validate_event_job(job, maximum_events=maximum_events, maximum_duration_ns=maximum_duration_ns)
+    if (
+        type(maximum_start_uncertainty_ns) is not int
+        or not 0 < maximum_start_uncertainty_ns < 2**64
+        or not 0 < minimum_arm_lead_ns < maximum_arm_ahead_ns <= 45_000_000_000
+    ):
+        raise ValueError("Invalid WTP transaction admission limits")
     if type(start_utc_ns) is not int or not wall_ns() < start_utc_ns < wall_ns() + 45_000_000_000:
         raise ValueError("Start is outside the bounded transaction window")
     value = copy.deepcopy(job)
@@ -158,6 +171,8 @@ def run_transaction(
             or any(c not in "0123456789abcdef" for c in record["hello"]["boot_id"])
         ):
             raise ValueError("Invalid WTP negotiation or boot identity")
+        if expected_boot_id is not None and record["hello"]["boot_id"] != expected_boot_id:
+            raise ValueError("WTP boot differs from management discovery")
         record["initial_idle"] = verify_inactive()
         if record["initial_idle"].get("output_active") is not False:
             raise ValueError("Initial output inactivity is not verified")
@@ -172,7 +187,7 @@ def run_transaction(
         ):
             raise ValueError("LOAD acknowledgment does not match the submitted job")
         record["sync"] = before_arm()
-        if not 100_000_000 < start_utc_ns - wall_ns() < 9_000_000_000:
+        if not minimum_arm_lead_ns < start_utc_ns - wall_ns() < maximum_arm_ahead_ns:
             raise ValueError("Missed bounded ARM window")
         receiver_ready()
         record["arm"] = peer.request(
@@ -180,7 +195,7 @@ def run_transaction(
             {
                 "job_id": value["job_id"],
                 "start_utc_ns": str(start_utc_ns),
-                "max_start_uncertainty_ns": "20000000",
+                "max_start_uncertainty_ns": str(maximum_start_uncertainty_ns),
             },
         )
         if (
@@ -195,8 +210,12 @@ def run_transaction(
             + int(value["total_duration_ns"]) / 1e9
             + 3
         )
+        renewed = monotonic()
         while monotonic() < deadline:
             receiver_ready()
+            if monotonic() - renewed >= 20:
+                peer.request("RENEW", {"owner_id": owner_id, "lease_ms": 60000}, timeout=3)
+                renewed = monotonic()
             try:
                 message = peer.next_message(min(1, deadline - monotonic()))
             except TimeoutError:
@@ -213,6 +232,17 @@ def run_transaction(
         record["status"] = peer.request("STATUS", {})
         if record["status"].get("boot_id") != record["hello"]["boot_id"]:
             raise ValueError("WTP boot identity changed during the transaction")
+        if "terminal" not in record:
+            # Events are notifications; a matching retained terminal journal is
+            # authoritative after a lost notification. Never replay ARM.
+            records = record["status"].get("terminal_records", [])
+            if isinstance(records, list):
+                matching = [
+                    r for r in records if isinstance(r, dict) and r.get("job_id") == value["job_id"]
+                ]
+                if len(matching) == 1:
+                    record["terminal"] = matching[0]
+                    record["terminal_source"] = "status_journal"
         record["completed"] = (
             record.get("terminal", {}).get("state") == "complete"
             and record["terminal"].get("output_active") is False
@@ -225,11 +255,21 @@ def run_transaction(
         record["error"] = str(caught)
     finally:
         try:
+            before_cleanup()
             if claim_attempted:
                 status = peer.request("STATUS", {}, timeout=3)
                 record["cleanup_status"] = status
+                if status.get("boot_id") != record.get("hello", {}).get("boot_id"):
+                    raise ValueError("Cleanup boot changed; ownership is not transferable")
+                if (
+                    status.get("job_id") == value["job_id"]
+                    and status.get("state") in {"loaded", "armed", "running"}
+                    and status.get("owner_id") != owner_id
+                ):
+                    raise ValueError("Job ownership changed; cleanup is unresolved")
                 if (
                     loaded
+                    and status.get("owner_id") == owner_id
                     and status.get("job_id") == value["job_id"]
                     and status.get("state")
                     in {
@@ -318,7 +358,7 @@ def validate_transaction(record: dict[str, Any]) -> dict[str, Any]:
             or arm.get("start_utc_ns") != str(start)
         ):
             raise ValueError("WTP acceptance, schedule or boot identity contradicts completion")
-    if completed and ("error" in record or "cleanup_error" in record):
+    if (completed and "error" in record) or (cleanup and "cleanup_error" in record):
         raise ValueError("Failed transaction cannot claim complete success")
     return {
         "completed": completed,

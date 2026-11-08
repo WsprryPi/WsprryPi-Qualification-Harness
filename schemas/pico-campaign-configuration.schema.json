@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "target_kind",
+    "configuration_id",
+    "pico",
+    "receiver",
+    "protocol",
+    "rf_path",
+    "receiver_calibration",
+    "pico_source"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "target_kind": {
+      "const": "pico"
+    },
+    "configuration_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+    },
+    "pico": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "serial",
+        "device_id",
+        "engine",
+        "management_port",
+        "wtp_port",
+        "gps_enabled",
+        "utc_source",
+        "automatic_correction",
+        "manual_correction_ppb",
+        "configuration_revision",
+        "control_carrier",
+        "board"
+      ],
+      "properties": {
+        "serial": {
+          "type": "string",
+          "pattern": "^[0-9A-F]{16}$"
+        },
+        "device_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "engine": {
+          "enum": [
+            "pio-dma-gp2",
+            "si5351"
+          ]
+        },
+        "management_port": {
+          "type": "string",
+          "minLength": 1
+        },
+        "wtp_port": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gps_enabled": {
+          "type": "boolean"
+        },
+        "utc_source": {
+          "enum": [
+            "sntp",
+            "controller",
+            "gps"
+          ]
+        },
+        "automatic_correction": {
+          "type": "boolean"
+        },
+        "manual_correction_ppb": {
+          "type": "integer",
+          "minimum": -100000,
+          "maximum": 100000
+        },
+        "configuration_revision": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          ]
+        },
+        "control_carrier": {
+          "const": "usb"
+        },
+        "board": {
+          "const": "pico2_w"
+        }
+      }
+    },
+    "receiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "capture_helper",
+        "driver",
+        "serial",
+        "channel",
+        "sample_rate_hz",
+        "bandwidth_hz",
+        "center_frequency_hz",
+        "gain_db",
+        "wsprd"
+      ],
+      "properties": {
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capture_helper": {
+          "type": "string",
+          "minLength": 1
+        },
+        "driver": {
+          "type": "string",
+          "minLength": 1
+        },
+        "serial": {
+          "type": "string",
+          "minLength": 1
+        },
+        "channel": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "sample_rate_hz": {
+          "type": "integer",
+          "minimum": 12000,
+          "maximum": 10000000
+        },
+        "bandwidth_hz": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 10000000
+        },
+        "center_frequency_hz": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 200000000
+        },
+        "gain_db": {
+          "type": "number",
+          "minimum": -100,
+          "maximum": 100
+        },
+        "wsprd": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frequency_hz",
+        "tone_seconds",
+        "callsign",
+        "locator",
+        "power_dbm",
+        "message",
+        "dot_seconds",
+        "shift_hz"
+      ],
+      "properties": {
+        "frequency_hz": {
+          "type": "integer",
+          "minimum": 100000,
+          "maximum": 160000000
+        },
+        "tone_seconds": {
+          "type": "number",
+          "minimum": 3,
+          "maximum": 60
+        },
+        "callsign": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "power_dbm": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "dot_seconds": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 60
+        },
+        "shift_hz": {
+          "type": "number",
+          "minimum": 3,
+          "maximum": 1000
+        }
+      }
+    },
+    "rf_path": {
+      "$ref": "cw-mode-plan.schema.json#/properties/rf_path"
+    },
+    "receiver_calibration": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profile",
+            "request"
+          ],
+          "properties": {
+            "profile": {
+              "type": "string",
+              "minLength": 1
+            },
+            "request": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "pico_source": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -38,3 +38,12 @@ is `wtp_control.run_transaction`; the CLI is `validate-wtp-transaction`.
 | Retained release preparation and later exact-byte publication | `prepared_release.py`, `prepared_release_adapters.py`, `prepared_release_cli.py` | `prepared-release-request`, `prepared-release-plan`, `prepared-release-prepared`, `prepared-release-state`; `test_prepared_release.py`: four scopes, separate processes, changed/missing proof/artifacts, exact dependencies, explicit publication and partial continuation; owning Pico bundle/provenance tests |
 
 See [the guide](development/lifecycle-release.md) for supported profiles and the distinction between software tests, native package evidence, physical USB/Pi services and RF qualification.
+
+## Pico USB RF campaigns
+
+| Production entry points | Contracts | Verification |
+| --- | --- | --- |
+| `pico_cli.py`, `pico_campaign.py`, `pico_wire.py`, `pico_serial.py`, `pico_live.py`, `pico_audit.py`, `pico_results.py`, `native/src/pico_compile.cpp` | Pico configuration, plan, result, compiler, byte audit, exact upstream control/WTP, and diagnostic schemas; distinct Pico CW source | `test_pico_campaign.py`, `test_pico_wire.py`: four rows and correction subcases, production encoders/endpoints/ACKs, lost writes, independent references, ownership refusal, audit faults, and no-effect rehearsal |
+
+Guide: [Pico RF campaigns](development/pico-rf-campaign.md). Portable software
+checks are separate from installed-image, physical USB, timing, and RF evidence.

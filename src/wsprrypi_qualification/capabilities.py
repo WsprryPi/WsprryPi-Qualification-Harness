@@ -75,6 +75,10 @@ def capability_report() -> dict[str, Any]:
             "RF-disabled component/system plans, durable production lifecycle execution, "
             "independent verification, release/CI selection and owning-component recovery"
         ),
+        "pico_rf_campaign": (
+            "distinct Pico USB complete-test: GPIO/Si5351 with explicit GPS/PPS and "
+            "correction subcases; portable plans and native macOS/Linux same-host live USB"
+        ),
         "complete_test_campaign": (
             "two-host, exact-SDR selectable TONE, WSPR, QRSS, FSKCW, and DFCW "
             "composition with an all-mode default, hardware-free rehearsal, and "

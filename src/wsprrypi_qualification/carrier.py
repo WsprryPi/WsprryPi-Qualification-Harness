@@ -227,6 +227,7 @@ def analyze_carrier(
     receiver_calibration: dict[str, Any] | None = None,
     plot_path: Path | None = None,
     temporal_cw_reference: dict[str, Any] | None = None,
+    acquired: bool = False,
 ) -> dict[str, Any]:
     if (
         not math.isfinite(parameters.startup_acquisition_max_s)
@@ -266,6 +267,10 @@ def analyze_carrier(
     on_threshold = 0.999
     if (rf_off_metadata_path is None) != (rf_on_metadata_path is None):
         raise OfflineAnalysisError("both RF-off and RF-on capture metadata are required together")
+    if acquired and rf_off_metadata_path is None:
+        raise OfflineAnalysisError(
+            "acquired carrier analysis requires authenticated capture metadata"
+        )
     metadata_validation: dict[str, Any]
     if rf_off_metadata_path is not None and rf_on_metadata_path is not None:
         off_metadata = load_capture_metadata(rf_off_metadata_path)
@@ -284,7 +289,7 @@ def analyze_carrier(
             raise OfflineAnalysisError("RF-off and RF-on wire formats differ")
         if off_metadata.clipping_threshold != on_metadata.clipping_threshold:
             raise OfflineAnalysisError("RF-off and RF-on clipping thresholds differ")
-        if profile_evidence is not None:
+        if profile_evidence is not None or acquired:
             _require_distinct_capture_pair(
                 rf_off_metadata_path,
                 rf_on_metadata_path,
@@ -405,7 +410,9 @@ def analyze_carrier(
                 for k, v in asdict(parameters).items()
                 if k != "startup_acquisition_max_s" or v != 0
             },
-            "evidence_scope": "acquired" if profile_evidence is not None else "synthetic",
+            "evidence_scope": "acquired"
+            if acquired or profile_evidence is not None
+            else "synthetic",
             "window": "hann",
             "averaging": "non_overlapping_power_blocks",
             "power_domain": "linear",
