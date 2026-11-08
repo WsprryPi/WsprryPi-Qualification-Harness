@@ -37,3 +37,6 @@ runs/
 *.wav
 *.sigmf-data
 *.sigmf-meta
+
+# Private account-export reference material
+/chatgpt-context/
