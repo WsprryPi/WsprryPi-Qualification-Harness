@@ -316,6 +316,12 @@
               }
             }
           }
+        },
+        "pico_selection": {
+          "enum": [
+            "default",
+            "explicit"
+          ]
         }
       },
       "required": [

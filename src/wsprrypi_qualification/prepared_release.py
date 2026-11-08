@@ -13,6 +13,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -173,10 +174,29 @@ def tools(request: dict[str, Any]) -> dict[str, Any]:
 
 def controller() -> dict[str, str]:
     root = Path(__file__).parent
-    names = ("prepared_release.py", "prepared_release_adapters.py", "prepared_release_cli.py")
-    paths = [root / name for name in names]
-    paths += sorted((root / "schemas").glob("prepared-release-*.schema.json"))
-    return {str(path): lc.file_sha(path) for path in paths}
+    # Bind reused runtime code as well as the new release entrypoints. An update
+    # to supervision, identity or schema validation must not reuse an old seal.
+    paths = sorted(root.rglob("*.py")) + sorted((root / "schemas").glob("*.json"))
+    result = {str(path): lc.file_sha(path) for path in paths}
+    result["@python-runtime"] = lc.digest(
+        {
+            "version": sys.version,
+            "executable": str(Path(sys.executable).resolve()),
+            "sha256": lc.file_sha(Path(sys.executable)),
+        }
+    )
+    for name in (
+        "jsonschema",
+        "referencing",
+        "jsonschema-specifications",
+        "attrs",
+        "rpds-py",
+        "numpy",
+        "matplotlib",
+    ):
+        installed = version(name)
+        result["@dependency/" + name + "/" + installed] = lc.digest(installed)
+    return result
 
 
 def mechanism(name: str) -> dict[str, Any]:
@@ -207,6 +227,22 @@ def mechanism(name: str) -> dict[str, Any]:
 
 def plan(request: dict[str, Any], state_root: Path) -> dict[str, Any]:
     lc.validate(request, "prepared-release-request")
+    request = json.loads(json.dumps(request))
+    if "pico" in request["components"]:
+        request.setdefault(
+            "pico_selection",
+            "default"
+            if request["scope"] in {"pi", "system"}
+            and request["components"]["pico"]["branch"] != "release"
+            else "explicit",
+        )
+        require(
+            request["pico_selection"] != "default"
+            or request["components"]["pico"]["branch"] in {"main", "devel"},
+            "semantic Pico releases require explicit version selection",
+        )
+    else:
+        require("pico_selection" not in request, "Pico selection requires a Pico component")
     state_root = Path(os.path.abspath(state_root))
     require(not state_root.exists(), "new external retained-state directory required")
     require(
@@ -344,6 +380,12 @@ def freeze_source(
 
 
 def check_dependencies(request: dict[str, Any], packets: dict[str, Any]) -> None:
+    if "pico" in packets:
+        require(
+            packets["pico"].get("default_selector_required")
+            is (request["pico_selection"] == "default"),
+            "Pico selector policy changed",
+        )
     selections = request.get("pi_dependencies", {})
     if "pi" not in packets:
         require(not selections, "Pi dependency selections require a selected Pi packet")
@@ -414,6 +456,8 @@ def prepare(value: dict[str, Any], confirmed: str, adapter: ReleaseAdapter) -> d
             packet["files"] = inventory(Path(packet["directory"]))
             packet["packet_sha256"] = lc.digest(packet["files"])
             packet["publish_selected"] = spec["publish"]
+            if name == "pico":
+                packet["default_selector_required"] = request["pico_selection"] == "default"
             require(
                 packet.get("validation", {}).get("status") == "PASS",
                 "owning validation did not pass",
@@ -617,7 +661,38 @@ def _publish(
             if name not in value["components"]:
                 continue
             packet = value["components"][name]
-            observed = observations[name]
+            verify_retained(root)
+            # Recheck already delivered dependencies before the next irreversible
+            # component effect. Selector receipts bind mutable public bookmarks.
+            for dependency in ORDER[: ORDER.index(name)]:
+                if dependency not in value["components"]:
+                    continue
+                fixed = value["components"][dependency]
+                current = adapter.inspect_public(fixed, root)
+                require(
+                    current.get("state") == "published", "published dependency became unavailable"
+                )
+                if prior_acceptance(state, fixed, current) is None:
+                    checked = adapter.accept(fixed, root)
+                    require(
+                        checked.get("status") == "PASS"
+                        and checked.get("packet_sha256") == fixed["packet_sha256"],
+                        "published dependency acceptance changed: " + dependency,
+                    )
+                    state["components"][dependency] = {
+                        "publication": current,
+                        "acceptance": checked,
+                        "acceptance_sha256": lc.digest(checked),
+                    }
+                    lc.save(root / "state.json", state)
+            observed = adapter.inspect_public(packet, root)
+            require(
+                observed.get("state") in {"absent", "draft", "published", "publication_pending"},
+                "ambiguous current public state",
+            )
+            preflight = getattr(adapter, "preflight", None)
+            if preflight is not None:
+                preflight(packet, root, observed)
             if observed["state"] != "published":
                 require(packet["publish_selected"], "publication was not selected: " + name)
                 state.update(
@@ -633,7 +708,8 @@ def _publish(
             state["components"][name] = {"publication": observed, "acceptance": "pending"}
             state.update(pending=None, phase="acceptance_pending")
             lc.save(root / "state.json", state)
-            verified = consumer_checks.get(name) or adapter.accept(packet, root)
+            cached = consumer_checks.get(name) if observations[name] == observed else None
+            verified = cached or adapter.accept(packet, root)
             require(
                 verified.get("status") == "PASS"
                 and verified.get("packet_sha256") == packet["packet_sha256"],
@@ -642,6 +718,27 @@ def _publish(
             state["components"][name]["acceptance"] = verified
             state["components"][name]["acceptance_sha256"] = lc.digest(verified)
             lc.save(root / "state.json", state)
+        # A coordinated completion is a fresh observation of the whole tested
+        # combination, not only the component state seen several steps earlier.
+        verify_retained(root)
+        for name, packet in value["components"].items():
+            current = adapter.inspect_public(packet, root)
+            require(current.get("state") == "published", "final publication became unavailable")
+            preflight = getattr(adapter, "preflight", None)
+            if preflight is not None:
+                preflight(packet, root, current)
+            if prior_acceptance(state, packet, current) is None:
+                checked = adapter.accept(packet, root)
+                require(
+                    checked.get("status") == "PASS"
+                    and checked.get("packet_sha256") == packet["packet_sha256"],
+                    "final combination acceptance did not pass: " + name,
+                )
+                state["components"][name] = {
+                    "publication": current,
+                    "acceptance": checked,
+                    "acceptance_sha256": lc.digest(checked),
+                }
         state.update(phase="complete", pending=None, errors=[])
         lc.save(root / "state.json", state)
     except (OSError, ValueError, subprocess.SubprocessError) as error:

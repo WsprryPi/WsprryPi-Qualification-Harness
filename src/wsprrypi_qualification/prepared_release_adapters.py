@@ -751,8 +751,15 @@ class CanonicalReleaseAdapter:
             require(result["return_code"] in (0, 3), "invalid delayed publication receipt")
             if result["return_code"] == 3:
                 publication_state = "publication_pending"
+        selector = {}
+        if packet["component"] == "pico" and packet.get("default_selector_required"):
+            bookmark = self.api(
+                packet["repository"], "releases/tags/ci-" + packet["branch"], root, missing=True
+            )
+            selector["selector_sha256"] = lc.digest(bookmark)
         return {
             "state": publication_state,
+            **selector,
             "id": release["id"],
             "tag_object": oid,
             "tag": packet["tag"],
@@ -763,9 +770,51 @@ class CanonicalReleaseAdapter:
             "prerelease": release["prerelease"],
         }
 
+    def pico_default_preflight(self, packet: dict[str, Any], root: Path) -> None:
+        """Predict canonical bookmark advancement before the first publication effect."""
+        branch = packet["branch"]
+        require(branch in {"main", "devel"}, "default Pico selection requires a CI branch")
+        release = self.api(packet["repository"], "releases/tags/ci-" + branch, root, missing=True)
+        if release is None:
+            return
+        require(
+            not release["draft"] and release["prerelease"] and not release["assets"],
+            "invalid existing Pico branch bookmark",
+        )
+        directory = root / "continuations"
+        directory.mkdir(mode=0o700, exist_ok=True)
+        path = directory / ("pico-index-" + secrets.token_hex(8) + ".json")
+        lc.save(path, release, new=True)
+        helper = Path(packet["helper_source"]) / "scripts/usb_installer.py"
+        code = (
+            "import importlib.util,json;from pathlib import Path;"
+            "s=importlib.util.spec_from_file_location('c'," + repr(str(helper)) + ");"
+            "c=importlib.util.module_from_spec(s);s.loader.exec_module(c);"
+            "v=json.loads(Path(" + repr(str(path)) + ").read_text(encoding='utf-8'));"
+            "print(json.dumps(c.parse_index(v['body']," + repr(branch) + ")))"
+        )
+        index = json.loads(self.run([*self.command("python"), "-B", "-c", code], root)["stdout"])
+        candidate = packet["owner_plan"]["receipt"]
+        if index["source"] == packet["source"]:
+            require(
+                (candidate["run_id"], candidate["attempt"]) >= (index["run_id"], index["attempt"]),
+                "newer Pico default build would change the tested combination; "
+                "return to preparation",
+            )
+        else:
+            compared = self.api(
+                packet["repository"], "compare/" + index["source"] + "..." + packet["source"], root
+            )
+            require(
+                compared["status"] == "ahead",
+                "Pico default source is newer or diverged; return to preparation",
+            )
+
     def preflight(self, packet: dict[str, Any], root: Path, observed: dict[str, Any]) -> None:
         if packet["component"] == "pico" and observed["state"] != "published":
             self.pico_publisher(packet, root)
+            if packet.get("default_selector_required"):
+                self.pico_default_preflight(packet, root)
             destination = root / "continuations" / ("pico-verify-" + secrets.token_hex(8))
             plan_path = root / "continuations" / ("pico-plan-" + secrets.token_hex(8) + ".json")
             lc.save(plan_path, packet["owner_plan"], new=True)
@@ -1091,13 +1140,19 @@ class CanonicalReleaseAdapter:
                 "s.loader.exec_module(c);c.SCHEMA_BYTES=(p.parent/'ci/release-manifest-2.schema.json').read_bytes();"
                 "f,m,i=c.resolve(c.Https(),branch="
                 + repr(packet["branch"] if packet["branch"] != "release" else "main")
-                + ",version="
-                + repr(packet["version"])
+                + (
+                    ""
+                    if packet.get("default_selector_required")
+                    else ",version=" + repr(packet["version"])
+                )
                 + ");"
-                "assert m['source']['revision']==" + repr(packet["source"]) + ";"
+                "assert m['source']['revision']=="
+                + repr(packet["source"])
+                + ",'public Pico source differs from prepared combination';"
                 "assert m['firmware_version']=="
                 + repr(packet["version"])
-                + ";print(json.dumps({'verified':True}))"
+                + ",'public Pico version differs from prepared combination';"
+                "print(json.dumps({'verified':True}))"
             )
             self.run([*self.command("python"), "-B", "-c", code], root, timeout=600)
         return {

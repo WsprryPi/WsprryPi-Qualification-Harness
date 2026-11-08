@@ -80,3 +80,46 @@ def test_interrupted_cli_inspects_ownership_and_verifies_cleanup(
         failure not in {"foreign", "unlabelled"}
     )
     assert adapter.exists is (failure != "owned")
+
+
+@pytest.mark.parametrize(
+    ("source", "run", "comparison", "allowed"),
+    [
+        ("a" * 40, 1, "", True),
+        ("a" * 40, 2, "", True),
+        ("a" * 40, 3, "", False),
+        ("b" * 40, 3, "ahead", True),
+        ("b" * 40, 3, "behind", False),
+        ("b" * 40, 3, "diverged", False),
+    ],
+)
+def test_default_pico_preflight_refuses_an_untested_bookmark_before_publication(
+    tmp_path: Path, source: str, run: int, comparison: str, allowed: bool
+) -> None:
+    class Index(CanonicalReleaseAdapter):
+        def command(self, name: str) -> list[str]:
+            return [name]
+
+        def api(self, repository: str, endpoint: str, root: Path, **kwargs: Any) -> Any:
+            assert kwargs.get("method", "GET") == "GET"
+            if endpoint.startswith("compare/"):
+                return {"status": comparison}
+            assert endpoint == "releases/tags/ci-devel"
+            return {"draft": False, "prerelease": True, "assets": [], "body": "owner index"}
+
+        def run(self, argv: list[str], root: Path, **kwargs: Any) -> dict[str, Any]:
+            return {"stdout": json.dumps({"source": source, "run_id": run, "attempt": 1})}
+
+    adapter = Index({})
+    packet = {
+        "branch": "devel",
+        "repository": "WsprryPi/WsprryPico",
+        "source": "a" * 40,
+        "helper_source": str(tmp_path),
+        "owner_plan": {"receipt": {"run_id": 2, "attempt": 1}},
+    }
+    if allowed:
+        adapter.pico_default_preflight(packet, tmp_path)
+    else:
+        with pytest.raises(ValueError, match="return to preparation"):
+            adapter.pico_default_preflight(packet, tmp_path)

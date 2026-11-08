@@ -351,6 +351,21 @@ print(json.dumps(out))
                 assert rejected.returncode != 0
                 assert not (root / "service" / component).exists()
                 payload.write_bytes(original)
+            if request.get("pi_dependencies"):
+                retained = root / "state/prepared.json"
+                original_plan = retained.read_bytes()
+                incompatible = lc.load(retained)
+                incompatible["request"]["pi_dependencies"]["pico"]["version"] = "9.9.9"
+                incompatible["prepared_sha256"] = lc.digest(
+                    {k: v for k, v in incompatible.items() if k != "prepared_sha256"}
+                )
+                lc.save(retained, incompatible)
+                rejected = subprocess.run(
+                    [sys.executable, str(driver), str(root), phase], capture_output=True, text=True
+                )
+                assert rejected.returncode != 0 and "selection" in rejected.stderr
+                assert not (root / "service" / component).exists()
+                retained.write_bytes(original_plan)
         result = subprocess.run(
             [sys.executable, str(driver), str(root), phase],
             capture_output=True,
@@ -407,3 +422,69 @@ def test_source_inventory_ignores_ambient_git_repository_overrides(
     monkeypatch.setenv("GIT_INDEX_FILE", str(foreign / ".git/index"))
     assert release.source_files(original) == expected
     assert (foreign / "foreign-only.txt").read_text(encoding="utf-8") == "independent work"
+
+
+@pytest.mark.parametrize("selection", [None, "default", "explicit"])
+def test_coordinated_pico_ci_selector_is_resolved_and_sealed(
+    tmp_path: Path, selection: str | None
+) -> None:
+    request = request_for(tmp_path / "inputs", "system")
+    request["components"]["pico"].update(
+        branch="devel", version="0.1.0-ci.1.1", tag="v0.1.0-ci.1.1"
+    )
+    request["pi_dependencies"]["pico"]["version"] = "0.1.0-ci.1.1"
+    if selection is not None:
+        request["pico_selection"] = selection
+    plan = release.plan(request, tmp_path / "state")
+    service = Service(tmp_path / "service")
+    ready = release.prepare(plan, plan["plan_sha256"], service)
+    assert ready["status"] == "prepared"
+    prepared = release.verify_retained(tmp_path / "state")
+    expected = selection or "default"
+    assert prepared["request"]["pico_selection"] == expected
+    assert prepared["components"]["pico"]["default_selector_required"] is (expected == "default")
+
+
+def test_changed_public_dependency_stops_next_component_and_preserves_publication_receipts(
+    tmp_path: Path,
+) -> None:
+    class Moving(Service):
+        moved = False
+
+        def inspect_public(self, packet: dict[str, Any], root: Path) -> dict[str, Any]:
+            observed = super().inspect_public(packet, root)
+            if packet["component"] == "pico":
+                observed["selector_sha256"] = str(self.moved)
+            return observed
+
+        def publish(self, packet: dict[str, Any], root: Path) -> dict[str, Any]:
+            result = super().publish(packet, root)
+            if packet["component"] == "rp1":
+                self.moved = True
+            return result
+
+        def accept(self, packet: dict[str, Any], root: Path) -> dict[str, Any]:
+            if packet["component"] == "pico" and self.moved:
+                raise lc.LifecycleError("public Pico default moved to an untested combination")
+            return super().accept(packet, root)
+
+    request = request_for(tmp_path / "inputs", "system")
+    request["components"]["pico"].update(
+        branch="devel", version="0.1.0-ci.1.1", tag="v0.1.0-ci.1.1"
+    )
+    request["pi_dependencies"]["pico"]["version"] = "0.1.0-ci.1.1"
+    state = tmp_path / "state"
+    plan = release.plan(request, state)
+    service = Moving(tmp_path / "service")
+    ready = release.prepare(plan, plan["plan_sha256"], service)
+    result = release.publish(state, ready["prepared_sha256"], service, enable_publication=True)
+    assert result["status"] == "acceptance_pending"
+    assert "untested combination" in result["errors"][0]
+    assert "publish:pi" not in service.events
+    assert result["publication"]["rp1"]["publication"]["state"] == "published"
+    service.moved = False
+    result = release.publish(
+        state, ready["prepared_sha256"], service, enable_publication=True, resume=True
+    )
+    assert result["status"] == "complete"
+    assert service.events.count("publish:pico") == service.events.count("publish:rp1") == 1
