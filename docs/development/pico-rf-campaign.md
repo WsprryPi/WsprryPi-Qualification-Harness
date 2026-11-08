@@ -158,6 +158,8 @@ order, exactly three independent observations, actual job/capture uniqueness,
 measurement outcomes, cleanup, and settings preservation. It rejects a
 rehearsal or partial run presented as qualification.
 
+Acquired carrier, WAV conversion, and decoder records carry a native Pico context with the configuration identity and digest of the complete frozen campaign plan. These records do not substitute a Pi backend or bench/test profile. The Pico result validator checks this context, each independent carrier capture and native metadata reference, and the retained timing reference. Use `validate-complete-test` for Pico bundles; the general bench/test profile readers refuse Pico evidence. Live capture metadata uses canonical UTC timestamps ending in `Z` for acquired-IQ replay.
+
 Outcomes distinguish `passed`, `failed`, `blocked`, `inconclusive`, `aborted`,
 `cleanup_failed`, `unattempted`, and `rehearsed`. CLI exit codes are 0 for pass
 or rehearsal, 4 for measurement failure, 130 for cancellation, 5 for cleanup

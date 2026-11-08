@@ -24,7 +24,11 @@ import numpy as np
 
 from wsprrypi_qualification.audio import AudioParameters, create_slot_wav, slot_wav_name
 from wsprrypi_qualification.capture_metadata import load_capture_metadata
-from wsprrypi_qualification.carrier import CarrierParameters, analyze_carrier
+from wsprrypi_qualification.carrier import (
+    CarrierParameters,
+    _aligned_tone_intervals,
+    analyze_carrier,
+)
 from wsprrypi_qualification.cw_iq import analyze_synthetic_iq
 from wsprrypi_qualification.cw_reference import write_expected_events
 from wsprrypi_qualification.decoder import run_wsprd
@@ -35,6 +39,7 @@ from wsprrypi_qualification.pico_audit import AuditedStream, WireAudit
 from wsprrypi_qualification.pico_campaign import (
     check_admission,
     cw_analysis_plan,
+    measurement_binding,
     plan_digest,
     validate_pico_plan,
 )
@@ -601,6 +606,7 @@ class PicoLiveAdapter:
                     acquired_frequency if acquired_frequency is not None else p["frequency_hz"],
                 ),
                 capture_evidence=captured,
+                profile_evidence=measurement_binding(self.plan),
             )
             if artifact(Path(r["wsprd"])) != self.tools["wsprd"]:
                 raise PicoFixtureError("Decoder changed during the campaign")
@@ -611,6 +617,7 @@ class PicoLiveAdapter:
                 executable=Path(r["wsprd"]),
                 slot_utc=slot,
                 capture_evidence=captured,
+                profile_evidence=measurement_binding(self.plan),
                 audio_evidence=artifact(directory / "audio.json"),
                 data_directory=directory / "wsprd-data",
             )
@@ -685,16 +692,20 @@ class PicoLiveAdapter:
                     r["center_frequency_hz"],
                     p["frequency_hz"],
                     fft_size=fft_size,
-                    temporal_on_intervals_s=[
-                        [e["start_s"], e["end_s"]]
-                        for e in expected["events"]
-                        if e["rf_state"] == "primary"
-                    ],
+                    temporal_on_intervals_s=_aligned_tone_intervals(
+                        capture.output_path, cw, expected
+                    ),
                 ),
                 directory / "carrier.json",
                 rf_off_metadata_path=off.metadata_path,
                 rf_on_metadata_path=capture.metadata_path,
                 acquired=True,
+                profile_evidence=measurement_binding(self.plan),
+                temporal_cw_reference={
+                    "alignment_policy": "independent_tone_duration_v1",
+                    "plan": artifact(directory / "mode-plan.json"),
+                    "expected_events": artifact(directory / "expected.json"),
+                },
                 receiver_calibration=self.plan["receiver_calibration"],
             )
             if carrier["gate_outcome"] != "passed":

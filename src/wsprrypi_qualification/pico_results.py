@@ -10,6 +10,7 @@ from typing import Any
 
 from wsprrypi_qualification.audio import AudioParameters, render_slot_pcm
 from wsprrypi_qualification.capture_metadata import load_capture_metadata
+from wsprrypi_qualification.carrier import _capture_reference
 from wsprrypi_qualification.cw_contracts import (
     _validate_events,
     _validate_gate,
@@ -28,6 +29,7 @@ from wsprrypi_qualification.pico_campaign import (
     check_admission,
     cw_analysis_plan,
     plan_digest,
+    validate_measurement_binding,
     validate_pico_plan,
 )
 from wsprrypi_qualification.pico_wire import PicoWireError, loads
@@ -103,12 +105,44 @@ def _decoder_bindings(directory: Path, document: dict[str, Any], audio: dict[str
         raise PicoWireError("Decoder data inventory is incomplete")
 
 
+def _validate_carrier_binding(directory: Path, plan: dict[str, Any]) -> dict[str, Any]:
+    carrier = _read(directory / "carrier.json", "carrier-analysis.schema.json")
+    validate_measurement_binding(carrier["contract"]["profiles"], plan)
+    if carrier["contract"]["evidence_scope"] != "acquired":
+        raise PicoWireError("Pico carrier is not acquired evidence")
+    references = carrier["contract"]["capture_metadata_validation"]
+    if references["outcome"] != "passed":
+        raise PicoWireError("Carrier capture metadata is unverified")
+    for kind, filename in (("rf_off", "rf-off-plan.json"), ("rf_on", "rf-on-plan.json")):
+        capture = _read(directory / filename)
+        iq = _within(capture["output_path"], directory)
+        actual = artifact(iq)
+        if any(
+            carrier["inputs"][kind][key] != actual[key] for key in ("path", "size_bytes", "sha256")
+        ):
+            raise PicoWireError("Carrier input differs from its independent Pico capture")
+        metadata_path = _within(capture["metadata_path"], directory)
+        metadata = load_capture_metadata(metadata_path)
+        if references[kind] != _capture_reference(metadata_path, metadata):
+            raise PicoWireError("Carrier native capture metadata binding differs")
+    expected_reference = {
+        "alignment_policy": "independent_tone_duration_v1",
+        "plan": artifact(directory / "mode-plan.json"),
+        "expected_events": artifact(directory / "expected.json"),
+    }
+    if carrier["contract"]["temporal_cw_reference"] != expected_reference:
+        raise PicoWireError("Carrier timing reference differs from the Pico observation")
+    return carrier
+
+
 def _validate_wspr(directory: Path, plan: dict[str, Any], start_ns: int) -> str:
     config = plan["configuration"]
     p = config["protocol"]
     document = _read(directory / "decode.json", "decoder-evidence.schema.json")
     audio = _read(directory / "audio.json", "audio-conversion.schema.json")
     _decoder_bindings(directory, document, audio)
+    validate_measurement_binding(document["profiles"], plan)
+    validate_measurement_binding(audio["profiles"], plan)
     slot = datetime.fromisoformat(document["slot_utc"].replace("Z", "+00:00"))
     if (
         start_ns != int(slot.timestamp()) * 1_000_000_000 + 2_000_000_000
@@ -138,7 +172,7 @@ def _validate_wspr(directory: Path, plan: dict[str, Any], start_ns: int) -> str:
         raise PicoWireError("WSPR decode claims contradict retained stdout/identity/slot")
     c = audio["contract"]
     parameters = AudioParameters(**{name: c[name] for name in AudioParameters.__dataclass_fields__})
-    carrier = _read(directory / "carrier/carrier.json", "carrier-analysis.schema.json")
+    carrier = _validate_carrier_binding(directory / "carrier", plan)
     acquired = carrier["metrics"]["strongest_transmitter_added_frequency_hz"]
     expected_parameters = AudioParameters(
         config["receiver"]["sample_rate_hz"], config["receiver"]["center_frequency_hz"], acquired
@@ -314,7 +348,7 @@ def _validate_frame(
         _validate_gate(mode, measured, gate)
         outcome = measured["analysis_outcome"]
         if mode == "tone":
-            carrier = _read(directory / "carrier.json", "carrier-analysis.schema.json")
+            carrier = _validate_carrier_binding(directory, plan)
             if carrier["contract"]["evidence_scope"] != "acquired":
                 raise PicoWireError("Pico live carrier is not acquired evidence")
             if carrier["gate_outcome"] != "passed":

@@ -107,6 +107,7 @@ jobs:
           tests/unit/test_lifecycle_recipes.py
           tests/unit/test_paths.py
           tests/unit/test_pico_campaign.py
+          tests/unit/test_pico_measurements.py
           tests/unit/test_pico_wire.py
           tests/unit/test_supervisor.py
           tests/unit/test_tool_discovery.py

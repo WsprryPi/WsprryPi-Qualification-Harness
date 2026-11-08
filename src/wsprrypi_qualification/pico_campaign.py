@@ -574,3 +574,18 @@ def cw_analysis_plan(
 
 def plan_digest(plan: dict[str, Any]) -> str:
     return job_digest(plan)
+
+
+def measurement_binding(plan: dict[str, Any]) -> dict[str, str]:
+    """Native Pico context for common acquired carrier/audio/decode evidence."""
+    return {
+        "target_kind": "pico",
+        "configuration_id": plan["configuration"]["configuration_id"],
+        "plan_sha256": plan_digest(plan),
+    }
+
+
+def validate_measurement_binding(value: dict[str, Any], plan: dict[str, Any]) -> None:
+    validate_document(value, "pico-measurement-binding.schema.json")
+    if value != measurement_binding(plan):
+        raise PicoWireError("Measurement context differs from the frozen Pico plan")

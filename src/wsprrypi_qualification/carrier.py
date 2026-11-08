@@ -649,6 +649,8 @@ def load_acquired_carrier_evidence(path: Path) -> AcquiredCarrierEvidence:
                 "compose new evidence"
             )
         profiles = contract["profiles"]
+        if profiles.get("target_kind") == "pico":
+            raise OfflineAnalysisError("Validate Pico carrier evidence with validate-complete-test")
         bench_path = Path(profiles["bench"]["path"])
         test_path = Path(profiles["test"]["path"])
         context = load_profile_context(bench_path, test_path)
