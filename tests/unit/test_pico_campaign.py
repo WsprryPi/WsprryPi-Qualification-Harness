@@ -605,3 +605,73 @@ def test_stale_compiler_inputs_are_refused_before_live_access(tmp_path):
     config["pico_source"] = str(candidate)
     with pytest.raises(PicoWireError, match="different encoder inputs"):
         compose_pico_campaign(config, Path(compiler))
+
+
+@pytest.mark.parametrize(
+    "cause,expected",
+    [(KeyboardInterrupt, "aborted"), (InterruptedError, "aborted"), (RuntimeError, "blocked")],
+)
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+def test_wrapped_cancellation_and_cleanup_precedence(
+    tmp_path, monkeypatch, cause, expected, cleanup_fails
+):
+    from types import SimpleNamespace
+
+    from wsprrypi_qualification.wtp_control import WtpControlError
+
+    class Adapter:
+        def __init__(self, *_args):
+            self.usb = SimpleNamespace(identity={})
+            self.jobs_attempted = False
+
+        def snapshot(self, **_kwargs):
+            return make_snapshot("pio-dma-gp2", False, False)
+
+        def start_wtp(self):
+            pass
+
+        def observe(self, *_args, **_kwargs):
+            self.jobs_attempted = True
+            raise WtpControlError(
+                "wrapped transaction failure", {"cleanup_verified": True}
+            ) from cause()
+
+        def begin_cleanup(self):
+            pass
+
+        def inactive(self):
+            return dict(output_active=False)
+
+        def close(self):
+            if cleanup_fails:
+                raise PicoWireError("injected cleanup failure")
+
+    monkeypatch.setattr("wsprrypi_qualification.pico_live.PicoLiveAdapter", Adapter)
+    monkeypatch.setattr("wsprrypi_qualification.pico_live._authenticate_plan", lambda _plan: None)
+    monkeypatch.setattr("wsprrypi_qualification.pico_live.require_supported_platform", lambda: None)
+    with ProgressReporter(tmp_path / "progress.jsonl") as reporter:
+        result = run_pico_campaign(
+            make_plan(), tmp_path / "runs", reporter, enable_rf=True, operator="fixture"
+        )
+    assert result["outcome"] == ("cleanup_failed" if cleanup_fails else expected)
+    assert result["transmitter_transaction_attempted"]
+    assert not result["qualification_claim"]
+    assert result["cleanup_verified"] is not cleanup_fails
+
+
+def test_missed_transmitter_job_is_failed_not_a_fixture_block():
+    from wsprrypi_qualification.pico_live import _error_outcome
+    from wsprrypi_qualification.wtp_control import WtpControlError
+
+    assert (
+        _error_outcome(
+            WtpControlError("missed", dict(cleanup_verified=True, status=dict(state="missed")))
+        )
+        == "failed"
+    )
+    assert (
+        _error_outcome(
+            WtpControlError("failed", dict(cleanup_verified=False, status=dict(state="failed")))
+        )
+        == "cleanup_failed"
+    )

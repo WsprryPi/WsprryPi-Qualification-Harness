@@ -69,6 +69,25 @@ class PicoMeasurementError(PicoWireError):
         self.outcome = outcome
 
 
+def _error_outcome(error: BaseException) -> str:
+    if isinstance(error, WtpControlError) and not error.evidence.get("cleanup_verified"):
+        return "cleanup_failed"
+    cause: BaseException | None = error
+    seen: set[int] = set()
+    while cause is not None and id(cause) not in seen:
+        if isinstance(cause, (KeyboardInterrupt, InterruptedError)):
+            return "aborted"
+        seen.add(id(cause))
+        cause = cause.__cause__
+    if isinstance(error, PicoMeasurementError):
+        return error.outcome
+    if isinstance(error, WtpControlError):
+        status = error.evidence.get("status", {})
+        if isinstance(status, dict) and status.get("state") in {"failed", "missed"}:
+            return "failed"
+    return "blocked"
+
+
 def _snapshot(client: ManagementClient, *, require_idle: bool = False) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for resource, definition in (
@@ -498,7 +517,9 @@ class PicoLiveAdapter:
                 before_cleanup=self.begin_cleanup,
             )
             if not record["completed"] or not record["cleanup_verified"]:
-                raise PicoWireError("Pico transaction did not complete with verified cleanup")
+                raise WtpControlError(
+                    "Pico transaction did not complete with verified cleanup", record
+                )
             future.result(timeout=max(1, capture_plan.maximum_elapsed_s))
             metadata = load_capture_metadata(capture_plan.metadata_path)
             if metadata.retained_capture_start_utc is None:
@@ -807,13 +828,7 @@ def run_pico_campaign(
             result["outcome"] = "passed"
     except BaseException as error:
         result["errors"].append(dict(kind=type(error).__name__, detail=str(error)))
-        result["outcome"] = (
-            "aborted" if isinstance(error, (KeyboardInterrupt, InterruptedError)) else "blocked"
-        )
-        if isinstance(error, WtpControlError) and not error.evidence.get("cleanup_verified"):
-            result["outcome"] = "cleanup_failed"
-        if isinstance(error, PicoMeasurementError):
-            result["outcome"] = error.outcome
+        result["outcome"] = _error_outcome(error)
         if adapter is None and not isinstance(error, PicoCleanupError):
             # Construction closes its owned interfaces before rethrowing.
             # No transmitter transaction has been attempted at this point.
