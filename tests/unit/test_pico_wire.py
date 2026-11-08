@@ -306,8 +306,46 @@ def test_production_usb_management_ack_closed_control(pico_build):
         assert config["config"] is None
         status = client.get("status", "status")
         assert status["job"]["output_active"] is False
+        assert status["network"]["configured_hostname"] == "pico-usb.local"
+        for hostname in ("", "pico-c.local", "a" * 63 + ".local"):
+            value = copy.deepcopy(status)
+            value["network"]["configured_hostname"] = hostname
+            validate_contract(value, "control", "status")
+        for hostname in (
+            "pico-c",
+            "a" * 64 + ".local",
+            "-pico.local",
+            "pico-.local",
+            "Pico.local",
+            "pico.local.",
+            "pico.other.local",
+            "pico.local\n",
+            None,
+            1,
+        ):
+            value = copy.deepcopy(status)
+            value["network"]["configured_hostname"] = hostname
+            with pytest.raises(PicoWireError):
+                validate_contract(value, "control", "status")
         assert client.sequence == 4  # ACK repeats the resource id.
         assert client.hello["target"]["boot_id"] == "b" * 32
+        diagnostics = client.get("ntp-observations", "diagnostic")
+        network = diagnostics["network"]
+        assert network["configured_hostname"] == "pico-usb.local"
+        assert "ntp_rate" in network and "ntp_pool" in network
+        for mutate in (
+            lambda n: n.pop("ntp_rate"),
+            lambda n: n.update(unknown=True),
+            lambda n: n["softap_netif"].update(unknown=True),
+            lambda n: n["ntp_rate"].update(qualified=1),
+            lambda n: n["ntp_pool"]["peers"][0].update(slot=4),
+            lambda n: n["ntp_pool"]["peers"][0].update(slot=0.0),
+            lambda n: n["ntp_rate"].update(generation="18446744073709551616"),
+        ):
+            bad = copy.deepcopy(diagnostics)
+            mutate(bad["network"])
+            with pytest.raises(PicoWireError):
+                validate_contract(bad, "observation")
     finally:
         stream.close()
 

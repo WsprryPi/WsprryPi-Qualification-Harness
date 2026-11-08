@@ -142,6 +142,10 @@ def compose_pico_campaign(
             "wsprrypi_qualification.schemas"
         ).joinpath(f"pico-{name}.schema.json").read_bytes():
             raise PicoWireError("Selected Pico contract differs from the current Harness contract")
+    if (source / "engineering/protocol/network-diagnostics.schema.json").read_bytes() != files(
+        "wsprrypi_qualification.schemas"
+    ).joinpath("pico-network-diagnostics.schema.json").read_bytes():
+        raise PicoWireError("Selected Pico network diagnostics differ from the Harness contract")
     installer = artifact(source / "scripts/usb_installer.py")
     encoders: list[dict[str, Any]] | None = None
     cal = config["receiver_calibration"]

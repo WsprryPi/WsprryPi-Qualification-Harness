@@ -297,27 +297,7 @@
           "x-maximum": "18446744073709551615"
         },
         "network": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "enabled",
-            "link_status",
-            "ipv4"
-          ],
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "link_status": {
-              "type": "integer",
-              "minimum": -2147483648,
-              "maximum": 2147483647
-            },
-            "ipv4": {
-              "type": "string",
-              "maxLength": 15
-            }
-          }
+          "$ref": "pico-network-diagnostics.schema.json"
         }
       }
     },

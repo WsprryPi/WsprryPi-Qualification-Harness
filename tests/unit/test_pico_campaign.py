@@ -594,6 +594,7 @@ def test_stale_compiler_inputs_are_refused_before_live_access(tmp_path):
     for name in (
         "engineering/protocol/control-1.schema.json",
         "engineering/protocol/wtp-1.schema.json",
+        "engineering/protocol/network-diagnostics.schema.json",
         "scripts/usb_installer.py",
     ):
         destination = candidate / name

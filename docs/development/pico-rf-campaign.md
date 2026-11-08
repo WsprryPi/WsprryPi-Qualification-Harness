@@ -87,6 +87,8 @@ before the WTP interface is opened; the Harness does not take over another
 owner's job.
 
 A GPS-disabled row observes firmware disablement; cable removal is unnecessary.
+The selected Pico source also supplies the closed network-diagnostics schema used inside `ntp-observations`. Its platform network, μChrony, memory, and packet observations are validated with exact integer types and decimal bounds across schema references. Missing fields, unknown fields and malformed nested diagnostics refuse before a campaign starts.
+
 GPS-enabled rows require fresh paired serial/PPS/time observations. UTC source,
 GPS use, manual correction in PPB, and automatic RF correction are independent
 inputs. Correction-on requires fresh matching product observations and retained

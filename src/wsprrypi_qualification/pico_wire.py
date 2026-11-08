@@ -20,6 +20,7 @@ from typing import Any, Protocol, cast
 
 from jsonschema import Draft202012Validator, ValidationError, validators
 from referencing import Registry, Resource
+from referencing.jsonschema import DRAFT202012
 
 
 class PicoWireError(ValueError):
@@ -104,12 +105,18 @@ def _validator(contract: str, definition: str | None) -> Any:
         type_checker=checker,
     )
     registry = Registry()
-    for name in ("control", "wtp", "observation"):
+    for name in ("control", "wtp", "observation", "network-diagnostics"):
         filename = f"pico-{name}.schema.json"
         resource_schema = loads(
             files("wsprrypi_qualification.schemas").joinpath(filename).read_bytes()
         )
-        resource = Resource.from_contents(resource_schema)
+        # Keep the selected strict validator when following an external ref.
+        # A referenced $schema otherwise selects the stock validator and loses
+        # exact integer checks and the uint64 decimal-bound extension.
+        resource = Resource.from_contents(
+            {key: value for key, value in resource_schema.items() if key != "$schema"},
+            default_specification=DRAFT202012,
+        )
         registry = registry.with_resource(filename, resource)
         if "$id" in resource_schema:
             registry = registry.with_resource(resource_schema["$id"], resource)
