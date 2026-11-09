@@ -915,3 +915,19 @@ def test_snapshot_waits_boundedly_for_qualified_gps_without_relaxing_admission(
         assert clock[0] == pytest.approx(2)
         with pytest.raises(PicoWireError, match="GPS"):
             check_admission(plan, observed)
+
+
+@pytest.mark.parametrize("gps_enabled", [False, True])
+@pytest.mark.parametrize("fraction_ns", [0, 1, 993_724_160, 999_999_999])
+def test_non_wspr_uses_full_requested_utc_second(gps_enabled, fraction_ns):
+    from wsprrypi_qualification.pico_live import _non_wspr_start_ns
+
+    now = 1_794_197_941_000_000_000 + fraction_ns
+    start = _non_wspr_start_ns(now, gps_enabled)
+    lead = 7_000_000_000 if gps_enabled else 5_000_000_000
+    assert lead <= start - now < lead + 1_000_000_000
+    # A start in the final few milliseconds gave the product too little
+    # of its defined UTC-second window for its valid indicator handshake.
+    exclusive_deadline = start + (1_000_000_000 - start % 1_000_000_000)
+    assert exclusive_deadline - start == 1_000_000_000
+    assert start + 7_926_243 < exclusive_deadline

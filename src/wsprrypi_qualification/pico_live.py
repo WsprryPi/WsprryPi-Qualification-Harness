@@ -173,6 +173,13 @@ def _snapshot(client: ManagementClient, *, require_idle: bool = False) -> dict[s
     return result
 
 
+def _non_wspr_start_ns(now_ns: int, gps_enabled: bool) -> int:
+    # WTP's exclusive deadline is the end of the requested UTC second,
+    # rather than one rolling second after an arbitrary fractional instant.
+    lead_ns = 7_000_000_000 if gps_enabled else 5_000_000_000
+    return ((now_ns + lead_ns + 999_999_999) // 1_000_000_000) * 1_000_000_000
+
+
 def _wait_for_arm_preparation(
     start_ns: int, receiver_ready: Callable[[], None], cancel: threading.Event
 ) -> None:
@@ -530,11 +537,8 @@ class PicoLiveAdapter:
             start_ns = (
                 int(slot.timestamp() * 1e9) + 2_000_000_000
                 if slot
-                else time.time_ns()
-                + (
-                    7_000_000_000
-                    if self.plan["configuration"]["pico"]["gps_enabled"]
-                    else 5_000_000_000
+                else _non_wspr_start_ns(
+                    time.time_ns(), self.plan["configuration"]["pico"]["gps_enabled"]
                 )
             )
 
