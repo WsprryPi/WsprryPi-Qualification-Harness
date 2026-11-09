@@ -96,6 +96,31 @@ def _error_outcome(error: BaseException) -> str:
 
 def _snapshot(client: ManagementClient, *, require_idle: bool = False) -> dict[str, Any]:
     result: dict[str, Any] = {}
+    gps_deadline: float | None = None
+
+    def gps_observation() -> dict[str, Any]:
+        nonlocal gps_deadline
+        value = client.get("gps", "gps")
+        active = value["boot_active"]
+        if active is None or active["enabled"] is not True:
+            return value
+        if gps_deadline is None:
+            gps_deadline = time.monotonic() + 2
+        while True:
+            runtime = value["runtime"]
+            if (
+                runtime is not None
+                and all(runtime[k] is True for k in ("serial_present", "pps_present", "time_valid"))
+                and int(runtime["age_ns"]) <= 3_000_000_000
+                and runtime["error"] == ""
+            ):
+                return value
+            remaining = gps_deadline - time.monotonic()
+            if remaining <= 0:
+                return value  # Admission retains its strict refusal and reason.
+            time.sleep(min(0.02, remaining))
+            value = client.get("gps", "gps")
+
     for resource, definition in (
         ("status", "status"),
         ("capabilities", "capabilities"),
@@ -107,7 +132,9 @@ def _snapshot(client: ManagementClient, *, require_idle: bool = False) -> dict[s
         ("rf-calibration", "diagnostic"),
         ("message-schedule", "diagnostic"),
     ):
-        result[resource] = client.get(resource, definition)
+        result[resource] = (
+            gps_observation() if resource == "gps" else client.get(resource, definition)
+        )
         if resource == "status" and require_idle:
             job = result[resource]["job"]
             if (
@@ -133,7 +160,7 @@ def _snapshot(client: ManagementClient, *, require_idle: bool = False) -> dict[s
         estimate = runtime[key] if runtime is not None else None
         if estimate is not None and estimate["generation"] == selection["next_generation"]:
             break
-        result["gps"] = client.get("gps", "gps")
+        result["gps"] = gps_observation()
         result["rf-calibration"] = client.get("rf-calibration", "diagnostic")
     if client.hello is None:
         raise PicoWireError("Management hello missing")
@@ -480,7 +507,7 @@ class PicoLiveAdapter:
             start_ns = (
                 int(slot.timestamp() * 1e9) + 2_000_000_000
                 if slot
-                else time.time_ns() + 5_000_000_000
+                else time.time_ns() + 7_000_000_000
             )
 
             load_gps: list[dict[str, Any]] = []
