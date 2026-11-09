@@ -54,6 +54,22 @@ if(WSPQ_PICO_SOURCE)
     CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
   target_compile_definitions(wspq-pico-compile PRIVATE WSPQ_PICO_REVISION="${WSPQ_PICO_REVISION}")
   wspq_enable_warnings(wspq-pico-compile)
+  if(WSPQ_BUILD_TESTS)
+    add_executable(wspq-pico-governance native/tests/pico_governance.cpp
+      "${WSPQ_PICO_SOURCE}/src/wtp/json.cpp"
+      "${WSPQ_PICO_SOURCE}/src/wtp/codec.cpp"
+      "${WSPQ_PICO_SOURCE}/src/wtp/endpoint.cpp"
+      "${WSPQ_PICO_SOURCE}/src/wtp/frame_parser.cpp"
+      "${WSPQ_PICO_SOURCE}/src/wtp/job_service.cpp"
+      "${WSPQ_PICO_SOURCE}/src/wtp/sha256.cpp"
+      "${WSPQ_PICO_SOURCE}/src/wtp/inhibited_rf_engine.cpp")
+    target_include_directories(wspq-pico-governance PRIVATE "${WSPQ_PICO_SOURCE}/src"
+      "${CMAKE_CURRENT_BINARY_DIR}/pico-identity")
+    target_compile_definitions(wspq-pico-governance PRIVATE
+      WSPQ_PICO_REVISION="${WSPQ_PICO_REVISION}")
+    target_compile_features(wspq-pico-governance PRIVATE cxx_std_20)
+    wspq_enable_warnings(wspq-pico-governance)
+  endif()
 endif()
 
 if(WSPQ_BUILD_SOAPY)

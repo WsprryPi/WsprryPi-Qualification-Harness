@@ -604,6 +604,8 @@ class PicoLiveAdapter:
                 before_arm=before_arm,
                 receiver_ready=ready,
                 verify_inactive=self.inactive,
+                wall_ns=time.time_ns,
+                monotonic=time.monotonic,
                 expected_boot_id=snapshot["target"]["boot_id"],
                 maximum_events=caps["max_events"],
                 maximum_duration_ns=int(caps["max_job_duration_ns"]),

@@ -217,3 +217,11 @@ def test_non_finite_and_non_utc_values_are_rejected(tmp_path: Path) -> None:
     document["timestamps"]["helper_start_utc"] = "2026-08-11T12:00:00+01:00"
     with pytest.raises(CaptureMetadataError):
         validate_capture_metadata(document)
+
+
+def test_timestamp_order_is_lifecycle_order_not_json_member_order():
+    document = json.loads(json.dumps(capture_document(), sort_keys=True))
+    validate_capture_metadata(document)
+    document["timestamps"]["cleanup_start_utc"] = "2026-08-11T11:59:00Z"
+    with pytest.raises(CaptureMetadataError, match="out of order"):
+        validate_capture_metadata(document)

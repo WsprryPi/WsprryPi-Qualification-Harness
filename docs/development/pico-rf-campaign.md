@@ -180,3 +180,5 @@ and native mock capture CTests remain required. Pi/Pico network and USB paired
 integration remain separate required companion checks when product interfaces
 or their fixtures change. None of these software checks establishes target
 RF, timing, physical USB, installed-image, or release-artifact qualification.
+
+For a short connected harness-control check, use the [Pico software governance gate](pico-governance-gate.md). It executes one keyed job and one WSPR job with simulated scheduling and retained validation, plus focused failure checks. Its results never qualify hardware or reduce live observation requirements.

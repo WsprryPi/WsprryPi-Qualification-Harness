@@ -1,6 +1,8 @@
 # TODO: Pico harness governance gate — 90-minute cap
 
-**Status: not started; revised scope and 90-minute cap agreed; awaiting separate invocation.**
+**Status: complete for the bounded software gate; no hardware qualification claimed.**
+
+The bounded implementation and its coverage limits are documented in [Pico software governance gate](pico-governance-gate.md). The execution prompt below is retained for scope and milestone history.
 
 ## Execution prompt
 

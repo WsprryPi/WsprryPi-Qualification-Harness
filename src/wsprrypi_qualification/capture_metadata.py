@@ -90,7 +90,20 @@ def _timestamp_semantics(document: dict[str, Any], contradictions: list[str]) ->
         contradictions.append("helper UTC bounds are missing")
         return
     observed: list[datetime] = []
-    for value in timestamps.values():
+    # JSON object member order has no lifecycle meaning. Writers may sort keys.
+    for phase in (
+        "helper_start_utc",
+        "configuration_start_utc",
+        "configuration_complete_utc",
+        "first_read_start_utc",
+        "first_read_complete_utc",
+        "retained_capture_start_utc",
+        "retained_capture_complete_utc",
+        "cleanup_start_utc",
+        "cleanup_complete_utc",
+        "helper_complete_utc",
+    ):
+        value = timestamps[phase]
         if value is not None:
             observed.append(datetime.fromisoformat(value.replace("Z", "+00:00")))
     if observed != sorted(observed):
