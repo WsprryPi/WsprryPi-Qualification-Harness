@@ -507,7 +507,12 @@ class PicoLiveAdapter:
             start_ns = (
                 int(slot.timestamp() * 1e9) + 2_000_000_000
                 if slot
-                else time.time_ns() + 7_000_000_000
+                else time.time_ns()
+                + (
+                    7_000_000_000
+                    if self.plan["configuration"]["pico"]["gps_enabled"]
+                    else 5_000_000_000
+                )
             )
 
             load_gps: list[dict[str, Any]] = []
