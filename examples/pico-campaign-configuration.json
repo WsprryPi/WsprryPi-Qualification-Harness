@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "target_kind": "pico",
+  "configuration_id": "pio-dma-gp2-gpsFalse-autoFalse",
+  "pico_source": "PICO_SOURCE",
+  "pico": {
+    "control_carrier": "usb",
+    "board": "pico2_w",
+    "serial": "0123456789ABCDEF",
+    "device_id": "1a528102027ce5a44fcb0b2d85b5e9e9",
+    "engine": "pio-dma-gp2",
+    "management_port": "management-role-4",
+    "wtp_port": "wtp-role-2",
+    "gps_enabled": false,
+    "utc_source": "sntp",
+    "automatic_correction": false,
+    "manual_correction_ppb": 0,
+    "configuration_revision": null
+  },
+  "receiver": {
+    "host": "localhost",
+    "capture_helper": "capture tool",
+    "driver": "fixture",
+    "serial": "receiver1",
+    "channel": 0,
+    "sample_rate_hz": 12000,
+    "bandwidth_hz": 10000,
+    "center_frequency_hz": 14094000,
+    "gain_db": 20,
+    "wsprd": "wsprd tool"
+  },
+  "protocol": {
+    "frequency_hz": 14097100,
+    "tone_seconds": 5,
+    "callsign": "K1ABC",
+    "locator": "FN42",
+    "power_dbm": 37,
+    "message": "TEST",
+    "dot_seconds": 1,
+    "shift_hz": 5
+  },
+  "rf_path": {
+    "attenuation_db": 60,
+    "filter_state": "fixed conducted fixture",
+    "termination": "SDR terminated conducted path",
+    "antenna_state": "disconnected",
+    "safe_input_basis": "fixture only; no physical authorization"
+  },
+  "receiver_calibration": null
+}

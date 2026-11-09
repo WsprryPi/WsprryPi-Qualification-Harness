@@ -1,0 +1,441 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "target_kind",
+    "configuration",
+    "compiler",
+    "source_revision",
+    "receiver_calibration",
+    "modes",
+    "installer",
+    "encoder_sources",
+    "analyzer_source"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "target_kind": {
+      "const": "pico"
+    },
+    "configuration": {
+      "$ref": "pico-campaign-configuration.schema.json"
+    },
+    "compiler": {
+      "$ref": "cw-acquired-capture.schema.json#/$defs/artifact"
+    },
+    "source_revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "receiver_calibration": {
+      "$ref": "receiver-calibration-binding.schema.json"
+    },
+    "modes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "specification",
+          "jobs",
+          "independent_observations",
+          "carrier_job"
+        ],
+        "properties": {
+          "mode": {
+            "enum": [
+              "tone",
+              "wspr",
+              "qrss",
+              "fskcw",
+              "dfcw"
+            ]
+          },
+          "specification": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "mode",
+                  "job_id",
+                  "frequency_nhz",
+                  "allow_frequency_adjustment",
+                  "duration_ns",
+                  "off_ns",
+                  "cycles"
+                ],
+                "properties": {
+                  "mode": {
+                    "const": "tone"
+                  },
+                  "job_id": {
+                    "$ref": "pico-wtp.schema.json#/$defs/id"
+                  },
+                  "frequency_nhz": {
+                    "$ref": "pico-wtp.schema.json#/$defs/u64"
+                  },
+                  "allow_frequency_adjustment": {
+                    "type": "boolean"
+                  },
+                  "duration_ns": {
+                    "$ref": "pico-wtp.schema.json#/$defs/u64"
+                  },
+                  "off_ns": {
+                    "$ref": "pico-wtp.schema.json#/$defs/u64"
+                  },
+                  "cycles": {
+                    "const": 3
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "mode",
+                  "job_id",
+                  "frequency_nhz",
+                  "allow_frequency_adjustment",
+                  "callsign",
+                  "locator",
+                  "power_dbm"
+                ],
+                "properties": {
+                  "mode": {
+                    "const": "wspr"
+                  },
+                  "job_id": {
+                    "$ref": "pico-wtp.schema.json#/$defs/id"
+                  },
+                  "frequency_nhz": {
+                    "$ref": "pico-wtp.schema.json#/$defs/u64"
+                  },
+                  "allow_frequency_adjustment": {
+                    "type": "boolean"
+                  },
+                  "callsign": {
+                    "type": "string"
+                  },
+                  "locator": {
+                    "type": "string"
+                  },
+                  "power_dbm": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 60
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "mode",
+                  "job_id",
+                  "frequency_nhz",
+                  "allow_frequency_adjustment",
+                  "message",
+                  "space_frequency_nhz",
+                  "timing",
+                  "repeat_count",
+                  "repeat_gap_ns"
+                ],
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "qrss",
+                      "fskcw",
+                      "dfcw"
+                    ]
+                  },
+                  "job_id": {
+                    "$ref": "pico-wtp.schema.json#/$defs/id"
+                  },
+                  "frequency_nhz": {
+                    "$ref": "pico-wtp.schema.json#/$defs/u64"
+                  },
+                  "allow_frequency_adjustment": {
+                    "type": "boolean"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "space_frequency_nhz": {
+                    "$ref": "pico-wtp.schema.json#/$defs/u64"
+                  },
+                  "timing": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "dot_ns",
+                      "dash_ns",
+                      "intra_gap_ns",
+                      "character_gap_ns",
+                      "word_gap_ns"
+                    ],
+                    "properties": {
+                      "dot_ns": {
+                        "$ref": "pico-wtp.schema.json#/$defs/u64"
+                      },
+                      "dash_ns": {
+                        "$ref": "pico-wtp.schema.json#/$defs/u64"
+                      },
+                      "intra_gap_ns": {
+                        "$ref": "pico-wtp.schema.json#/$defs/u64"
+                      },
+                      "character_gap_ns": {
+                        "$ref": "pico-wtp.schema.json#/$defs/u64"
+                      },
+                      "word_gap_ns": {
+                        "$ref": "pico-wtp.schema.json#/$defs/u64"
+                      }
+                    }
+                  },
+                  "repeat_count": {
+                    "const": 1
+                  },
+                  "repeat_gap_ns": {
+                    "const": "0"
+                  }
+                }
+              }
+            ]
+          },
+          "jobs": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 2,
+            "items": {
+              "$ref": "pico-wtp.schema.json#/$defs/job"
+            }
+          },
+          "independent_observations": {
+            "const": 3
+          },
+          "carrier_job": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "pico-wtp.schema.json#/$defs/job"
+              }
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "mode": {
+                  "const": "tone"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "specification": {
+                  "properties": {
+                    "mode": {
+                      "const": "tone"
+                    }
+                  }
+                },
+                "jobs": {
+                  "items": {
+                    "properties": {
+                      "mode": {
+                        "const": "tone"
+                      }
+                    }
+                  }
+                },
+                "carrier_job": {
+                  "const": null
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "mode": {
+                  "const": "wspr"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "specification": {
+                  "properties": {
+                    "mode": {
+                      "const": "wspr"
+                    }
+                  }
+                },
+                "jobs": {
+                  "items": {
+                    "properties": {
+                      "mode": {
+                        "const": "wspr"
+                      }
+                    }
+                  }
+                },
+                "carrier_job": {
+                  "allOf": [
+                    {
+                      "$ref": "pico-wtp.schema.json#/$defs/job"
+                    },
+                    {
+                      "properties": {
+                        "mode": {
+                          "const": "tone"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "mode": {
+                  "const": "qrss"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "specification": {
+                  "properties": {
+                    "mode": {
+                      "const": "qrss"
+                    }
+                  }
+                },
+                "jobs": {
+                  "items": {
+                    "properties": {
+                      "mode": {
+                        "const": "qrss"
+                      }
+                    }
+                  }
+                },
+                "carrier_job": {
+                  "const": null
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "mode": {
+                  "const": "fskcw"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "specification": {
+                  "properties": {
+                    "mode": {
+                      "const": "fskcw"
+                    }
+                  }
+                },
+                "jobs": {
+                  "items": {
+                    "properties": {
+                      "mode": {
+                        "const": "fskcw"
+                      }
+                    }
+                  }
+                },
+                "carrier_job": {
+                  "const": null
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "mode": {
+                  "const": "dfcw"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "specification": {
+                  "properties": {
+                    "mode": {
+                      "const": "dfcw"
+                    }
+                  }
+                },
+                "jobs": {
+                  "items": {
+                    "properties": {
+                      "mode": {
+                        "const": "dfcw"
+                      }
+                    }
+                  }
+                },
+                "carrier_job": {
+                  "const": null
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "installer": {
+      "$ref": "cw-acquired-capture.schema.json#/$defs/artifact"
+    },
+    "encoder_sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "cw-acquired-capture.schema.json#/$defs/artifact"
+      }
+    },
+    "analyzer_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "files"
+      ],
+      "properties": {
+        "revision": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "cw-acquired-capture.schema.json#/$defs/artifact"
+          }
+        }
+      }
+    }
+  }
+}

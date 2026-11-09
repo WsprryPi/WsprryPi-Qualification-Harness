@@ -445,8 +445,12 @@ def analyze_synthetic_iq(
     """Analyze authenticated synthetic IQ and write observations plus mode gate."""
     if observations_path.exists() or gate_path.exists():
         _fail("refusing to overwrite existing analysis output", FailureCause.OUTPUT_CONFLICT)
-    if len(source_revision) != 40 or any(c not in "0123456789abcdef" for c in source_revision):
-        _fail("source revision must be 40 lowercase hexadecimal characters")
+    raw_revision = source_revision.removeprefix("sha256:")
+    expected_length = 64 if source_revision.startswith("sha256:") else 40
+    if len(raw_revision) != expected_length or any(
+        c not in "0123456789abcdef" for c in raw_revision
+    ):
+        _fail("source revision must be a Git SHA or tagged SHA-256 content identity")
     plan, expected = _load_inputs(plan_path, expected_path)
     metadata = load_json_document(metadata_path, _metadata_schema)
     if metadata["run_id"] != plan["run_id"] or metadata["mode"] != plan["mode"]:

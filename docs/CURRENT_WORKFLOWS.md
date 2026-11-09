@@ -404,3 +404,11 @@ is `wtp_control.run_transaction`; the CLI is `validate-wtp-transaction`.
 `lifecycle source`, `plan`, `pi-public-plan`, `pico-plan`, `system-public-plan`, `system-plan` and `release-plan` resolve reviewable inputs without host/device access or CI dispatch. `execute` confirms the exact plan; `status`, `report`, `resume` and `recover` retain evidence and owning-component recovery duties. Component scopes are Pi, Pico and RP1, with an explicit coordinated system scope. Follow the [lifecycle/release guide](development/lifecycle-release.md); it identifies maintained native tests, platform adapters, independent verification, publishing opt-ins and physical/public gates. These commands never route through RF `complete-test`.
 
 `lifecycle release-session-plan`, `release-prepare`, `release-status` and `release-publish` provide a durable [prepare-now/publish-later workflow](development/prepared-releases.md) for each independent component and the coordinated system. Preparation has no publication effects; later publication verifies the retained packet and never rebuilds.
+
+## Pico USB RF campaigns
+
+Use `complete-test pico RECEIVER_HOST --pico-configuration CONFIG --pico-compiler COMPILER`
+with the exact `--sdr` selector and either `--rehearse` or explicitly authorized
+`--enable-rf`. This route has its own Pico target, read-only setup/admission,
+production finite jobs, and result validator. It supports GPIO and Si5351 with
+explicit GPS/PPS and correction subcases. See [Pico RF campaigns](development/pico-rf-campaign.md).

@@ -86,6 +86,12 @@ The harness provides:
     and trust identities, forbid endpoint acquisition and RF authorization,
     and remain unavailable until a production provider is explicitly deployed.
 
+23. distinct Pico USB complete-test campaigns for direct GPIO and supported Si5351,
+    with explicit GPS/PPS and correction selection, production finite jobs,
+    independent three-observation capture/analysis, and boot-bound cleanup.
+    Portable planning supports all control hosts; live USB requires native macOS
+    or Linux with the selected USB device and SDR on the same host.
+
 The keyed schema/validator layer is validation-only: it exposes no process,
 transport, receiver, transmitter, service, or RF operation. Its three
 transactions must have independent process, capture, acquisition, analysis, and

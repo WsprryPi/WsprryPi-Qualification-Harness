@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "target_kind",
+    "plan_sha256",
+    "rehearsal",
+    "qualification_claim",
+    "outcome",
+    "cleanup_verified",
+    "settings_unchanged",
+    "modes",
+    "errors",
+    "artifacts",
+    "output_directory",
+    "transmitter_transaction_attempted"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "target_kind": {
+      "const": "pico"
+    },
+    "plan_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "rehearsal": {
+      "type": "boolean"
+    },
+    "qualification_claim": {
+      "type": "boolean"
+    },
+    "outcome": {
+      "enum": [
+        "passed",
+        "failed",
+        "blocked",
+        "inconclusive",
+        "aborted",
+        "cleanup_failed",
+        "unattempted",
+        "rehearsed"
+      ]
+    },
+    "cleanup_verified": {
+      "type": "boolean"
+    },
+    "settings_unchanged": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "modes": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "observations",
+          "outcome"
+        ],
+        "properties": {
+          "mode": {
+            "enum": [
+              "tone",
+              "wspr",
+              "qrss",
+              "fskcw",
+              "dfcw"
+            ]
+          },
+          "observations": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "number",
+                "frames",
+                "outcome"
+              ],
+              "properties": {
+                "number": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 3
+                },
+                "frames": {
+                  "type": "array",
+                  "maxItems": 2,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "outcome",
+                      "analysis",
+                      "directory"
+                    ],
+                    "properties": {
+                      "outcome": {
+                        "enum": [
+                          "passed",
+                          "failed",
+                          "blocked",
+                          "inconclusive",
+                          "aborted",
+                          "cleanup_failed",
+                          "unattempted"
+                        ]
+                      },
+                      "analysis": {
+                        "$ref": "cw-acquired-capture.schema.json#/$defs/artifact"
+                      },
+                      "directory": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                },
+                "outcome": {
+                  "enum": [
+                    "passed",
+                    "failed",
+                    "blocked",
+                    "inconclusive",
+                    "aborted",
+                    "cleanup_failed",
+                    "unattempted"
+                  ]
+                }
+              }
+            }
+          },
+          "outcome": {
+            "enum": [
+              "passed",
+              "failed",
+              "blocked",
+              "inconclusive",
+              "aborted",
+              "cleanup_failed",
+              "unattempted"
+            ]
+          }
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "detail"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "detail": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/file"
+      }
+    },
+    "output_directory": {
+      "type": "string",
+      "minLength": 1
+    },
+    "transmitter_transaction_attempted": {
+      "type": "boolean"
+    }
+  },
+  "$defs": {
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "size_bytes",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

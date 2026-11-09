@@ -18,7 +18,12 @@ def test_mock_target_has_no_soapy_dependency_or_fallback() -> None:
 
 def test_ci_forces_hardware_free_native_configuration() -> None:
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "-DWSPQ_BUILD_SOAPY=OFF" in workflow
+    script = (ROOT / "scripts" / "ci_pico_integration.py").read_text(encoding="utf-8")
+    assert "python scripts/ci_pico_integration.py ../pico-candidate" in workflow
+    assert "-DWSPQ_BUILD_SOAPY=OFF" in script
+    assert "-DWSPQ_BUILD_TESTS=ON" in script
+    assert "--enable-physical-sdr" not in script
+    assert "wspq-capture-soapy" not in script
     assert "SoapySDRUtil" not in workflow
     assert "wspq-capture-soapy" not in workflow
     assert 'pip install -e ".[dev]"' in workflow

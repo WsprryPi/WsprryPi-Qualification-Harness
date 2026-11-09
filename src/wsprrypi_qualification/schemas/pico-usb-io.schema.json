@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "sequence",
+    "monotonic_ns",
+    "carrier",
+    "phase",
+    "io_id",
+    "data_hex",
+    "error"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "monotonic_ns": {
+      "$ref": "pico-wtp.schema.json#/$defs/u64"
+    },
+    "carrier": {
+      "enum": [
+        "wtp",
+        "management"
+      ]
+    },
+    "phase": {
+      "enum": [
+        "read",
+        "read_timeout",
+        "read_failed",
+        "write_requested",
+        "write_complete",
+        "write_failed",
+        "sealed"
+      ]
+    },
+    "io_id": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "data_hex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]*$",
+      "maxLength": 131104
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 2048
+    }
+  }
+}

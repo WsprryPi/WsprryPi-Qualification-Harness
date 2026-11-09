@@ -526,6 +526,8 @@ def _load_audio_evidence(path: Path, wav_path: Path) -> AcquiredAudioEvidence:
             "WAV header differs from audio conversion contract",
             cause=FailureCause.CONTRADICTORY_EVIDENCE,
         )
+    if document["profiles"].get("target_kind") == "pico":
+        raise OfflineAnalysisError("Validate Pico audio evidence with validate-complete-test")
     try:
         bench_path = Path(document["profiles"]["bench"]["path"])
         test_path = Path(document["profiles"]["test"]["path"])

@@ -156,17 +156,10 @@ def _validate_events(plan: dict[str, Any], expected: dict[str, Any]) -> None:
         for index, event in enumerate(events):
             expected_state = "off" if index % 2 == 0 else "primary"
             expected_role = "quiet" if index % 2 == 0 else "carrier"
-            expected_duration = (
-                plan["protocol"]["tone_off_seconds"]
-                if index % 2 == 0
-                else plan["protocol"]["tone_on_seconds"]
-            )
             if event["rf_state"] != expected_state or event["role"] != expected_role:
                 _fail("tone timeline must alternate quiet and carrier from quiet to quiet")
             if expected_state == "primary" and not event["continuity_required"]:
                 _fail("tone carrier events must require continuity")
-            if event["end_s"] - event["start_s"] != expected_duration:
-                _fail("tone event duration contradicts the resolved plan")
         if carrier_count != cycles:
             _fail("tone timeline does not contain exactly the required carrier cycles")
     if expected["protocol_definition"] != plan["protocol"]["definition"]:
@@ -180,6 +173,8 @@ def _validate_events(plan: dict[str, Any], expected: dict[str, Any]) -> None:
         regenerated = generate_expected_events(plan)
     except ReferenceEncoderError as error:
         _fail(f"expected timeline cannot be regenerated: {error}")
+    # Exact regenerated endpoints also check durations, including Pico capture
+    # lead-in/tail quiet. Subtracting binary-float endpoints is not exact.
     if events != regenerated:
         _fail("expected timeline does not exactly match the independent reference encoder")
 

@@ -9,6 +9,10 @@ from importlib.resources import files
 from jsonschema import Draft202012Validator
 
 MODULES = (
+    "wsprrypi_qualification.pico_campaign",
+    "wsprrypi_qualification.pico_live",
+    "wsprrypi_qualification.pico_results",
+    "wsprrypi_qualification.pico_audit",
     "wsprrypi_qualification.deployment",
     "wsprrypi_qualification.live_adapters",
     "wsprrypi_qualification.real_session",
@@ -23,6 +27,12 @@ MODULES = (
     "wsprrypi_qualification.prepared_release_cli",
 )
 SCHEMAS = (
+    "pico-campaign-configuration.schema.json",
+    "pico-campaign-plan.schema.json",
+    "pico-campaign-result.schema.json",
+    "pico-usb-io.schema.json",
+    "pico-control.schema.json",
+    "pico-wtp.schema.json",
     "application-plan.schema.json",
     "real-session-stage-evidence.schema.json",
     "resolved-real-session-plan.schema.json",

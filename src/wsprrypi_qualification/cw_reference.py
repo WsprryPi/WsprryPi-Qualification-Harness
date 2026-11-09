@@ -182,13 +182,14 @@ def generate_expected_events(plan: dict[str, Any]) -> list[dict[str, Any]]:
     if mode == "tone":
         off = _decimal(protocol["tone_off_seconds"])
         on = _decimal(protocol["tone_on_seconds"])
+        pico = plan.get("backend") in {"pico_gpio", "pico_si5351"}
         for _cycle in range(protocol["tone_cycles"]):
             emit(
                 repetition=None,
                 position=None,
                 symbol=None,
                 role="quiet",
-                duration=off,
+                duration=_decimal(protocol["pre_quiet_seconds"]) if pico and _cycle == 0 else off,
                 state="off",
                 frequency=None,
                 continuous=False,
@@ -208,7 +209,7 @@ def generate_expected_events(plan: dict[str, Any]) -> list[dict[str, Any]]:
             position=None,
             symbol=None,
             role="quiet",
-            duration=off,
+            duration=_decimal(protocol["post_quiet_seconds"]) if pico else off,
             state="off",
             frequency=None,
             continuous=False,

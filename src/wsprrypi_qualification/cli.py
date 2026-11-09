@@ -12,7 +12,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-from wsprrypi_qualification import __version__, lifecycle_cli, sdr_calibration
+from wsprrypi_qualification import __version__, lifecycle_cli, pico_cli, sdr_calibration
 from wsprrypi_qualification.application_shims import (
     ApplicationPlanError,
     validate_application_plan,
@@ -79,6 +79,8 @@ from wsprrypi_qualification.offline import (
     write_json_new,
     write_offline_failure,
 )
+from wsprrypi_qualification.pico_results import validate_pico_bundle
+from wsprrypi_qualification.pico_wire import loads as pico_loads
 from wsprrypi_qualification.profiles import ProfileError, load_profile
 from wsprrypi_qualification.progress import default_progress_path, stderr_reporter
 from wsprrypi_qualification.progress_viewer import tracking_command
@@ -427,6 +429,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     complete.add_argument("transmitter_host", metavar="TRANSMITTER_HOST")
     complete.add_argument("receiver_host", metavar="RECEIVER_HOST")
+    pico_cli.add_options(complete)
     complete.add_argument(
         "--sdr",
         required=True,
@@ -598,6 +601,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("live RF and hardware actions are unavailable in the portable CLI", file=sys.stderr)
         return 2
     args = _parser().parse_args(arguments)
+    args._explicit_options = {
+        value.split("=", 1)[0] for value in arguments if value.startswith("--")
+    }
     if args.command == "lifecycle":
         return lifecycle_cli.dispatch(args)
     if args.command == "runtime-identity":
@@ -619,7 +625,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "validate-complete-test":
         try:
-            validated_complete = validate_complete_test_bundle(args.bundle)
+            if args.bundle.is_symlink() or (args.bundle / "result.json").is_symlink():
+                raise CompleteTestError("complete-test result cannot be a symlink")
+            header = pico_loads((args.bundle / "result.json").read_bytes())
+            validated_complete = (
+                validate_pico_bundle(args.bundle)
+                if header.get("target_kind") == "pico"
+                else validate_complete_test_bundle(args.bundle)
+            )
         except (CompleteTestError, OfflineAnalysisError, OSError, ValueError) as error:
             print(str(error), file=sys.stderr)
             return 2
@@ -642,6 +655,35 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
         try:
             reporter.emit("command", "started", "complete-test command accepted")
+            if args.pico_configuration is not None:
+                pico_result = pico_cli.execute(args, reporter)
+                print(
+                    json.dumps(
+                        {
+                            key: pico_result[key]
+                            for key in (
+                                "target_kind",
+                                "outcome",
+                                "qualification_claim",
+                                "output_directory",
+                                "cleanup_verified",
+                                "settings_unchanged",
+                            )
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+                )
+                reporter.close()
+                return {
+                    "passed": 0,
+                    "rehearsed": 0,
+                    "failed": 4,
+                    "aborted": 130,
+                    "cleanup_failed": 5,
+                }.get(pico_result["outcome"], 3)
+            if any(option.startswith("--pico-") for option in args._explicit_options):
+                raise CompleteTestError("Pico options require --pico-configuration")
             if args.mode is not None and len(set(args.mode)) != len(args.mode):
                 raise CompleteTestError("--mode must not be duplicated")
             if args.rehearse and args.enable_rf:

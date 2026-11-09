@@ -1,0 +1,78 @@
+{
+  "contract": "Wsprry-Control/1",
+  "schema": "si5351",
+  "target": {
+    "scope": "member",
+    "device_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "boot_id": "00000000000000000000000000000002"
+  },
+  "saved": {
+    "reference_hz": 25000000,
+    "reference_source": "external_xa",
+    "crystal_load_pf": null,
+    "address": 96,
+    "drive_ma": 8,
+    "transmit_output": 0,
+    "loopback_output": 2,
+    "loopback_input_gp": 7,
+    "rf_gate_gp": null,
+    "rf_gate_active_high": true,
+    "reference_use": "measurement_only",
+    "trusted_uncertainty_ppb": null,
+    "manual_correction_ppb": -1234,
+    "automatic_calibration": false
+  },
+  "boot_active": {
+    "reference_hz": 25000000,
+    "reference_source": "external_xa",
+    "crystal_load_pf": null,
+    "address": 96,
+    "drive_ma": 8,
+    "transmit_output": 0,
+    "loopback_output": 2,
+    "loopback_input_gp": 7,
+    "rf_gate_gp": null,
+    "rf_gate_active_high": true,
+    "reference_use": "measurement_only",
+    "trusted_uncertainty_ppb": null,
+    "manual_correction_ppb": -1234,
+    "automatic_calibration": false
+  },
+  "pending_restart": false,
+  "physically_qualified": true,
+  "qualification": {
+    "profile_id": "qrp-labs-rev6-25mhz-clk0-8ma",
+    "system_clock_hz": 138000000,
+    "i2c_pair": 1
+  },
+  "execution_engine": "si5351",
+  "runtime": {
+    "transmit": "register_disabled",
+    "reference_output": "register_disabled",
+    "communication": "register_control_verified",
+    "engineering_enabled": false,
+    "inhibited": false,
+    "epoch": "0",
+    "enable_command_completed_ns": "0",
+    "disable_command_completed_ns": "0",
+    "reference_measurement": {
+      "start_raw_ns": "1",
+      "observed_raw_ns": "10000000001",
+      "duration_ns": "10000000000",
+      "edges": "10000000",
+      "endpoint_uncertainty_ns": "1000",
+      "plan_generation": "1",
+      "observed_millihz": "1000000000",
+      "ratio_error_ppb": "0",
+      "uncertainty_ppb": 202,
+      "local_rate_ppb": null,
+      "reference_use": "measurement_only",
+      "age_ns": "1"
+    },
+    "clock_reference_state": "none",
+    "clock_reference_observed_raw_ns": "0",
+    "clock_reference_age_ns": "0",
+    "measurement_error": null
+  },
+  "storage_healthy": true
+}

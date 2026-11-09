@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WsprryPi/WsprryPi-Qualification-Harness/schemas/pico-measurement-binding.schema.json",
+  "title": "Pico acquired measurement frozen-plan binding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "target_kind",
+    "configuration_id",
+    "plan_sha256"
+  ],
+  "properties": {
+    "target_kind": {
+      "const": "pico"
+    },
+    "configuration_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "plan_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}
