@@ -629,8 +629,12 @@ def check_prepared_correction(
             or frozen["manual_correction_ppb"] != manual
         ):
             raise PicoWireError("Frozen correction input is not bound to the accepted job")
+        gps = prepared["gps"]
+        validate_contract(gps, "control", "gps")
+        if gps["target"] != prepared["target"] or gps["boot_active"] is None:
+            raise PicoWireError("Frozen correction lacks the bound active GPS policy")
         age = int(frozen["selected_raw_ns"]) - int(frozen["observed_raw_ns"])
-        maximum_age = prepared["gps"]["boot_active"]["calibration_maximum_age_s"] * 1_000_000_000
+        maximum_age = gps["boot_active"]["calibration_maximum_age_s"] * 1_000_000_000
         hour = 3_600_000_000_000
         uncertainty = frozen["uncertainty_ppb"] + (max(0, age) * 50_000 + hour - 1) // hour
         if (

@@ -1056,3 +1056,16 @@ def test_production_usb_frozen_correction_input():
         job_id=diagnostic["selection"]["prepared_input"]["job_id"],
         load_bracket=bracket,
     )
+
+
+@pytest.mark.parametrize("mutation", ["shape", "target", "missing_policy"])
+def test_frozen_input_validates_gps_policy_before_field_access(mutation):
+    plan, prepared, bracket, _ = frozen_input_case()
+    if mutation == "shape":
+        del prepared["gps"]["boot_active"]
+    elif mutation == "target":
+        prepared["gps"]["target"]["boot_id"] = "f" * 32
+    else:
+        prepared["gps"]["boot_active"] = None
+    with pytest.raises(PicoWireError):
+        verify_frozen(plan, prepared, bracket)
