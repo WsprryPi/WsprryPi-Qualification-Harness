@@ -93,7 +93,7 @@ GPS-enabled rows require fresh paired serial/PPS/time observations. UTC source,
 GPS use, manual correction in PPB, and automatic RF correction are independent
 inputs. Correction-on requires fresh matching product observations and retained
 generation provenance, including the correction frozen at preparation. Missing
-or conflicting qualification refuses the job without manual fallback.
+or conflicting qualification refuses the job without manual fallback. GPS inputs are retained immediately before and after LOAD, in addition to the general snapshots. Frozen correction generation and composed PPB must match an exact same-boot observation in both live admission and offline result validation; a newer GPS estimate cannot substitute for the frozen input. An unavailable generation refuses before ARM without replaying LOAD.
 Receiver calibration is a separate frozen profile/request binding and affects
 receiver interpretation only. It never adjusts transmitted frequency.
 

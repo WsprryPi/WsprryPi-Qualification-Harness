@@ -125,6 +125,7 @@ def run_transaction(
     minimum_arm_lead_ns: int = 100_000_000,
     maximum_arm_ahead_ns: int = 9_000_000_000,
     before_cleanup: Callable[[], None] = lambda: None,
+    before_load: Callable[[], None] = lambda: None,
 ) -> dict[str, Any]:
     """Load one complete job, arm locally, and require matching terminal evidence.
 
@@ -179,6 +180,7 @@ def run_transaction(
         claim_attempted = True
         record["owner_id"] = owner_id
         peer.request("CLAIM", {"owner_id": owner_id, "lease_ms": 60000})
+        before_load()
         loaded = True  # A failed reply does not prove LOAD had no effect.
         record["load"] = peer.request("LOAD", value, timeout=30)
         if (

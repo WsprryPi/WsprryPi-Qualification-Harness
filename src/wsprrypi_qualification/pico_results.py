@@ -27,6 +27,7 @@ from wsprrypi_qualification.pico_audit import validate_wire_audit
 from wsprrypi_qualification.pico_campaign import (
     MODE_ORDER,
     check_admission,
+    check_prepared_correction,
     cw_analysis_plan,
     plan_digest,
     validate_measurement_binding,
@@ -236,6 +237,12 @@ def _validate_frame(
     prepared = _read(directory / "prepared.json")
     check_admission(plan, before)
     check_admission(plan, prepared, owned=True)
+    gps_observations = [before["gps"], prepared["gps"]]
+    if plan["configuration"]["pico"]["automatic_correction"]:
+        gps_observations.extend(
+            _read(directory / name) for name in ("load-gps-before.json", "load-gps-after.json")
+        )
+    check_prepared_correction(plan, prepared, gps_observations)
     if (
         before["target"] != prepared["target"]
         or transaction["hello"]["boot_id"] != before["target"]["boot_id"]

@@ -87,6 +87,7 @@ def run(peer, **kwargs):
         before_arm=lambda: {},
         receiver_ready=lambda: None,
         verify_inactive=kwargs.get("idle", lambda: dict(output_active=False)),
+        before_load=kwargs.get("before_load", lambda: None),
     )
 
 
@@ -271,3 +272,27 @@ def test_boolean_evidence_version_rejected():
     record["version"] = True
     with pytest.raises(ValueError):
         validate_transaction(record)
+
+
+def test_before_load_observes_owned_state_and_failure_releases_without_load():
+    peer = Peer()
+
+    def observe():
+        assert peer.calls[-1] == "CLAIM" and peer.owner is not None
+        assert peer.job is None
+        raise RuntimeError("calibration read failed")
+
+    with pytest.raises(WtpControlError) as caught:
+        run(peer, before_load=observe)
+    assert "LOAD" not in peer.calls and "ARM" not in peer.calls
+    assert peer.owner is None
+    assert caught.value.evidence["cleanup_verified"]
+
+
+def test_before_load_observation_precedes_single_load():
+    peer = Peer()
+    seen = []
+    result = run(peer, before_load=lambda: seen.append(tuple(peer.calls)))
+    assert result["completed"] and result["cleanup_verified"]
+    assert seen == [("HELLO", "CLAIM")]
+    assert peer.calls.count("LOAD") == 1

@@ -589,3 +589,48 @@ def validate_measurement_binding(value: dict[str, Any], plan: dict[str, Any]) ->
     validate_document(value, "pico-measurement-binding.schema.json")
     if value != measurement_binding(plan):
         raise PicoWireError("Measurement context differs from the frozen Pico plan")
+
+
+def check_prepared_correction(
+    plan: dict[str, Any],
+    prepared: dict[str, Any],
+    gps_observations: list[dict[str, Any]],
+) -> None:
+    """Match the frozen correction to an exact retained current-contract input."""
+    selection = prepared["rf-calibration"]["selection"]
+    automatic = plan["configuration"]["pico"]["automatic_correction"]
+    source = "gps" if automatic else "manual"
+    if (
+        selection is None
+        or selection["prepared_source"] != source
+        or selection["prepared_generation"] is None
+    ):
+        raise PicoWireError("Prepared correction provenance missing")
+    manual = plan["configuration"]["pico"]["manual_correction_ppb"]
+    expected = manual
+    if automatic:
+        key = (
+            "synthesizer_calibration"
+            if plan["configuration"]["pico"]["engine"] == "si5351"
+            else "timer_calibration"
+        )
+        matched = []
+        for observation in gps_observations:
+            validate_contract(observation, "control", "gps")
+            if observation["target"] != prepared["target"]:
+                raise PicoWireError("Correction observation target differs from prepared job")
+            runtime = observation["runtime"]
+            estimate = runtime[key] if runtime is not None else None
+            if estimate is not None and estimate["generation"] == selection["prepared_generation"]:
+                if not estimate["fresh"]:
+                    raise PicoWireError("Frozen correction observation is stale")
+                matched.append(estimate["oscillator_error_ppb"])
+        if not matched or len(set(matched)) != 1:
+            raise PicoWireError(
+                "Frozen correction generation lacks a consistent retained observation"
+            )
+        product = matched[0] * manual
+        residual = (abs(product) + 500_000_000) // 1_000_000_000 * (-1 if product < 0 else 1)
+        expected = matched[0] + manual + residual
+    if selection["prepared_ppb"] != expected:
+        raise PicoWireError("Frozen job correction differs from retained inputs")

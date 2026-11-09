@@ -781,3 +781,111 @@ def test_pico_produced_capture_metadata_is_accepted_by_acquired_replay(
     _load_acquired_inputs(
         tmp_path / "mode-plan.json", tmp_path / "expected.json", tmp_path / "acquired.json"
     )
+
+
+@pytest.mark.parametrize("engine", ["pio-dma-gp2", "si5351"])
+@pytest.mark.parametrize("frozen_side", ["before", "after"])
+def test_frozen_correction_uses_load_bracket_when_general_snapshots_advance(engine, frozen_side):
+    from wsprrypi_qualification.pico_campaign import check_prepared_correction
+
+    plan = make_plan(configuration(engine, True, True))
+    before = make_snapshot(engine, True, True)
+    prepared = copy.deepcopy(before)
+    key = "timer_calibration" if engine == "pio-dma-gp2" else "synthesizer_calibration"
+    bracket = [copy.deepcopy(before["gps"]) for _ in range(2)]
+    for document, generation, error in (
+        (before["gps"], "10", 1),
+        (bracket[0], "20", 17),
+        (bracket[1], "21", 19),
+        (prepared["gps"], "22", 23),
+    ):
+        document["runtime"][key].update(generation=generation, oscillator_error_ppb=error)
+    generation, error = ("20", 17) if frozen_side == "before" else ("21", 19)
+    prepared["rf-calibration"]["selection"].update(
+        prepared_source="gps", prepared_generation=generation, prepared_ppb=error
+    )
+    with pytest.raises(PicoWireError, match="consistent retained observation"):
+        check_prepared_correction(plan, prepared, [before["gps"], prepared["gps"]])
+    check_prepared_correction(plan, prepared, [before["gps"], *bracket, prepared["gps"]])
+
+
+@pytest.mark.parametrize("mutation", ["generation", "ppb", "target", "shape", "stale", "conflict"])
+def test_frozen_correction_rejects_missing_conflicting_or_malformed_inputs(mutation):
+    from wsprrypi_qualification.pico_campaign import check_prepared_correction
+
+    plan = make_plan(configuration("pio-dma-gp2", True, True))
+    prepared = make_snapshot("pio-dma-gp2", True, True)
+    gps = copy.deepcopy(prepared["gps"])
+    estimate = gps["runtime"]["timer_calibration"]
+    prepared["rf-calibration"]["selection"].update(
+        prepared_source="gps",
+        prepared_generation=estimate["generation"],
+        prepared_ppb=estimate["oscillator_error_ppb"],
+    )
+    observations = [gps]
+    if mutation == "generation":
+        estimate["generation"] = "987654"
+    elif mutation == "ppb":
+        prepared["rf-calibration"]["selection"]["prepared_ppb"] += 1
+    elif mutation == "target":
+        gps["target"]["boot_id"] = "f" * 32
+    elif mutation == "shape":
+        gps["unknown"] = True
+    elif mutation == "stale":
+        estimate["fresh"] = False
+    else:
+        changed = copy.deepcopy(gps)
+        changed["runtime"]["timer_calibration"]["oscillator_error_ppb"] += 1
+        observations.append(changed)
+    with pytest.raises((PicoWireError, ValueError)):
+        check_prepared_correction(plan, prepared, observations)
+
+
+@pytest.mark.parametrize("never_matches", [False, True])
+def test_snapshot_reads_bounded_matching_gps_pair_without_weakening_admission(never_matches):
+    from wsprrypi_qualification.pico_live import _snapshot
+
+    value = make_snapshot("pio-dma-gp2", True, True)
+    generation = value["gps"]["runtime"]["timer_calibration"]["generation"]
+
+    class Client:
+        def __init__(self):
+            self.hello = {"target": value["target"]}
+            self.etags = {"config": value["revision"]}
+            self.gps_reads = 0
+
+        def get(self, resource, definition):
+            result = copy.deepcopy(value[resource])
+            if resource == "gps":
+                self.gps_reads += 1
+                if self.gps_reads == 1 or never_matches:
+                    result["runtime"]["timer_calibration"]["generation"] = "987654"
+            return result
+
+    client = Client()
+    observed = _snapshot(client)
+    if never_matches:
+        assert client.gps_reads == 4
+        with pytest.raises(PicoWireError, match="generation-mismatched"):
+            check_admission(make_plan(configuration("pio-dma-gp2", True, True)), observed)
+    else:
+        assert client.gps_reads == 2
+        assert observed["gps"]["runtime"]["timer_calibration"]["generation"] == generation
+        check_admission(make_plan(configuration("pio-dma-gp2", True, True)), observed)
+
+
+@pytest.mark.parametrize(
+    "manual,learned,expected", [(1_000_000, 500, 1_000_501), (-1_000_000, 500, -999_501)]
+)
+def test_frozen_correction_preserves_signed_residual_rounding(manual, learned, expected):
+    from wsprrypi_qualification.pico_campaign import check_prepared_correction
+
+    plan = make_plan(configuration("pio-dma-gp2", True, True))
+    plan["configuration"]["pico"]["manual_correction_ppb"] = manual
+    prepared = make_snapshot("pio-dma-gp2", True, True)
+    estimate = prepared["gps"]["runtime"]["timer_calibration"]
+    estimate["oscillator_error_ppb"] = learned
+    prepared["rf-calibration"]["selection"].update(
+        prepared_source="gps", prepared_generation=estimate["generation"], prepared_ppb=expected
+    )
+    check_prepared_correction(plan, prepared, [prepared["gps"]])

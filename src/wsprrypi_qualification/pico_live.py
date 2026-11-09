@@ -38,6 +38,7 @@ from wsprrypi_qualification.offline import artifact, validate_document, write_js
 from wsprrypi_qualification.pico_audit import AuditedStream, WireAudit
 from wsprrypi_qualification.pico_campaign import (
     check_admission,
+    check_prepared_correction,
     cw_analysis_plan,
     measurement_binding,
     plan_digest,
@@ -100,9 +101,9 @@ def _snapshot(client: ManagementClient, *, require_idle: bool = False) -> dict[s
         ("capabilities", "capabilities"),
         ("config", "config-read"),
         ("hardware", "application/$defs/hardware_read"),
-        ("gps", "gps"),
         ("si5351", "si5351"),
         ("ntp-observations", "diagnostic"),
+        ("gps", "gps"),
         ("rf-calibration", "diagnostic"),
         ("message-schedule", "diagnostic"),
     ):
@@ -117,6 +118,23 @@ def _snapshot(client: ManagementClient, *, require_idle: bool = False) -> dict[s
                 raise PicoFixtureError(
                     "Pico is occupied; leave its existing owner and output unchanged"
                 )
+    # GPS estimates can advance between separate read-only resources. Retain
+    # one matching current pair; never relax generation equality at admission.
+    for _ in range(3):
+        selection = result["rf-calibration"]["selection"]
+        if selection is None or selection["next_source"] != "gps":
+            break
+        runtime = result["gps"]["runtime"]
+        key = (
+            "synthesizer_calibration"
+            if result["rf-calibration"]["execution_engine"] == "si5351"
+            else "timer_calibration"
+        )
+        estimate = runtime[key] if runtime is not None else None
+        if estimate is not None and estimate["generation"] == selection["next_generation"]:
+            break
+        result["gps"] = client.get("gps", "gps")
+        result["rf-calibration"] = client.get("rf-calibration", "diagnostic")
     if client.hello is None:
         raise PicoWireError("Management hello missing")
     result["target"] = client.hello["target"]
@@ -465,42 +483,26 @@ class PicoLiveAdapter:
                 else time.time_ns() + 5_000_000_000
             )
 
+            load_gps: list[dict[str, Any]] = []
+
+            def before_load() -> None:
+                if self.plan["configuration"]["pico"]["automatic_correction"]:
+                    value = self.management.get("gps", "gps")
+                    if value["target"] != snapshot["target"]:
+                        raise PicoWireError("GPS target changed before LOAD")
+                    write_json_new(directory / "load-gps-before.json", value)
+                    load_gps.append(value)
+
             def before_arm() -> dict[str, Any]:
+                if self.plan["configuration"]["pico"]["automatic_correction"]:
+                    gps = self.management.get("gps", "gps")
+                    write_json_new(directory / "load-gps-after.json", gps)
+                    load_gps.append(gps)
                 value = self.snapshot()
                 check_admission(self.plan, value, owned=True)
-                selection = value["rf-calibration"]["selection"]
-                if (
-                    selection is None
-                    or selection["prepared_source"] != selection["next_source"]
-                    or selection["prepared_generation"] is None
-                ):
-                    raise PicoWireError("Prepared correction provenance missing")
-                if self.plan["configuration"]["pico"]["automatic_correction"]:
-                    estimate_key = (
-                        "synthesizer_calibration"
-                        if expected_engine == "si5351"
-                        else "timer_calibration"
-                    )
-                    estimates = [s["gps"]["runtime"][estimate_key] for s in (snapshot, value)]
-                    matched = [
-                        e
-                        for e in estimates
-                        if e is not None and e["generation"] == selection["prepared_generation"]
-                    ]
-                    if not matched:
-                        raise PicoWireError(
-                            "Frozen correction generation lacks a retained observation"
-                        )
-                    manual = self.plan["configuration"]["pico"]["manual_correction_ppb"]
-                    product = matched[0]["oscillator_error_ppb"] * manual
-                    residual = (
-                        (abs(product) + 500_000_000) // 1_000_000_000 * (-1 if product < 0 else 1)
-                    )
-                    expected_ppb = matched[0]["oscillator_error_ppb"] + manual + residual
-                else:
-                    expected_ppb = self.plan["configuration"]["pico"]["manual_correction_ppb"]
-                if selection["prepared_ppb"] != expected_ppb:
-                    raise PicoWireError("Frozen job correction differs from retained inputs")
+                check_prepared_correction(
+                    self.plan, value, [snapshot["gps"], *load_gps, value["gps"]]
+                )
                 write_json_new(directory / "prepared.json", value)
                 return dict(value["ntp-observations"])
 
@@ -520,6 +522,7 @@ class PicoLiveAdapter:
                 minimum_arm_lead_ns=int(caps["minimum_arm_lead_ns"]),
                 maximum_arm_ahead_ns=min(9_000_000_000, int(caps["maximum_arm_ahead_ns"])),
                 before_cleanup=self.begin_cleanup,
+                before_load=before_load,
             )
             if not record["completed"] or not record["cleanup_verified"]:
                 raise WtpControlError(
