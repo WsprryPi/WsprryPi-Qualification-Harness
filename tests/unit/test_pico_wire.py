@@ -115,6 +115,47 @@ def test_bad_frames_refuse(kind):
         client.request("PING", {})
 
 
+@pytest.mark.parametrize("split", [0, 1, 8, 15, 16, 17, -1])
+def test_event_poll_preserves_fragment_across_deadline(split):
+    class InterruptedFrame(MemoryStream):
+        def __init__(self):
+            super().__init__(fragment=65536)
+            self.position = 0
+            self.split = 0
+            self.interrupted = False
+
+        def read(self, maximum, deadline):
+            if self.position == self.split and not self.interrupted:
+                self.interrupted = True
+                raise TimeoutError("poll deadline")
+            if not self.interrupted:
+                maximum = min(maximum, self.split - self.position)
+            part = super().read(maximum, deadline)
+            self.position += len(part)
+            return part
+
+    stream = InterruptedFrame()
+    client = WtpClient(stream)
+    event = dict(
+        type="event",
+        protocol="WTP/1",
+        session_id=client.session,
+        boot_id="b" * 32,
+        event_id="1",
+        event="JOB_STATE",
+        body=dict(job_id="c" * 32, state="complete", output_active=False),
+    )
+    frame = wtp_frame(event)
+    stream.split = len(frame) - 1 if split == -1 else split
+    following = dict(event, event_id="2")
+    stream.data.extend(frame + wtp_frame(following))
+    with pytest.raises(TimeoutError):
+        client.next_message(1)
+    assert client.next_message(1) == event
+    assert client.next_message(1) == following
+    assert not stream.writes  # A poll timeout never replays a request.
+
+
 def test_wrong_request_refuses_before_write():
     stream = MemoryStream()
     with pytest.raises(PicoWireError):
