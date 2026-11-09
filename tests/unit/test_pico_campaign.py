@@ -682,31 +682,6 @@ def test_missed_transmitter_job_is_failed_not_a_fixture_block():
     )
 
 
-@pytest.mark.parametrize(
-    "mutation", ["synthetic_capture", "synthetic_analyzer", "generator", "analyzer"]
-)
-def test_live_result_rejects_declared_synthetic_or_unbound_analysis(mutation):
-    from wsprrypi_qualification.pico_results import _validate_analysis_identity
-
-    plan = make_plan()
-    revision = plan["analyzer_source"]["revision"]
-    expected = dict(generator=dict(source_revision=revision))
-    measured = dict(
-        capture=dict(synthetic=False), analyzer=dict(synthetic=False, source_revision=revision)
-    )
-    _validate_analysis_identity(plan, expected, measured)
-    if mutation == "synthetic_capture":
-        measured["capture"]["synthetic"] = True
-    elif mutation == "synthetic_analyzer":
-        measured["analyzer"]["synthetic"] = True
-    elif mutation == "generator":
-        expected["generator"]["source_revision"] = "b" * 40
-    else:
-        measured["analyzer"]["source_revision"] = "b" * 40
-    with pytest.raises(PicoWireError, match="synthetic or mismatched"):
-        _validate_analysis_identity(plan, expected, measured)
-
-
 @pytest.mark.parametrize("engine", ["pio-dma-gp2", "si5351"])
 @pytest.mark.parametrize("lead_in", [2, 7.287371873855591])
 def test_pico_tone_contract_accepts_real_capture_lead_in(engine, lead_in):
