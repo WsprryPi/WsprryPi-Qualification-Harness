@@ -3,16 +3,11 @@
 This roadmap contains only work that remains. Completed implementation history
 belongs in Git and merged pull requests, not in the active roadmap.
 
-## TODO — Pico acceptance hardening and test duration
+## TODO — Pico harness governance gate
 
-**Status: not started; proposal and implementation approval pending**
+**Status: not started; revised scope and 90-minute cap agreed; awaiting separate invocation**
 
-The [saved execution prompt](development/pico-acceptance-hardening-todo.md)
-defines a bounded, hardware-free acceptance gate, real WTP client/production
-endpoint integration, Pi/Pico lifecycle comparison, adversarial review, and
-test-duration assessment. Saving this TODO does not authorize execution,
-repairs, or hardware access. Establish the assessment budget and obtain approval
-of the concrete implementation proposal before implementing changes.
+The [saved execution prompt](development/pico-acceptance-hardening-todo.md) defines a hardware-free governance gate using one representative configuration, one keyed job, one WSPR job with its carrier prerequisite, and three focused failure checks. Scheduling uses simulated time. Milestones at 10, 30, 45, 60, 80, and 90 minutes require concrete evidence and an early stop when a criterion is missed. Saving this TODO does not execute it or authorize hardware access.
 
 ## Phase 1 — Universal execution topology
 
