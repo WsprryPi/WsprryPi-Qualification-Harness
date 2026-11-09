@@ -129,7 +129,7 @@ Live execution observes idle state, acquires only its own lease, submits one
 complete bounded job, checks receiver capture readiness and RF-off preamble,
 prepares correction provenance, and arms the local job. Lease renewal, ARM
 lead limits, slot preparation, exact-count capture, analysis, cancellation,
-and cleanup have finite deadlines. A lost mutation response is never replayed.
+and cleanup have finite deadlines. A lost mutation response is never replayed. Event polling retains partial USB frame headers and payloads across polling deadlines. Each poll keeps its original absolute deadline, and full framing, length, CRC, schema and session validation precede delivery.
 Cleanup reconciles actual status, aborts only its matching owned job, releases
 its ownership, and checks boot-bound output inactivity. Si5351 additionally
 requires register-disable readback. Device reset, disconnect, changed ownership,

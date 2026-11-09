@@ -173,21 +173,39 @@ class WtpClient:
         self.session = uuid.uuid4().hex
         self.pending: deque[dict[str, Any]] = deque()
         self.sequence = 0
+        self._received = bytearray()
+
+    def _fill(self, count: int, deadline: float) -> None:
+        # A polling deadline can split either header or payload. Keep consumed
+        # bytes for the next poll; the caller's absolute deadline never changes.
+        while len(self._received) < count:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Pico response deadline")
+            remaining = count - len(self._received)
+            part = self.stream.read(remaining, deadline)
+            if not part:
+                raise ConnectionError("Pico transport disconnected")
+            if len(part) > remaining:
+                raise PicoWireError("Transport exceeded requested read")
+            self._received.extend(part)
 
     def _receive(self, deadline: float) -> dict[str, Any]:
-        header = read_exact(self.stream, 16, deadline)
+        self._fill(16, deadline)
+        header = self._received[:16]
         if header[:8] != b"WTPF\x01\x01\x00\x00":
             raise PicoWireError("Unsupported WTP framing")
         size, checksum = struct.unpack(">II", header[8:])
         if not 0 < size <= 65536:
             raise PicoWireError("Invalid WTP length")
-        data = read_exact(self.stream, size, deadline)
+        self._fill(16 + size, deadline)
+        data = bytes(self._received[16 : 16 + size])
         if crc32c(data) != checksum:
             raise PicoWireError("WTP CRC mismatch")
         value = loads(data)
         validate_contract(value, "wtp")
         if value["session_id"] != self.session or value["type"] not in {"response", "event"}:
             raise PicoWireError("WTP session/type mismatch")
+        del self._received[: 16 + size]
         return value
 
     def request(self, operation: str, body: dict[str, Any], timeout: float = 8) -> dict[str, Any]:
