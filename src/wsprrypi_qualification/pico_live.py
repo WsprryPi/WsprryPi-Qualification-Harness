@@ -180,6 +180,19 @@ def _non_wspr_start_ns(now_ns: int, gps_enabled: bool) -> int:
     return ((now_ns + lead_ns + 999_999_999) // 1_000_000_000) * 1_000_000_000
 
 
+def _prepared_non_wspr_start_ns(
+    job: dict[str, Any], capture_duration_s: float, capture_requested_monotonic: float
+) -> int:
+    """Choose a GPS start after USB preparation, with bounded retained quiet time."""
+    now_ns = time.time_ns()
+    start_ns = _non_wspr_start_ns(now_ns, True)
+    elapsed = time.monotonic() - capture_requested_monotonic
+    required = (start_ns - now_ns + int(job["total_duration_ns"])) / 1e9 + 2
+    if elapsed < 0 or required > capture_duration_s - elapsed:
+        raise PicoFixtureError("Receiver capture has insufficient post-job quiet margin")
+    return start_ns
+
+
 def _wait_for_arm_preparation(
     start_ns: int, receiver_ready: Callable[[], None], cancel: threading.Event
 ) -> None:
@@ -189,7 +202,7 @@ def _wait_for_arm_preparation(
         receiver_ready()
         if cancel.is_set():
             raise InterruptedError("Pico controller cancelled before ARM preparation")
-        remaining = (start_ns - time.time_ns()) / 1e9 - 7
+        remaining = (start_ns - time.time_ns()) / 1e9 - 9
         if remaining <= 0:
             return
         if time.monotonic() >= deadline:
@@ -467,8 +480,11 @@ class PicoLiveAdapter:
                     raise PicoFixtureError("Controller UTC moved during WSPR slot preparation")
                 if self.cancel.wait(0.1):
                     raise InterruptedError("Pico controller cancelled before WSPR acquisition")
-        duration = 140 if mode == "wspr" else int(job["total_duration_ns"]) / 1e9 + 20
+        prepared_gps_start = slot is None and self.plan["configuration"]["pico"]["gps_enabled"]
+        quiet_allowance = 30 if prepared_gps_start else 20
+        duration = 140 if mode == "wspr" else int(job["total_duration_ns"]) / 1e9 + quiet_allowance
         capture_plan = self._capture_plan(directory, "rf-on", duration)
+        capture_requested_monotonic = time.monotonic()
         future = self.pool.submit(self._capture, capture_plan)
         self.futures.append(future)
         incomplete = Path(str(capture_plan.output_path) + ".incomplete")
@@ -586,7 +602,13 @@ class PicoLiveAdapter:
                 maximum_arm_ahead_ns=min(9_000_000_000, int(caps["maximum_arm_ahead_ns"])),
                 before_cleanup=self.begin_cleanup,
                 before_load=before_load,
+                select_start_utc_ns=(
+                    lambda: _prepared_non_wspr_start_ns(job, duration, capture_requested_monotonic)
+                )
+                if prepared_gps_start
+                else None,
             )
+            start_ns = int(record["start_utc_ns"])
             if not record["completed"] or not record["cleanup_verified"]:
                 raise WtpControlError(
                     "Pico transaction did not complete with verified cleanup", record

@@ -88,6 +88,7 @@ def run(peer, **kwargs):
         receiver_ready=lambda: None,
         verify_inactive=kwargs.get("idle", lambda: dict(output_active=False)),
         before_load=kwargs.get("before_load", lambda: None),
+        select_start_utc_ns=kwargs.get("select_start_utc_ns"),
     )
 
 
@@ -298,7 +299,7 @@ def test_before_load_observation_precedes_single_load():
     assert peer.calls.count("LOAD") == 1
 
 
-@pytest.mark.parametrize("snapshot_seconds,passes", [(4.8, True), (7.1, False)])
+@pytest.mark.parametrize("snapshot_seconds,passes", [(4.8, True), (7.4, True), (9.1, False)])
 def test_gps_wspr_prepares_early_but_preserves_strict_arm_window(
     monkeypatch, snapshot_seconds, passes
 ):
@@ -362,7 +363,7 @@ def test_gps_wspr_prepares_early_but_preserves_strict_arm_window(
         assert caught.value.evidence["cleanup_verified"]
         assert "ARM" not in peer.calls
     assert [name for name, _value in observed] == ["post-load-gps", "snapshot"]
-    assert [value for _name, value in observed] == pytest.approx([104.6, 115.0])
+    assert [value for _name, value in observed] == pytest.approx([104.6, 113.0])
     assert peer.calls.count("LOAD") == 1
     assert peer.owner is None
 
@@ -390,3 +391,75 @@ def test_gps_wspr_preparation_wait_stops_on_fault(monkeypatch, failure):
     with pytest.raises((InterruptedError, RuntimeError, pico_live.PicoFixtureError)):
         pico_live._wait_for_arm_preparation(20_000_000_000, ready, Cancel())
     assert clock[0] <= 45.1
+
+
+@pytest.mark.parametrize(
+    "load_seconds,snapshot_seconds,passes", [(4.6, 8.6, True), (10.0, 14.2, False)]
+)
+def test_gps_non_wspr_selects_start_after_preparation_with_capture_guard(
+    monkeypatch, load_seconds, snapshot_seconds, passes
+):
+    from wsprrypi_qualification import pico_live
+
+    clock = [100.0]
+    monkeypatch.setattr(pico_live.time, "time_ns", lambda: round(clock[0] * 1e9))
+    monkeypatch.setattr(pico_live.time, "monotonic", lambda: clock[0])
+    peer = Peer()
+    request = peer.request
+    selected = []
+
+    def slow_load(op, body, timeout=8):
+        response = request(op, body, timeout)
+        if op == "LOAD":
+            clock[0] += load_seconds
+        return response
+
+    peer.request = slow_load
+
+    def prepare():
+        clock[0] += snapshot_seconds
+        return {}
+
+    def select():
+        selected.append(clock[0])
+        return pico_live._prepared_non_wspr_start_ns(JOB, 31, 97)
+
+    def execute():
+        return run_transaction(
+            peer,
+            JOB,
+            device_id="board",
+            start_utc_ns=107_000_000_000,
+            wall_ns=lambda: round(clock[0] * 1e9),
+            monotonic=lambda: clock[0],
+            before_arm=prepare,
+            receiver_ready=lambda: None,
+            verify_inactive=lambda: dict(output_active=False),
+            select_start_utc_ns=select,
+        )
+
+    if passes:
+        result = execute()
+        assert result["completed"] and result["cleanup_verified"]
+        assert result["start_utc_ns"] == 121_000_000_000
+        assert result["arm"]["start_utc_ns"] == str(result["start_utc_ns"])
+        assert 0.1 < result["start_utc_ns"] / 1e9 - clock[0] < 9
+        assert peer.calls.count("ARM") == 1
+    else:
+        with pytest.raises(WtpControlError, match="quiet margin") as caught:
+            execute()
+        assert caught.value.evidence["cleanup_verified"]
+        assert "ARM" not in peer.calls
+    assert selected == pytest.approx([100 + load_seconds + snapshot_seconds])
+    assert peer.calls.count("LOAD") == 1
+    assert peer.owner is None
+
+
+@pytest.mark.parametrize("selected_start", [True, -1, 0, 100_000_000_000])
+def test_selected_start_refuses_invalid_or_out_of_window_values(selected_start):
+    peer = Peer()
+    with pytest.raises(WtpControlError, match="Selected start") as caught:
+        run(peer, select_start_utc_ns=lambda: selected_start)
+    assert caught.value.evidence["cleanup_verified"]
+    assert peer.calls.count("LOAD") == 1
+    assert "ARM" not in peer.calls and peer.owner is None

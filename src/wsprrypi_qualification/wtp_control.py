@@ -126,6 +126,7 @@ def run_transaction(
     maximum_arm_ahead_ns: int = 9_000_000_000,
     before_cleanup: Callable[[], None] = lambda: None,
     before_load: Callable[[], None] = lambda: None,
+    select_start_utc_ns: Callable[[], int] | None = None,
 ) -> dict[str, Any]:
     """Load one complete job, arm locally, and require matching terminal evidence.
 
@@ -189,6 +190,15 @@ def run_transaction(
         ):
             raise ValueError("LOAD acknowledgment does not match the submitted job")
         record["sync"] = before_arm()
+        if select_start_utc_ns is not None:
+            # Select once, after all preparation; never replay LOAD or ARM.
+            start_utc_ns = select_start_utc_ns()
+            if (
+                type(start_utc_ns) is not int
+                or not wall_ns() < start_utc_ns < wall_ns() + 45_000_000_000
+            ):
+                raise ValueError("Selected start is outside the bounded transaction window")
+            record["start_utc_ns"] = start_utc_ns
         if not minimum_arm_lead_ns < start_utc_ns - wall_ns() < maximum_arm_ahead_ns:
             raise ValueError("Missed bounded ARM window")
         receiver_ready()
