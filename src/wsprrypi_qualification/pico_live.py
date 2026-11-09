@@ -16,6 +16,7 @@ import sys
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -170,6 +171,23 @@ def _snapshot(client: ManagementClient, *, require_idle: bool = False) -> dict[s
     if verified != result["config"] or client.etags["config"] != result["revision"]:
         raise PicoWireError("Configuration changed during Pico resource snapshot")
     return result
+
+
+def _wait_for_arm_preparation(
+    start_ns: int, receiver_ready: Callable[[], None], cancel: threading.Event
+) -> None:
+    """Keep the final resource snapshot fresh inside the unchanged ARM bound."""
+    deadline = time.monotonic() + 45
+    while True:
+        receiver_ready()
+        if cancel.is_set():
+            raise InterruptedError("Pico controller cancelled before ARM preparation")
+        remaining = (start_ns - time.time_ns()) / 1e9 - 7
+        if remaining <= 0:
+            return
+        if time.monotonic() >= deadline:
+            raise PicoFixtureError("Controller UTC moved during ARM preparation")
+        cancel.wait(min(0.1, remaining))
 
 
 def _private_destination(parent: Path) -> Path:
@@ -426,13 +444,18 @@ class PicoLiveAdapter:
         off_plan = self._capture_plan(directory, "rf-off", 2)
         self._capture(off_plan)
         slot: datetime | None = None
+        gps_wspr = mode == "wspr" and self.plan["configuration"]["pico"]["gps_enabled"]
         if mode == "wspr":
+            # LOAD and the full GPS snapshot can each take several seconds.
+            # Start capture/preparation earlier without moving RF off its slot.
+            capture_lead_ns = 20_000_000_000 if gps_wspr else 8_000_000_000
+            slot_notice_ns = 30_000_000_000 if gps_wspr else 15_000_000_000
             slot_ns = (
-                math.ceil((time.time_ns() + 15_000_000_000) / 120_000_000_000) * 120_000_000_000
+                math.ceil((time.time_ns() + slot_notice_ns) / 120_000_000_000) * 120_000_000_000
             )
             slot = datetime.fromtimestamp(slot_ns / 1e9, UTC)
-            wait_deadline = time.monotonic() + 130
-            while time.time_ns() < slot_ns - 8_000_000_000:
+            wait_deadline = time.monotonic() + (160 if gps_wspr else 130)
+            while time.time_ns() < slot_ns - capture_lead_ns:
                 if time.monotonic() >= wait_deadline:
                     raise PicoFixtureError("Controller UTC moved during WSPR slot preparation")
                 if self.cancel.wait(0.1):
@@ -530,6 +553,10 @@ class PicoLiveAdapter:
                     gps = self.management.get("gps", "gps")
                     write_json_new(directory / "load-gps-after.json", gps)
                     load_gps.append(gps)
+                if gps_wspr:
+                    # Preserve the immediate post-LOAD GPS input above; defer
+                    # only the general snapshot until the bounded ARM window.
+                    _wait_for_arm_preparation(start_ns, ready, self.cancel)
                 value = self.snapshot()
                 check_admission(self.plan, value, owned=True)
                 check_prepared_correction(
