@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from wsprrypi_qualification.capture_metadata import load_capture_metadata
 from wsprrypi_qualification.offline import artifact, validate_document, write_json_new
 from wsprrypi_qualification.pico_audit import _frames, validate_wire_audit
 from wsprrypi_qualification.pico_campaign import check_admission, plan_digest, validate_pico_plan
+from wsprrypi_qualification.pico_context import assessment, check_transition
 from wsprrypi_qualification.pico_live import (
     PicoLiveAdapter,
     _authenticate_plan,
@@ -76,13 +78,17 @@ class OneJobPeer:
     def __init__(self, peer: WtpPeer):
         self.peer = peer
         self.used: set[str] = set()
+        self.owner_id: str | None = None
 
     def request(self, operation: str, body: dict[str, Any], timeout: float = 8) -> dict[str, Any]:
         if operation in {"LOAD", "ARM"}:
             if operation in self.used:
                 raise PicoWireError("One-job attempt already consumed: " + operation)
             self.used.add(operation)
-        return self.peer.request(operation, body, timeout)
+        reply = self.peer.request(operation, body, timeout)
+        if operation == "CLAIM":
+            self.owner_id = body["owner_id"]
+        return reply
 
     def next_message(self, timeout: float) -> dict[str, Any]:
         return self.peer.next_message(timeout)
@@ -90,6 +96,8 @@ class OneJobPeer:
 
 class SmokeAdapter(PicoLiveAdapter):
     """Production acquisition with deferred analysis and a shared cleanup deadline."""
+
+    validation_purpose = "governance"
 
     cleanup_cancel: DeadlineEvent | None = None
 
@@ -162,7 +170,7 @@ def acquire(adapter: PicoLiveAdapter, plan: dict[str, Any], output: Path) -> dic
         if plan["configuration"]["pico"]["configuration_revision"] is None:
             plan["configuration"]["pico"]["configuration_revision"] = initial["revision"]
         write_json_new(output / "plan.json", plan)
-        check_admission(plan, initial)
+        check_admission(plan, initial, purpose="governance")
         adapter.reporter.emit("preflight", "completed", "Management admission passed")
         adapter.start_wtp()
         # WTP is opened only after read-only management admission.
@@ -272,8 +280,8 @@ def validate_retained(output: Path) -> dict[str, Any]:
         raise PicoWireError("Resolved plan differs beyond initial configuration revision")
     initial = loads((output / "initial.json").read_bytes())
     final = loads((output / "final.json").read_bytes())
-    check_admission(plan, initial)
-    check_admission(plan, final)
+    check_admission(plan, initial, purpose="governance")
+    check_admission(plan, final, purpose="governance")
     if not result["cleanup_verified"] or not settings_match(initial, final):
         raise PicoWireError("Cleanup/settings evidence differs")
     status = loads((output / "final-status.json").read_bytes())
@@ -292,9 +300,29 @@ def validate_retained(output: Path) -> dict[str, Any]:
     if frame["outcome"] not in {"passed", "failed"} or result["frame"] != frame:
         raise PicoWireError("Measurement must be conclusive and bound to the result")
     jobs: set[str] = set()
-    _validate_frame(output / "observation", frame, plan, plan["modes"][0]["jobs"][0], jobs, set())
+    _validate_frame(
+        output / "observation",
+        frame,
+        plan,
+        plan["modes"][0]["jobs"][0],
+        jobs,
+        set(),
+        purpose="governance",
+    )
     validate_wire_audit(output / "usb-io.jsonl", jobs, initial["target"])
     validate_management_snapshots(output)
+    snapshots = (
+        [initial]
+        + [
+            loads((output / "observation" / name).read_bytes())
+            for name in ("before.json", "prepared.json")
+        ]
+        + [final]
+    )
+    for previous, current in pairwise(snapshots):
+        check_transition(previous, current)
+    if loads((output / "validation-context.json").read_bytes()) != retained_context(output):
+        raise PicoWireError("Governance validation context differs from retained evidence")
     return result
 
 
@@ -387,6 +415,19 @@ def validate_management_snapshots(output: Path) -> None:
                 )
 
 
+def retained_context(output: Path) -> dict[str, Any]:
+    paths = {
+        "admission": "initial.json",
+        "prepared": "observation/prepared.json",
+        "final": "final.json",
+    }
+    return {
+        stage: assessment(loads((output / name).read_bytes()), stage)
+        for stage, name in paths.items()
+        if (output / name).is_file()
+    }
+
+
 def remaining(deadline: float) -> float:
     value = deadline - time.monotonic()
     if value <= 0:
@@ -476,6 +517,7 @@ def run(
         adapter = SmokeAdapter(plan, output, reporter, DeadlineEvent(OPERATION_SECONDS))
         result = acquire(adapter, plan, output)
         acquired = True
+        write_json_new(output / "validation-context.json", retained_context(output))
         if result["frame"] is not None and result["cleanup_verified"]:
             reporter.emit("analysis", "started", "Devices closed; analyzing retained IQ")
             worker(output, "analyze", min(ANALYSIS_SECONDS, remaining(deadline)))

@@ -22,7 +22,10 @@ class ManagementStream:
     def __init__(self, adapter):
         self.adapter = adapter
         self.pending = bytearray()
-        self.snapshot = base.make_snapshot()
+        self.snapshot = base.make_snapshot(
+            gps=adapter.fixture_scenario == "legacy-auto",
+            automatic=adapter.fixture_scenario == "legacy-auto",
+        )
         if adapter.fixture_scenario == "busy":
             self.snapshot["status"]["job"]["owner_id"] = "f" * 32
 
@@ -49,6 +52,20 @@ class ManagementStream:
                 )
             if self.adapter.fixture_scenario == "busy":
                 self.snapshot["status"]["job"]["owner_id"] = "f" * 32
+            if self.adapter.fixture_scenario in {"legacy-manual", "legacy-auto"}:
+                status = self.snapshot["status"]["job"]
+                if self.adapter.fixture_scenario == "legacy-auto":
+                    self.snapshot = base.make_snapshot(gps=True, automatic=True)
+                    self.snapshot["status"]["job"] = status
+                    if self.adapter._wtp is not None:
+                        self.snapshot["capabilities"]["wtp"] = self.adapter.wtp.request("CAPS", {})
+                    if status["state"] == "loaded":
+                        self.snapshot["rf-calibration"]["selection"].update(
+                            prepared_source="gps", prepared_generation="7", prepared_ppb=25
+                        )
+                self.snapshot["rf-calibration"]["selection"].pop("prepared_input", None)
+                self.snapshot["rf-calibration"]["selection"]["future_telemetry"] = {"value": 1}
+                self.snapshot["ntp-observations"].pop("network", None)
             body = self.snapshot[resource]
         reply = dict(
             schema="usb-management/1",
@@ -102,7 +119,9 @@ def run_case(source: Path, native: Path, wsprd: Path, output: Path, scenario: st
             patch.setattr(pico_live, name, base.deny)
         patch.setattr(pico_live, "time", clock)
         patch.setattr(pico_wire, "time", clock)
-        config = base.configuration()
+        config = base.configuration(
+            gps=scenario == "legacy-auto", automatic=scenario == "legacy-auto"
+        )
         config["pico_source"] = str(source)
         config["protocol"].update(message="ET", dot_seconds=0.7)
         config["receiver"].update(
@@ -136,6 +155,7 @@ def run_case(source: Path, native: Path, wsprd: Path, output: Path, scenario: st
                 adapter.management = ManagementClient(
                     AuditedStream(ManagementStream(adapter), adapter.audit, "management"),
                     plan["configuration"]["pico"]["device_id"],
+                    purpose=adapter.validation_purpose,
                 )
                 adapter.discovery = adapter.management.connect()
                 adapter.usb = SimpleNamespace(
@@ -161,7 +181,9 @@ def run_case(source: Path, native: Path, wsprd: Path, output: Path, scenario: st
                     False,
                     [],
                 )
-                connected.configure(adapter, clock, scenario)
+                connected.configure(
+                    adapter, clock, "keyed" if scenario.startswith("legacy-") else scenario
+                )
                 created.append(adapter)
                 return adapter
             except BaseException:

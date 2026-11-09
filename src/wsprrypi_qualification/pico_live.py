@@ -267,6 +267,8 @@ def _authenticate_plan(plan: dict[str, Any]) -> None:
 class PicoLiveAdapter:
     """Own bounded USB and capture lifetimes, including failed acquisitions."""
 
+    validation_purpose = "qualification"
+
     def __init__(
         self,
         plan: dict[str, Any],
@@ -294,6 +296,7 @@ class PicoLiveAdapter:
             self.management = ManagementClient(
                 AuditedStream(self.usb.management, self.audit, "management"),
                 plan["configuration"]["pico"]["device_id"],
+                purpose=self.validation_purpose,
             )
             self.discovery = self.management.connect()
             self._wtp: WtpClient | None = None
@@ -318,7 +321,15 @@ class PicoLiveAdapter:
         self.receiver_cleanup_failed = False
 
     def snapshot(self, *, initial: bool = False) -> dict[str, Any]:
-        return _snapshot(self.management, require_idle=initial)
+        value = _snapshot(self.management, require_idle=initial)
+        if self.validation_purpose == "governance":
+            from wsprrypi_qualification.pico_context import check_transition
+
+            previous = getattr(self, "_context_previous", None)
+            if previous is not None:
+                check_transition(previous, value)
+            self._context_previous = value
+        return value
 
     @property
     def wtp(self) -> WtpClient:
@@ -428,7 +439,7 @@ class PicoLiveAdapter:
                 "metrics"
             ]["strongest_transmitter_added_frequency_hz"]
         snapshot = self.snapshot()
-        check_admission(self.plan, snapshot)
+        check_admission(self.plan, snapshot, purpose=self.validation_purpose)
         write_json_new(directory / "before.json", snapshot)
         hello = self.wtp.request(
             "HELLO",
@@ -585,13 +596,15 @@ class PicoLiveAdapter:
                     _wait_for_arm_preparation(start_ns, ready, self.cancel)
                 value = self.snapshot()
                 write_json_new(directory / "prepared.json", value)
-                check_admission(self.plan, value, owned=True)
+                check_admission(self.plan, value, owned=True, purpose=self.validation_purpose)
                 check_prepared_correction(
                     self.plan,
                     value,
                     [snapshot["gps"], value["gps"]],
                     job_id=loaded_job_id,
                     load_bracket=load_gps,
+                    purpose=self.validation_purpose,
+                    owner_id=getattr(self.wtp, "owner_id", None),
                 )
                 return dict(value["ntp-observations"])
 

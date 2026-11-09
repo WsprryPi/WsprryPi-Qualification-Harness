@@ -103,6 +103,8 @@ def test_failed_fresh_validation_cannot_publish_a_pass(monkeypatch, tmp_path):
     "scenario,expected",
     [
         ("keyed", "passed"),
+        ("legacy-manual", "passed"),
+        ("legacy-auto", "passed"),
         ("receiver", "blocked"),
         ("cancel", "cleanup_failed"),
         ("busy", "blocked"),
@@ -166,6 +168,24 @@ def test_connected_one_job_runner(tmp_path, scenario, expected):
                 smoke.worker(root, "validate", 30)
         finally:
             audit.write_bytes(original_audit)
+            record.write_bytes(original_record)
+    if scenario == "legacy-auto":
+        context = root / "validation-context.json"
+        original = context.read_bytes()
+        value = loads(original)
+        assert value["prepared"]["atomic_input_capability"] == "unavailable"
+        try:
+            value["prepared"]["calibration_qualification"] = "passed"
+            context.write_text(json.dumps(value))
+            saved = loads(original_record)
+            saved["artifacts"] = [
+                artifact(p) for p in sorted(root.rglob("*")) if p.is_file() and p != record
+            ]
+            record.write_text(json.dumps(saved))
+            with pytest.raises(subprocess.CalledProcessError):
+                smoke.worker(root, "validate", 30)
+        finally:
+            context.write_bytes(original)
             record.write_bytes(original_record)
     if scenario == "cancel":
         try:

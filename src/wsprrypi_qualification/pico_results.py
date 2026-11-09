@@ -223,6 +223,8 @@ def _validate_frame(
     expected_job: dict[str, Any],
     job_ids: set[str],
     capture_ids: set[str],
+    *,
+    purpose: str = "qualification",
 ) -> None:
     mode = expected_job["mode"]
     transaction = _read(directory / "transaction.json")
@@ -236,8 +238,8 @@ def _validate_frame(
     job_ids.add(transaction["job"]["job_id"])
     before = _read(directory / "before.json")
     prepared = _read(directory / "prepared.json")
-    check_admission(plan, before)
-    check_admission(plan, prepared, owned=True)
+    check_admission(plan, before, purpose=purpose)
+    check_admission(plan, prepared, owned=True, purpose=purpose)
     gps_observations = [before["gps"], prepared["gps"]]
     load_bracket: list[dict[str, Any]] = []
     if plan["configuration"]["pico"]["automatic_correction"]:
@@ -250,6 +252,8 @@ def _validate_frame(
         gps_observations,
         job_id=transaction["job"]["job_id"],
         load_bracket=load_bracket,
+        purpose=purpose,
+        owner_id=transaction.get("owner_id"),
     )
     if (
         before["target"] != prepared["target"]

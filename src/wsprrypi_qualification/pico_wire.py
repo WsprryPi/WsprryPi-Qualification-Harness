@@ -131,8 +131,15 @@ def validate_contract(value: dict[str, Any], contract: str, definition: str | No
         raise PicoWireError(f"Invalid Pico {contract} {definition or 'message'} shape")
 
 
-def validate_diagnostic(value: dict[str, Any]) -> None:
-    validate_contract(value, "observation")
+def validate_diagnostic(
+    value: dict[str, Any], *, purpose: str = "qualification", stage: str = "read"
+) -> None:
+    if purpose == "qualification":
+        validate_contract(value, "observation")
+    else:
+        from wsprrypi_qualification.pico_context import validate_diagnostic_context
+
+        validate_diagnostic_context(value, purpose, stage)
 
 
 def crc32c(data: bytes) -> int:
@@ -247,10 +254,13 @@ class WtpClient:
 class ManagementClient:
     """Read-only current Control/1 over UMP1, with mandatory resource ACKs."""
 
-    def __init__(self, stream: ByteStream, device_id: str) -> None:
+    def __init__(
+        self, stream: ByteStream, device_id: str, *, purpose: str = "qualification"
+    ) -> None:
         if not _identifier(device_id):
             raise PicoWireError("Explicit Pico device identity must be 32 lowercase hex characters")
         self.stream, self.device_id = stream, device_id
+        self.validation_purpose = purpose
         self.sequence = 0
         self.hello: dict[str, Any] | None = None
         self.etags: dict[str, str] = {}
@@ -347,7 +357,9 @@ class ManagementClient:
             raise PicoWireError("Required Pico resource unavailable: " + resource)
         value = loads(response["body"])
         if definition == "diagnostic":
-            validate_diagnostic(value)
+            if value.get("schema") != resource:
+                raise PicoWireError("Diagnostic response does not match the requested resource")
+            validate_diagnostic(value, purpose=self.validation_purpose)
         else:
             validate_contract(value, "control", definition)
             if value.get("contract") != "Wsprry-Control/1":

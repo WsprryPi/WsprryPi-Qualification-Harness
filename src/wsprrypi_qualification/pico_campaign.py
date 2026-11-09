@@ -311,7 +311,13 @@ def validate_pico_plan(plan: dict[str, Any]) -> None:
             raise PicoWireError("Compiled Pico job differs from the independent mode reference")
 
 
-def check_admission(plan: dict[str, Any], snapshot: dict[str, Any], *, owned: bool = False) -> None:
+def check_admission(
+    plan: dict[str, Any],
+    snapshot: dict[str, Any],
+    *,
+    owned: bool = False,
+    purpose: str = "qualification",
+) -> None:
     """Validate all resource shapes before access; never writes or acquires ownership."""
     validate_document(plan, "pico-campaign-plan.schema.json")
     validate_configuration(plan["configuration"])
@@ -337,7 +343,11 @@ def check_admission(plan: dict[str, Any], snapshot: dict[str, Any], *, owned: bo
         if snapshot[key].get("contract") != "Wsprry-Control/1":
             raise PicoWireError("Snapshot resource omitted its current contract")
     for key in ("ntp-observations", "rf-calibration", "message-schedule"):
-        validate_diagnostic(snapshot[key])
+        if snapshot[key].get("schema") != key:
+            raise PicoWireError("Snapshot diagnostic resource identity differs")
+        validate_diagnostic(
+            snapshot[key], purpose=purpose, stage="prepared" if owned else "admission"
+        )
     expected = plan["configuration"]["pico"]
     target = snapshot["target"]
     validate_contract(target, "control", "application/$defs/target")
@@ -604,10 +614,14 @@ def check_prepared_correction(
     *,
     job_id: str,
     load_bracket: list[dict[str, Any]],
+    purpose: str = "qualification",
+    owner_id: str | None = None,
 ) -> None:
-    """Validate the atomic job input; live GPS reads may skip its generation."""
+    """Validate purpose-specific job evidence; GPS reads may skip its generation."""
     diagnostic = prepared["rf-calibration"]
-    validate_contract(diagnostic, "rf-calibration")
+    if diagnostic.get("schema") != "rf-calibration":
+        raise PicoWireError("Prepared correction diagnostic resource identity differs")
+    validate_diagnostic(diagnostic, purpose=purpose, stage="prepared")
     if diagnostic["target"] != prepared["target"]:
         raise PicoWireError("Frozen correction target differs from prepared job")
     selection = diagnostic["selection"]
@@ -620,7 +634,56 @@ def check_prepared_correction(
         raise PicoWireError("Prepared correction provenance missing")
     manual = plan["configuration"]["pico"]["manual_correction_ppb"]
     expected = manual
-    frozen = selection["prepared_input"]
+    if purpose == "governance":
+        status = prepared["status"]["job"]
+        if (
+            status["job_id"] != job_id
+            or owner_id is None
+            or status["owner_id"] != owner_id
+            or status["boot_id"] != prepared["target"]["boot_id"]
+            or status["state"] != "loaded"
+            or status["output_active"]
+        ):
+            raise PicoWireError(
+                "Prepared governance evidence is not bound to the accepted inactive job"
+            )
+        if selection["prepared_ppb"] is None:
+            raise PicoWireError("Prepared governance correction is missing")
+        if "prepared_input" not in selection and automatic:
+            # Corroborate the legacy summary without inventing atomic provenance.
+            # Intervening GPS generations may be skipped by separate reads.
+            if len(load_bracket) != 2:
+                raise PicoWireError("Governance correction requires both LOAD bracket observations")
+            key = (
+                "synthesizer_calibration"
+                if plan["configuration"]["pico"]["engine"] == "si5351"
+                else "timer_calibration"
+            )
+            generations = []
+            for observation in load_bracket:
+                validate_contract(observation, "control", "gps")
+                if observation["target"] != prepared["target"] or observation["runtime"] is None:
+                    raise PicoWireError("Governance LOAD bracket target or GPS runtime differs")
+                estimate = observation["runtime"][key]
+                if estimate is None:
+                    raise PicoWireError("Governance LOAD bracket lacks calibration input")
+                generations.append(int(estimate["generation"]))
+                if estimate["generation"] == selection["prepared_generation"]:
+                    product = estimate["oscillator_error_ppb"] * manual
+                    residual = (
+                        (abs(product) + 500_000_000) // 1_000_000_000 * (-1 if product < 0 else 1)
+                    )
+                    if (
+                        selection["prepared_ppb"]
+                        != estimate["oscillator_error_ppb"] + manual + residual
+                    ):
+                        raise PicoWireError(
+                            "Governance correction contradicts a retained LOAD observation"
+                        )
+            if not generations[0] <= int(selection["prepared_generation"]) <= generations[1]:
+                raise PicoWireError("Governance correction generation is outside the LOAD bracket")
+            return
+    frozen = selection.get("prepared_input")
     if automatic:
         if (
             frozen is None
