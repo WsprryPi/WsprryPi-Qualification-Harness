@@ -504,6 +504,13 @@ def test_vendored_contracts_match_candidate():
         assert (root / "schemas" / f"pico-{name}.schema.json").read_bytes() == (
             Path(source) / "engineering/protocol" / f"{name}-1.schema.json"
         ).read_bytes()
+    for name, filename in (
+        ("network-diagnostics", "network-diagnostics"),
+        ("rf-calibration", "rf-calibration-diagnostics"),
+    ):
+        assert (root / "schemas" / f"pico-{name}.schema.json").read_bytes() == (
+            Path(source) / "engineering/protocol" / f"{filename}.schema.json"
+        ).read_bytes()
 
 
 def test_production_encoder_all_modes():

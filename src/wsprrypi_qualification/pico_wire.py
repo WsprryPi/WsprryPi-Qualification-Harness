@@ -105,7 +105,7 @@ def _validator(contract: str, definition: str | None) -> Any:
         type_checker=checker,
     )
     registry = Registry()
-    for name in ("control", "wtp", "observation", "network-diagnostics"):
+    for name in ("control", "wtp", "observation", "network-diagnostics", "rf-calibration"):
         filename = f"pico-{name}.schema.json"
         resource_schema = loads(
             files("wsprrypi_qualification.schemas").joinpath(filename).read_bytes()

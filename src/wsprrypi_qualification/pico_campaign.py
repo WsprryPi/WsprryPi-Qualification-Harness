@@ -146,6 +146,12 @@ def compose_pico_campaign(
         "wsprrypi_qualification.schemas"
     ).joinpath("pico-network-diagnostics.schema.json").read_bytes():
         raise PicoWireError("Selected Pico network diagnostics differ from the Harness contract")
+    if (
+        source / "engineering/protocol/rf-calibration-diagnostics.schema.json"
+    ).read_bytes() != files("wsprrypi_qualification.schemas").joinpath(
+        "pico-rf-calibration.schema.json"
+    ).read_bytes():
+        raise PicoWireError("Selected Pico RF diagnostics differ from the Harness contract")
     installer = artifact(source / "scripts/usb_installer.py")
     encoders: list[dict[str, Any]] | None = None
     cal = config["receiver_calibration"]
@@ -595,42 +601,93 @@ def check_prepared_correction(
     plan: dict[str, Any],
     prepared: dict[str, Any],
     gps_observations: list[dict[str, Any]],
+    *,
+    job_id: str,
+    load_bracket: list[dict[str, Any]],
 ) -> None:
-    """Match the frozen correction to an exact retained current-contract input."""
-    selection = prepared["rf-calibration"]["selection"]
+    """Validate the atomic job input; live GPS reads may skip its generation."""
+    diagnostic = prepared["rf-calibration"]
+    validate_contract(diagnostic, "rf-calibration")
+    if diagnostic["target"] != prepared["target"]:
+        raise PicoWireError("Frozen correction target differs from prepared job")
+    selection = diagnostic["selection"]
     automatic = plan["configuration"]["pico"]["automatic_correction"]
-    source = "gps" if automatic else "manual"
     if (
         selection is None
-        or selection["prepared_source"] != source
+        or selection["prepared_source"] != ("gps" if automatic else "manual")
         or selection["prepared_generation"] is None
     ):
         raise PicoWireError("Prepared correction provenance missing")
     manual = plan["configuration"]["pico"]["manual_correction_ppb"]
     expected = manual
+    frozen = selection["prepared_input"]
     if automatic:
+        if (
+            frozen is None
+            or frozen["job_id"] != job_id
+            or frozen["generation"] != selection["prepared_generation"]
+            or frozen["manual_correction_ppb"] != manual
+        ):
+            raise PicoWireError("Frozen correction input is not bound to the accepted job")
+        gps = prepared["gps"]
+        validate_contract(gps, "control", "gps")
+        if gps["target"] != prepared["target"] or gps["boot_active"] is None:
+            raise PicoWireError("Frozen correction lacks the bound active GPS policy")
+        age = int(frozen["selected_raw_ns"]) - int(frozen["observed_raw_ns"])
+        maximum_age = gps["boot_active"]["calibration_maximum_age_s"] * 1_000_000_000
+        hour = 3_600_000_000_000
+        uncertainty = frozen["uncertainty_ppb"] + (max(0, age) * 50_000 + hour - 1) // hour
+        if (
+            not 10_000_000_000 <= int(frozen["span_ns"]) <= 60_000_000_000
+            or not 0 <= age <= maximum_age
+            or uncertainty > 100_001
+        ):
+            raise PicoWireError("Frozen correction input was stale or invalid at selection")
         key = (
             "synthesizer_calibration"
             if plan["configuration"]["pico"]["engine"] == "si5351"
             else "timer_calibration"
         )
-        matched = []
-        for observation in gps_observations:
+        estimates = []
+        for observation in [*load_bracket, *gps_observations]:
             validate_contract(observation, "control", "gps")
             if observation["target"] != prepared["target"]:
                 raise PicoWireError("Correction observation target differs from prepared job")
             runtime = observation["runtime"]
             estimate = runtime[key] if runtime is not None else None
-            if estimate is not None and estimate["generation"] == selection["prepared_generation"]:
-                if not estimate["fresh"]:
-                    raise PicoWireError("Frozen correction observation is stale")
-                matched.append(estimate["oscillator_error_ppb"])
-        if not matched or len(set(matched)) != 1:
-            raise PicoWireError(
-                "Frozen correction generation lacks a consistent retained observation"
-            )
-        product = matched[0] * manual
+            if estimate is None:
+                raise PicoWireError("Correction observation lacks a calibration input")
+            estimates.append(estimate)
+            if estimate["generation"] == frozen["generation"]:
+                observed_age = int(estimate["age_ns"])
+                aged_bound = frozen["uncertainty_ppb"] + (observed_age * 50_000 + hour - 1) // hour
+                if (
+                    any(
+                        estimate[name] != frozen[name]
+                        for name in ("oscillator_error_ppb", "observed_raw_ns", "span_ns")
+                    )
+                    or estimate["uncertainty_ppb"] != aged_bound
+                ):
+                    raise PicoWireError("Frozen correction conflicts with a retained observation")
+        if len(load_bracket) != 2:
+            raise PicoWireError("Frozen correction requires both LOAD bracket observations")
+        before, after = estimates[:2]
+        if not (
+            int(before["generation"]) <= int(frozen["generation"]) <= int(after["generation"])
+            and int(before["observed_raw_ns"])
+            <= int(frozen["observed_raw_ns"])
+            <= int(after["observed_raw_ns"])
+            and int(before["observed_raw_ns"])
+            <= int(frozen["selected_raw_ns"])
+            <= int(after["observed_raw_ns"]) + int(after["age_ns"])
+        ):
+            raise PicoWireError("Frozen correction input is outside the retained LOAD bracket")
+        product = frozen["oscillator_error_ppb"] * manual
         residual = (abs(product) + 500_000_000) // 1_000_000_000 * (-1 if product < 0 else 1)
-        expected = matched[0] + manual + residual
+        expected = frozen["oscillator_error_ppb"] + manual + residual
+        if abs(expected) > 100_000:
+            raise PicoWireError("Frozen correction exceeds the supported correction limit")
+    elif frozen is not None:
+        raise PicoWireError("Manual correction unexpectedly carries an automatic input")
     if selection["prepared_ppb"] != expected:
         raise PicoWireError("Frozen job correction differs from retained inputs")

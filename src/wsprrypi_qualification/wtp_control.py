@@ -126,6 +126,7 @@ def run_transaction(
     maximum_arm_ahead_ns: int = 9_000_000_000,
     before_cleanup: Callable[[], None] = lambda: None,
     before_load: Callable[[], None] = lambda: None,
+    after_load: Callable[[str], None] = lambda _job_id: None,
     select_start_utc_ns: Callable[[], int] | None = None,
 ) -> dict[str, Any]:
     """Load one complete job, arm locally, and require matching terminal evidence.
@@ -189,6 +190,7 @@ def run_transaction(
             or record["load"].get("state") != "loaded"
         ):
             raise ValueError("LOAD acknowledgment does not match the submitted job")
+        after_load(value["job_id"])
         record["sync"] = before_arm()
         if select_start_utc_ns is not None:
             # Select once, after all preparation; never replay LOAD or ARM.

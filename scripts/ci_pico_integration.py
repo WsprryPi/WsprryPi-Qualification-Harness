@@ -77,6 +77,7 @@ def main() -> None:
                 "--target",
                 "endpoint_driver",
                 "usb_management_driver",
+                "frequency_policy_tests",
                 "--parallel",
                 "2",
             ]

@@ -239,11 +239,18 @@ def _validate_frame(
     check_admission(plan, before)
     check_admission(plan, prepared, owned=True)
     gps_observations = [before["gps"], prepared["gps"]]
+    load_bracket: list[dict[str, Any]] = []
     if plan["configuration"]["pico"]["automatic_correction"]:
-        gps_observations.extend(
+        load_bracket.extend(
             _read(directory / name) for name in ("load-gps-before.json", "load-gps-after.json")
         )
-    check_prepared_correction(plan, prepared, gps_observations)
+    check_prepared_correction(
+        plan,
+        prepared,
+        gps_observations,
+        job_id=transaction["job"]["job_id"],
+        load_bracket=load_bracket,
+    )
     if (
         before["target"] != prepared["target"]
         or transaction["hello"]["boot_id"] != before["target"]["boot_id"]
