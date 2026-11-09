@@ -11,7 +11,7 @@ on:
       pico_ref:
         description: Exact candidate Pico commit (40 lowercase hex characters)
         type: string
-        default: 27fc5a3adb3fc474fbb7c10fa9728d4507bb8811
+        default: abfabb08d6435468e6d33beec0b729181527b602
 
 permissions:
   contents: read
@@ -21,7 +21,7 @@ defaults:
     working-directory: harness
 
 env:
-  WSPQ_PICO_REQUESTED_REF: ${{ inputs.pico_ref || '27fc5a3adb3fc474fbb7c10fa9728d4507bb8811' }}
+  WSPQ_PICO_REQUESTED_REF: ${{ inputs.pico_ref || 'abfabb08d6435468e6d33beec0b729181527b602' }}
 
 jobs:
   quality:
