@@ -87,6 +87,7 @@ def run(peer, **kwargs):
         before_arm=lambda: {},
         receiver_ready=lambda: None,
         verify_inactive=kwargs.get("idle", lambda: dict(output_active=False)),
+        after_load=kwargs.get("after_load", lambda _job_id: None),
         before_load=kwargs.get("before_load", lambda: None),
         select_start_utc_ns=kwargs.get("select_start_utc_ns"),
     )
@@ -463,3 +464,20 @@ def test_selected_start_refuses_invalid_or_out_of_window_values(selected_start):
     assert caught.value.evidence["cleanup_verified"]
     assert peer.calls.count("LOAD") == 1
     assert "ARM" not in peer.calls and peer.owner is None
+
+
+def test_after_load_binds_accepted_job_and_failure_aborts_before_arm():
+    peer = Peer()
+    observed = []
+    result = run(peer, after_load=observed.append)
+    assert observed == [result["job"]["job_id"]]
+    peer = Peer()
+
+    def reject(job_id):
+        assert job_id == peer.job["job_id"]
+        raise ValueError("frozen input rejected")
+
+    with pytest.raises(WtpControlError):
+        run(peer, after_load=reject)
+    assert "ARM" not in peer.calls
+    assert "ABORT" in peer.calls and "RELEASE" in peer.calls

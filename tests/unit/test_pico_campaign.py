@@ -268,6 +268,7 @@ def make_snapshot(engine="pio-dma-gp2", gps=False, automatic=False):
         prepared_ppb=None,
         prepared_source=None,
         prepared_generation=None,
+        prepared_input=None,
     )
     value["rf-calibration"].update(
         saved=dict(manual_ppm="0.000", mode="manual"), selection=selection, execution_engine=engine
@@ -599,6 +600,7 @@ def test_stale_compiler_inputs_are_refused_before_live_access(tmp_path):
         "engineering/protocol/control-1.schema.json",
         "engineering/protocol/wtp-1.schema.json",
         "engineering/protocol/network-diagnostics.schema.json",
+        "engineering/protocol/rf-calibration-diagnostics.schema.json",
         "scripts/usb_installer.py",
     ):
         destination = candidate / name
@@ -758,62 +760,159 @@ def test_pico_produced_capture_metadata_is_accepted_by_acquired_replay(
     )
 
 
-@pytest.mark.parametrize("engine", ["pio-dma-gp2", "si5351"])
-@pytest.mark.parametrize("frozen_side", ["before", "after"])
-def test_frozen_correction_uses_load_bracket_when_general_snapshots_advance(engine, frozen_side):
-    from wsprrypi_qualification.pico_campaign import check_prepared_correction
-
+def frozen_input_case(engine="pio-dma-gp2"):
     plan = make_plan(configuration(engine, True, True))
-    before = make_snapshot(engine, True, True)
-    prepared = copy.deepcopy(before)
+    prepared = make_snapshot(engine, True, True)
     key = "timer_calibration" if engine == "pio-dma-gp2" else "synthesizer_calibration"
-    bracket = [copy.deepcopy(before["gps"]) for _ in range(2)]
-    for document, generation, error in (
-        (before["gps"], "10", 1),
-        (bracket[0], "20", 17),
-        (bracket[1], "21", 19),
-        (prepared["gps"], "22", 23),
+    bracket = [copy.deepcopy(prepared["gps"]) for _ in range(2)]
+    for document, generation, error, observed, span in (
+        (bracket[0], "228", 182, "377000000000", "54000000000"),
+        (bracket[1], "233", 218, "382000000000", "59000000000"),
+        (prepared["gps"], "234", 195, "383000000000", "60000000000"),
     ):
-        document["runtime"][key].update(generation=generation, oscillator_error_ppb=error)
-    generation, error = ("20", 17) if frozen_side == "before" else ("21", 19)
-    prepared["rf-calibration"]["selection"].update(
-        prepared_source="gps", prepared_generation=generation, prepared_ppb=error
-    )
-    with pytest.raises(PicoWireError, match="consistent retained observation"):
-        check_prepared_correction(plan, prepared, [before["gps"], prepared["gps"]])
-    check_prepared_correction(plan, prepared, [before["gps"], *bracket, prepared["gps"]])
-
-
-@pytest.mark.parametrize("mutation", ["generation", "ppb", "target", "shape", "stale", "conflict"])
-def test_frozen_correction_rejects_missing_conflicting_or_malformed_inputs(mutation):
-    from wsprrypi_qualification.pico_campaign import check_prepared_correction
-
-    plan = make_plan(configuration("pio-dma-gp2", True, True))
-    prepared = make_snapshot("pio-dma-gp2", True, True)
-    gps = copy.deepcopy(prepared["gps"])
-    estimate = gps["runtime"]["timer_calibration"]
+        document["runtime"][key].update(
+            generation=generation,
+            oscillator_error_ppb=error,
+            observed_raw_ns=observed,
+            span_ns=span,
+            uncertainty_ppb=7014,
+        )
     prepared["rf-calibration"]["selection"].update(
         prepared_source="gps",
-        prepared_generation=estimate["generation"],
-        prepared_ppb=estimate["oscillator_error_ppb"],
+        prepared_generation="230",
+        prepared_ppb=200,
+        prepared_input=dict(
+            job_id="a" * 32,
+            manual_correction_ppb=0,
+            oscillator_error_ppb=200,
+            uncertainty_ppb=7000,
+            observed_raw_ns="379000000000",
+            span_ns="56000000000",
+            generation="230",
+            selected_raw_ns="380000000000",
+        ),
     )
-    observations = [gps]
-    if mutation == "generation":
-        estimate["generation"] = "987654"
+    return plan, prepared, bracket, key
+
+
+def verify_frozen(plan, prepared, bracket, observations=None):
+    from wsprrypi_qualification.pico_campaign import check_prepared_correction
+
+    check_prepared_correction(
+        plan,
+        prepared,
+        [prepared["gps"]] if observations is None else observations,
+        job_id="a" * 32,
+        load_bracket=bracket,
+    )
+
+
+@pytest.mark.parametrize("engine", ["pio-dma-gp2", "si5351"])
+def test_frozen_input_does_not_require_polling_intervening_generation(engine):
+    plan, prepared, bracket, _ = frozen_input_case(engine)
+    verify_frozen(plan, prepared, bracket)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing",
+        "extra",
+        "job",
+        "generation",
+        "manual",
+        "ppb",
+        "target",
+        "shape",
+        "stale",
+        "future",
+        "span",
+        "uncertainty",
+        "bound_growth",
+        "overflow",
+        "boolean",
+        "before_generation",
+        "after_generation",
+        "missing_bracket",
+        "conflict",
+    ],
+)
+def test_frozen_correction_rejects_unbound_stale_or_conflicting_inputs(mutation):
+    plan, prepared, bracket, key = frozen_input_case()
+    selection = prepared["rf-calibration"]["selection"]
+    frozen = selection["prepared_input"]
+    observations = [prepared["gps"]]
+    if mutation == "missing":
+        del selection["prepared_input"]
+    elif mutation == "extra":
+        frozen["unknown"] = 1
+    elif mutation == "job":
+        frozen["job_id"] = "f" * 32
+    elif mutation == "generation":
+        frozen["generation"] = "229"
+    elif mutation == "manual":
+        frozen["manual_correction_ppb"] = 1
     elif mutation == "ppb":
-        prepared["rf-calibration"]["selection"]["prepared_ppb"] += 1
+        selection["prepared_ppb"] += 1
     elif mutation == "target":
-        gps["target"]["boot_id"] = "f" * 32
+        bracket[0]["target"]["boot_id"] = "f" * 32
     elif mutation == "shape":
-        gps["unknown"] = True
+        bracket[0]["unknown"] = True
     elif mutation == "stale":
-        estimate["fresh"] = False
+        frozen["selected_raw_ns"] = "4000000000000"
+    elif mutation == "future":
+        frozen["observed_raw_ns"] = "381000000000"
+    elif mutation == "span":
+        frozen["span_ns"] = "9000000000"
+    elif mutation == "uncertainty":
+        frozen["uncertainty_ppb"] = 0
+    elif mutation == "bound_growth":
+        frozen["uncertainty_ppb"] = 100001
+    elif mutation == "overflow":
+        frozen["selected_raw_ns"] = str(2**64)
+    elif mutation == "boolean":
+        frozen["manual_correction_ppb"] = False
+    elif mutation == "before_generation":
+        bracket[0]["runtime"][key]["generation"] = "231"
+    elif mutation == "after_generation":
+        bracket[1]["runtime"][key]["generation"] = "229"
+    elif mutation == "missing_bracket":
+        bracket.pop()
     else:
-        changed = copy.deepcopy(gps)
-        changed["runtime"]["timer_calibration"]["oscillator_error_ppb"] += 1
+        changed = copy.deepcopy(bracket[0])
+        changed["runtime"][key].update(
+            {
+                name: frozen[name]
+                for name in ("generation", "oscillator_error_ppb", "observed_raw_ns", "span_ns")
+            }
+        )
+        changed["runtime"][key]["oscillator_error_ppb"] += 1
         observations.append(changed)
     with pytest.raises((PicoWireError, ValueError)):
-        check_prepared_correction(plan, prepared, observations)
+        verify_frozen(plan, prepared, bracket, observations)
+
+
+@pytest.mark.parametrize("mutation", [None, "error", "bound"])
+def test_matching_retained_generation_corroborates_atomic_input(mutation):
+    plan, prepared, bracket, key = frozen_input_case()
+    frozen = prepared["rf-calibration"]["selection"]["prepared_input"]
+    estimate = bracket[0]["runtime"][key]
+    estimate.update(
+        {
+            name: frozen[name]
+            for name in ("generation", "oscillator_error_ppb", "observed_raw_ns", "span_ns")
+        }
+    )
+    estimate["uncertainty_ppb"] = 7014
+    if mutation == "error":
+        estimate["oscillator_error_ppb"] += 1
+    elif mutation == "bound":
+        estimate["uncertainty_ppb"] += 1
+    if mutation is None:
+        verify_frozen(plan, prepared, bracket)
+    else:
+        with pytest.raises(PicoWireError, match="conflicts"):
+            verify_frozen(plan, prepared, bracket)
 
 
 @pytest.mark.parametrize("never_matches", [False, True])
@@ -850,20 +949,15 @@ def test_snapshot_reads_bounded_matching_gps_pair_without_weakening_admission(ne
 
 
 @pytest.mark.parametrize(
-    "manual,learned,expected", [(1_000_000, 500, 1_000_501), (-1_000_000, 500, -999_501)]
+    "manual,learned,expected", [(50000, 10000, 60001), (-50000, 10000, -40001)]
 )
 def test_frozen_correction_preserves_signed_residual_rounding(manual, learned, expected):
-    from wsprrypi_qualification.pico_campaign import check_prepared_correction
-
-    plan = make_plan(configuration("pio-dma-gp2", True, True))
+    plan, prepared, bracket, _ = frozen_input_case()
     plan["configuration"]["pico"]["manual_correction_ppb"] = manual
-    prepared = make_snapshot("pio-dma-gp2", True, True)
-    estimate = prepared["gps"]["runtime"]["timer_calibration"]
-    estimate["oscillator_error_ppb"] = learned
-    prepared["rf-calibration"]["selection"].update(
-        prepared_source="gps", prepared_generation=estimate["generation"], prepared_ppb=expected
-    )
-    check_prepared_correction(plan, prepared, [prepared["gps"]])
+    selection = prepared["rf-calibration"]["selection"]
+    selection["prepared_input"].update(manual_correction_ppb=manual, oscillator_error_ppb=learned)
+    selection["prepared_ppb"] = expected
+    verify_frozen(plan, prepared, bracket)
 
 
 @pytest.mark.parametrize("defect", ["pairing", "stale", "missing_pps", "missing_time"])
@@ -931,3 +1025,34 @@ def test_non_wspr_uses_full_requested_utc_second(gps_enabled, fraction_ns):
     exclusive_deadline = start + (1_000_000_000 - start % 1_000_000_000)
     assert exclusive_deadline - start == 1_000_000_000
     assert start + 7_926_243 < exclusive_deadline
+
+
+def test_production_usb_frozen_correction_input():
+    import subprocess
+
+    from wsprrypi_qualification.pico_campaign import check_prepared_correction
+    from wsprrypi_qualification.pico_wire import validate_diagnostic
+
+    build = os.environ.get("WSPQ_PICO_TEST_BUILD")
+    if build is None:
+        pytest.skip("Production Pico fixture requires explicit selected source build")
+    response = subprocess.run(
+        [str(Path(build) / "frequency_policy_tests"), "--frozen-input-fixture"],
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )
+    diagnostic = json.loads(response.stdout)
+    validate_diagnostic(diagnostic)
+    plan, prepared, bracket, _ = frozen_input_case()
+    prepared["rf-calibration"] = diagnostic
+    prepared["target"] = diagnostic["target"]
+    for document in [prepared["gps"], *bracket]:
+        document["target"] = diagnostic["target"]
+    check_prepared_correction(
+        plan,
+        prepared,
+        [prepared["gps"]],
+        job_id=diagnostic["selection"]["prepared_input"]["job_id"],
+        load_bracket=bracket,
+    )

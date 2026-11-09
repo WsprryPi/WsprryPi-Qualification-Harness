@@ -560,6 +560,12 @@ class PicoLiveAdapter:
 
             load_gps: list[dict[str, Any]] = []
 
+            loaded_job_id = ""
+
+            def after_load(job_id: str) -> None:
+                nonlocal loaded_job_id
+                loaded_job_id = job_id
+
             def before_load() -> None:
                 if self.plan["configuration"]["pico"]["automatic_correction"]:
                     value = self.management.get("gps", "gps")
@@ -578,11 +584,15 @@ class PicoLiveAdapter:
                     # only the general snapshot until the bounded ARM window.
                     _wait_for_arm_preparation(start_ns, ready, self.cancel)
                 value = self.snapshot()
+                write_json_new(directory / "prepared.json", value)
                 check_admission(self.plan, value, owned=True)
                 check_prepared_correction(
-                    self.plan, value, [snapshot["gps"], *load_gps, value["gps"]]
+                    self.plan,
+                    value,
+                    [snapshot["gps"], value["gps"]],
+                    job_id=loaded_job_id,
+                    load_bracket=load_gps,
                 )
-                write_json_new(directory / "prepared.json", value)
                 return dict(value["ntp-observations"])
 
             self.jobs_attempted = True
@@ -602,6 +612,7 @@ class PicoLiveAdapter:
                 maximum_arm_ahead_ns=min(9_000_000_000, int(caps["maximum_arm_ahead_ns"])),
                 before_cleanup=self.begin_cleanup,
                 before_load=before_load,
+                after_load=after_load,
                 select_start_utc_ns=(
                     lambda: _prepared_non_wspr_start_ns(job, duration, capture_requested_monotonic)
                 )
