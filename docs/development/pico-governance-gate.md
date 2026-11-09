@@ -1,8 +1,10 @@
 # Pico software governance gate
 
-This development gate exercises one short QRSS job and one WSPR job with its carrier prerequisite through `PicoLiveAdapter.observe`, the real framed WTP client, the selected Pico source's production Endpoint and JobService, production measurement writers, cleanup, and retained observation validation. It does not execute a three-observation campaign or change live qualification policy.
+The original Step 1 development gate exercises one short QRSS job and one WSPR job with its carrier prerequisite through `PicoLiveAdapter.observe`, the real framed WTP client, the selected Pico source's production Endpoint and JobService, production measurement writers, cleanup, and retained observation validation. It does not execute a three-observation campaign or change live qualification policy.
 
 The intended question is whether the harness can govern a bounded test and report its outcome. Firmware transmission correctness, physical USB, real SDR acquisition, RF timing, calibration, spectra, and the configuration matrix remain outside this gate.
+
+The separate `--connected-capture` Step 2 below replaces the virtual receiver worker with the production process/capture stack. It selects exactly three cases and does not run WSPR. The following baseline sections describe Step 1 unless explicitly stated otherwise.
 
 ## Run
 
@@ -54,3 +56,35 @@ The gate exposed a shared capture-validation defect: phase timestamps were check
 The bounded adversarial review checked production-path bypasses, signal independence from requested plans, missing ARM/collection/cleanup, shared producer/validator assumptions, rehashed contradictions, nonqualifying publication, inherited physical-access configuration, assertion cleanup, and simulated time. Its correction pass bound fixture/compiler source identity and made individual diagnostic slices fail on retained-validation errors. The gate does not establish correctness of controller-loss recovery, every deadline race, or every Pi/Pico lifecycle distinction.
 
 Local acceptance covered all 1,974 Python tests across the full run and a targeted rerun, lint/format, typing, distribution build, two native capture CTests, and three selected Pico endpoint/management/frequency-policy tests. The first full run used a temporary root containing spaces: 1,946 passed and 28 existing Pi adapter-composition tests refused their helper/configuration paths. Those 28 passed under their supported temporary-path setup. The existing Pi helper-path restriction was not changed; the Pico governance gate independently passed with spaces in its output path. Compilation emitted conversion warnings from the read-only Pico source. These results describe the development Mac only.
+
+
+## Step 2: connected receiver process
+
+Run the same build above with physical Soapy support disabled, then select the connected gate explicitly:
+
+```text
+python scripts/pico_governance_gate.py --source PICO_SOURCE --native BUILD --wsprd ABSOLUTE_WSPRD --output NEW_OUTPUT --connected-capture
+python scripts/pico_governance_gate.py --validate --output NEW_OUTPUT
+```
+
+The compiler and plan composer still bind a `wsprd` artifact, but this gate never executes the decoder or a WSPR job. `--scenario keyed|receiver|cancel` selects an independently validated diagnostic case; `--connected-capture --scenario wspr` is refused. Without `--connected-capture`, the original Step 1 behavior remains available.
+
+The connected path retains `PicoLiveAdapter.observe`, `_capture`, `close`, the framed WTP client, production Endpoint/JobService, `SoapyCaptureCapability`, `LocalTransportLauncher`, `LocalCommandTransport`, a real `ThreadPoolExecutor` and futures, the native `capture_exact` writer, production QRSS analysis, and maintained retained frame/transaction/capture/capability validators. Only USB transport, the inhibited RF engine, management observations, scheduling clocks, and receiver samples are fixtures. This does not exercise the physical Soapy plugin, USB/UMP transport, controller-loss recovery, or complete campaign publication.
+
+The test-only `wspq-capture-connected` executable is built under `WSPQ_BUILD_TESTS`, links the capture writer without SoapySDR, and accepts only the `fixture` driver. Its argument layout intentionally matches the production helper, including the literal `--enable-physical-sdr` argument emitted by the capture capability; that token cannot add a hardware implementation to this fixture. The gate pins this helper explicitly and never falls back to an installed physical capture executable.
+
+The controller supplies little-endian sample chunks rendered from the native JobService execution recorder. The child consumes them through a `SampleSource` and writes the `.incomplete` readiness prefix, final IQ, success/failure metadata, and native cleanup receipt through `capture_exact`. The controller never manufactures those output artifacts. A native acknowledgment is created only after the preceding read has returned through the writer. The next scheduling advance waits for that acknowledgment. ARM records the child-produced prefix size and requires the real capture future to remain pending.
+
+Controller scheduling and capture timestamps use simulated time. Once the production endpoint has processed RELEASE, the capture sample clock advances through the remaining quiet tail without expiring the controller's pending RELEASE acknowledgment. Native reads have five-second wall watchdogs and the fixture source has an eight-second total wall deadline; controller handshakes have five-second limits. An independent eight-second cancellation watchdog surrounds each production capture call, so a stalled child is terminated and reaped by the real launcher; each call must finish within ten seconds and retain its wall-time receipt. Wall-clock process supervision is not patched. The gate rejects an aggregate of more than sixty seconds of handshake waits. These bounds are failure limits, not sleeps to consume; production-length capture and scheduling windows are never waited out.
+
+| Case | Required connected behavior | Retained observation outcome |
+| --- | --- | --- |
+| `keyed` | One short QRSS job; child-produced preamble before ARM; complete execution-derived capture; native cleanup; production analysis and fresh-process validation | `passed` |
+| `receiver` | RF-off acquisition succeeds; asynchronous RF-on source fails before preamble readiness; no CLAIM/ARM or execution; native failure diagnostics retained; partial IQ absent | `blocked` |
+| `cancel` | Capture child exits abruptly only after production JobService reports running with a positive executed interval; native cleanup receipt absent; real launcher reaps child; controller ABORTs and RELEASEs exactly once; partial IQ absent; adapter close refuses success | `cleanup_failed` |
+
+The `cancel` label in this variant names receiver-process loss, not the original Step 1 user-cancellation case. The transaction error remains fixture blockage; the missing receiver cleanup proof takes precedence in the gate's observation summary. A passing negative control means the expected refusal was demonstrated, never that its observation passed or hardware qualified.
+
+Every case retains the production capture capability or failure diagnostic, native metadata where it exists, exact helper identity, child-produced source acknowledgments, WTP requests, execution intervals, transmitter cleanup, worker shutdown, and artifact inventory. The validator binds failure diagnostics to their plan and native receipt, and success capabilities to retained IQ/metadata. New scratch evidence is also tested with missing native metadata and a rehashed forged cleanup-success claim; both must fail in fresh validator processes. Original bytes and inventory are restored in `finally`, followed by final independent validation. The summary reports gate time before its final validation subprocess and separately reports real handshake wait time.
+
+The bounded review checked that the production worker, future, launcher and writer were connected; readiness preceded ARM; failure followed confirmed running work; missing native cleanup proof could not be replaced by a reaped-child receipt; rejected IQ was removed; and the source remained execution-driven. Its correction pass made observation failure precedence explicit and strengthened retained diagnostic/plan/native-file bindings. No production lifecycle change was needed for these three cases. Passing here supports this bounded software-governance path only, not every race, backend, mode, platform, or physical receiver.

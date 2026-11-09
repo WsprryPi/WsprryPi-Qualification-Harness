@@ -358,9 +358,11 @@ def binary_path(native, stem):
     return next(path.resolve(strict=True) for path in candidates if path.is_file())
 
 
-def run_case(source, native, wsprd, root, scenario):
+def run_case(source, native, wsprd, root, scenario, *, connected=False):
+    from tests.support import pico_connected_capture as connection
+
     root.mkdir(parents=True, exist_ok=False)
-    clock = Clock()
+    clock = connection.Clock() if connected else Clock()
     cancel = Cancellation(clock)
     clock.cancel = cancel
     started = time.monotonic()
@@ -368,6 +370,8 @@ def run_case(source, native, wsprd, root, scenario):
     audit = None
     result = None
     caught = None
+    close_error = None
+    worker_joined = False
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(pico_live, "PicoUsb", deny)
         patch.setattr(pico_live, "SoapyCaptureCapability", deny)
@@ -378,7 +382,12 @@ def run_case(source, native, wsprd, root, scenario):
         config["pico_source"] = str(source)
         config["protocol"].update(message="ET", dot_seconds=0.7, tone_seconds=3)
         config["receiver"].update(
-            capture_helper=str(binary_path(native, "wspq-pico-governance")), wsprd=str(wsprd)
+            capture_helper=str(
+                binary_path(
+                    native, "wspq-capture-connected" if connected else "wspq-pico-governance"
+                )
+            ),
+            wsprd=str(wsprd),
         )
         mode = "wspr" if scenario == "wspr" else "qrss"
         plan = compose_pico_campaign(
@@ -386,8 +395,11 @@ def run_case(source, native, wsprd, root, scenario):
         )
         write_json_new(root / "plan.json", plan)
         try:
-            stream = EndpointStream(
-                binary_path(native, "wspq-pico-governance"), root, clock, scenario == "cancel"
+            stream = (connection.EndpointStream if connected else EndpointStream)(
+                binary_path(native, "wspq-pico-governance"),
+                root,
+                clock,
+                scenario == "cancel" and not connected,
             )
             identity = stream.command(dict(action="inspect"))
             expected_inputs = [
@@ -405,7 +417,7 @@ def run_case(source, native, wsprd, root, scenario):
                 raise ValueError("Native fixture and compiler source identities differ")
             write_json_new(root / "fixture-identity.json", identity)
             audit = WireAudit(root / "wtp.jsonl")
-            adapter = object.__new__(Adapter)
+            adapter = object.__new__(connection.Adapter if connected else Adapter)
             adapter.plan, adapter.cancel, adapter.audit = plan, cancel, audit
             adapter._wtp = WtpClient(AuditedStream(stream, audit, "wtp"))
             adapter.wtp.request(
@@ -414,12 +426,15 @@ def run_case(source, native, wsprd, root, scenario):
             adapter.management = SimpleNamespace(hello=dict(target=dict(boot_id="b" * 32)))
             adapter.discovery = dict(firmware="governance-fixture")
             adapter.usb = SimpleNamespace(
-                begin_operations=lambda _: None, begin_cleanup=lambda: None
+                begin_operations=lambda _: None, begin_cleanup=lambda: None, close=lambda: None
             )
-            adapter.capture = Receiver(clock, stream, scenario == "receiver")
-            adapter.pool = VirtualPool(adapter.capture, cancel)
+            if connected:
+                connection.configure(adapter, clock, scenario)
+            else:
+                adapter.capture = Receiver(clock, stream, scenario == "receiver")
+                adapter.pool = VirtualPool(adapter.capture, cancel)
             adapter.tools = {
-                "capture_helper": artifact(binary_path(native, "wspq-pico-governance")),
+                "capture_helper": artifact(Path(config["receiver"]["capture_helper"])),
                 "wsprd": artifact(wsprd),
             }
             write_json_new(root / "controller.json", dict(tools=adapter.tools))
@@ -443,15 +458,23 @@ def run_case(source, native, wsprd, root, scenario):
                 cancel.set()
                 for future in adapter.futures:
                     with contextlib.suppress(Exception):
-                        future.result(timeout=1)
+                        future.result(timeout=5 if connected else 1)
+                if connected:
+                    adapter.pool.shutdown(wait=True, cancel_futures=True)
+                    worker_joined = True
             status = adapter.inactive()
             executions = stream.command(dict(action="inspect"))["executions"]
             write_json_new(root / "executions.json", executions)
             write_json_new(root / "final-status.json", status)
             write_json_new(root / "requests.json", stream.requests)
+            if connected:
+                try:
+                    adapter.close()
+                except Exception as error:
+                    close_error = str(error)
         finally:
             try:
-                if audit is not None:
+                if audit is not None and not audit.file.closed:
                     audit.close()
             finally:
                 cleanup = stream.close() if stream is not None else None
@@ -468,7 +491,27 @@ def run_case(source, native, wsprd, root, scenario):
         simulated_seconds=clock.monotonic(),
         receiver_cleanup_failed=adapter.receiver_cleanup_failed,
     )
-    if scenario == "cancel":
+    if connected:
+        receipt.update(
+            connected_capture=True,
+            close_error=close_error,
+            worker_joined=worker_joined,
+            process_waits=clock.waits,
+            observation_outcome=(
+                "cleanup_failed"
+                if adapter.receiver_cleanup_failed or close_error
+                else result["outcome"]
+                if result
+                else caught["outcome"]
+            ),
+        )
+        receipt["substitutions"] = [
+            s for s in SUBSTITUTIONS if "receiver and acquisition" not in s
+        ] + [
+            "Native sample source supplied from executed JobService intervals; "
+            "real capture worker, launcher and writer"
+        ]
+    if scenario == "cancel" and not connected:
         receipt["supervision"] = exercise_process_cancellation(root)
         receipt["assertion_cleanup"] = exercise_assertion_cleanup(native, root)
     receipt["elapsed_seconds"] = time.monotonic() - started
@@ -478,6 +521,10 @@ def run_case(source, native, wsprd, root, scenario):
 
 
 def validate_case(root):
+    if loads((root / "software-gate.json").read_bytes()).get("connected_capture"):
+        from tests.support.pico_connected_capture import validate_case as validate_connected
+
+        return validate_connected(root)
     receipt = loads((root / "software-gate.json").read_bytes())
     if (
         receipt["qualification_claim"] is not False
@@ -721,6 +768,10 @@ def validate_gate(root):
     if not (root / "gate-summary.json").is_file():
         return validate_case(root)
     summary = loads((root / "gate-summary.json").read_bytes())
+    if summary.get("evidence_type") == "pico_connected_capture_gate":
+        from tests.support.pico_connected_capture import validate_gate as validate_connected_gate
+
+        return validate_connected_gate(root)
     if (
         summary["qualification_claim"] is not False
         or summary["outcome"] != "passed"

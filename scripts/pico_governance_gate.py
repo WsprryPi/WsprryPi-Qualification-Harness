@@ -19,6 +19,11 @@ def main():
     parser.add_argument(
         "--scenario", choices=["all", "keyed", "wspr", "receiver", "cancel"], default="all"
     )
+    parser.add_argument(
+        "--connected-capture",
+        action="store_true",
+        help="Step 2: real capture worker/process/writer; three cases by default",
+    )
     parser.add_argument("--validate", action="store_true")
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -51,8 +56,14 @@ def main():
             args.wsprd.resolve(strict=True),
             output,
         )
+        if args.connected_capture and args.scenario == "wspr":
+            parser.error("Step 2 does not include WSPR")
+        if args.connected_capture:
+            from tests.support.pico_connected_capture import run_gate
         value = (
-            run_gate(*arguments) if args.scenario == "all" else run_case(*arguments, args.scenario)
+            run_gate(*arguments)
+            if args.scenario == "all"
+            else run_case(*arguments, args.scenario, connected=args.connected_capture)
         )
         if args.scenario != "all":
             checked = fresh_validation(output)

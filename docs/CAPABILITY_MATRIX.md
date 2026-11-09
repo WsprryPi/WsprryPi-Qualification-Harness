@@ -43,7 +43,7 @@ See [the guide](development/lifecycle-release.md) for supported profiles and the
 
 | Production entry points | Contracts | Verification |
 | --- | --- | --- |
-| `pico_cli.py`, `pico_campaign.py`, `pico_wire.py`, `pico_serial.py`, `pico_live.py`, `pico_audit.py`, `pico_results.py`, `native/src/pico_compile.cpp` | Pico configuration, plan, result, compiler, byte audit, exact upstream control/WTP, and diagnostic schemas; distinct Pico CW source | `test_pico_campaign.py`, `test_pico_wire.py`, `test_pico_governance.py`, and `scripts/pico_governance_gate.py`: connected nonqualifying governance gate, four rows and correction subcases, production encoders/endpoints/ACKs, lost writes, independent references, ownership refusal, audit faults, and no-effect rehearsal |
+| `pico_cli.py`, `pico_campaign.py`, `pico_wire.py`, `pico_serial.py`, `pico_live.py`, `pico_audit.py`, `pico_results.py`, `native/src/pico_compile.cpp` | Pico configuration, plan, result, compiler, byte audit, exact upstream control/WTP, and diagnostic schemas; distinct Pico CW source | `test_pico_campaign.py`, `test_pico_wire.py`, `test_pico_governance.py`, and `scripts/pico_governance_gate.py`: connected nonqualifying governance gate (including a real capture worker/process/native writer and two receiver-loss boundaries), four rows and correction subcases, production encoders/endpoints/ACKs, lost writes, independent references, ownership refusal, audit faults, and no-effect rehearsal |
 
 Guide: [Pico RF campaigns](development/pico-rf-campaign.md). Portable software
 checks are separate from installed-image, physical USB, timing, and RF evidence.

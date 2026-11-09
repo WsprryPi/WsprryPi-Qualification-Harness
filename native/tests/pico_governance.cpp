@@ -123,6 +123,8 @@ int main() {
     }
     std::cout << "{\"hex\":\"" << hex(output)
               << "\",\"closed\":" << (endpoint.closed() ? "true" : "false")
+              << ",\"running\":"
+              << (service.status().state == State::Running ? "true" : "false")
               << ",\"executions\":[";
     if (action == "inspect") {
       bool first = true;
