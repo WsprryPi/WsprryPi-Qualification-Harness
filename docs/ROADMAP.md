@@ -3,6 +3,17 @@
 This roadmap contains only work that remains. Completed implementation history
 belongs in Git and merged pull requests, not in the active roadmap.
 
+## TODO — Pico acceptance hardening and test duration
+
+**Status: not started; proposal and implementation approval pending**
+
+The [saved execution prompt](development/pico-acceptance-hardening-todo.md)
+defines a bounded, hardware-free acceptance gate, real WTP client/production
+endpoint integration, Pi/Pico lifecycle comparison, adversarial review, and
+test-duration assessment. Saving this TODO does not authorize execution,
+repairs, or hardware access. Establish the assessment budget and obtain approval
+of the concrete implementation proposal before implementing changes.
+
 ## Phase 1 — Universal execution topology
 
 **Status: on hold**
