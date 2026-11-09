@@ -291,12 +291,18 @@ Assess these opportunities before choosing repairs:
 
 #### Simulated time for software scenarios
 
-Exercise scheduling, readiness, timeout, and failure transitions without waiting
-through physical waveform durations or UTC slots.
+Scheduling tests **must use simulated time** for scheduling, readiness, timeout,
+and failure transitions. Advance clocks and completion events instead of waiting
+through production-length waveform durations, UTC slots, lease periods, or
+timeout windows. Do not retain production-length sleeps or wall-clock waits in
+these tests.
 
-Keep separate bounded real-time tests for actual subprocess supervision,
-cancellation, and deadline enforcement. Simulated time must not replace
-verification of real process behavior.
+Only separate **short, bounded real-time tests for process supervision** may
+wait in real time to verify actual subprocess deadlines, cancellation, shutdown,
+and escalation. Use the shortest intervals sufficient to validate those
+mechanisms, with explicit upper bounds and guaranteed worker cleanup. State
+their individual and aggregate runtime bounds in the proposal for approval.
+Simulated time must not replace verification of real process behavior.
 
 Reuse existing production WTP endpoint fixtures' clock-advancement capability
 where appropriate rather than inventing another simulated JobService.
@@ -720,8 +726,9 @@ mutations.
 Test meaningful latency ranges and boundary conditions, not only a single
 measured bench delay.
 
-Use simulated time to accelerate software scheduling scenarios while retaining
-separate bounded tests of real deadlines and process supervision.
+Scheduling tests must use simulated time; they must not wait for
+production-length windows. Retain only short, explicitly bounded real-time
+tests for actual process supervision, as required in section 8.
 
 ### 17. Make cancellation produce trustworthy cleanup evidence
 
