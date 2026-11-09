@@ -864,3 +864,54 @@ def test_frozen_correction_preserves_signed_residual_rounding(manual, learned, e
         prepared_source="gps", prepared_generation=estimate["generation"], prepared_ppb=expected
     )
     check_prepared_correction(plan, prepared, [prepared["gps"]])
+
+
+@pytest.mark.parametrize("defect", ["pairing", "stale", "missing_pps", "missing_time"])
+@pytest.mark.parametrize("recovers", [False, True])
+def test_snapshot_waits_boundedly_for_qualified_gps_without_relaxing_admission(
+    monkeypatch, defect, recovers
+):
+    from wsprrypi_qualification.pico_live import _snapshot
+
+    value = make_snapshot("pio-dma-gp2", True, False)
+    clock = [0.0]
+    monkeypatch.setattr("wsprrypi_qualification.pico_live.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        "wsprrypi_qualification.pico_live.time.sleep",
+        lambda delay: clock.__setitem__(0, clock[0] + delay),
+    )
+
+    class Client:
+        def __init__(self):
+            self.hello = {"target": value["target"]}
+            self.etags = {"config": value["revision"]}
+            self.gps_reads = 0
+
+        def get(self, resource, definition):
+            result = copy.deepcopy(value[resource])
+            if resource == "gps":
+                self.gps_reads += 1
+                if not recovers or clock[0] < 0.75:
+                    runtime = result["runtime"]
+                    if defect == "pairing":
+                        runtime["error"] = "unpaired_utc"
+                    elif defect == "stale":
+                        runtime["age_ns"] = "3000000001"
+                    elif defect == "missing_pps":
+                        runtime["pps_present"] = False
+                    else:
+                        runtime["time_valid"] = False
+            return result
+
+    client = Client()
+    observed = _snapshot(client)
+    assert client.gps_reads > 1
+    assert clock[0] <= 2.001
+    plan = make_plan(configuration("pio-dma-gp2", True, False))
+    if recovers:
+        assert 0.75 <= clock[0] < 2
+        check_admission(plan, observed)
+    else:
+        assert clock[0] == pytest.approx(2)
+        with pytest.raises(PicoWireError, match="GPS"):
+            check_admission(plan, observed)
