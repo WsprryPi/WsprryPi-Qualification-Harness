@@ -501,8 +501,10 @@ def test_required_receiver_service_restoration_failure_fails_cleanup() -> None:
     assert rx.running is True
 
 
+@pytest.mark.parametrize("preparation_delay", [0.0, 0.65])
 def test_keyed_capture_is_ready_before_process_is_armed(
     tmp_path: Path,
+    preparation_delay: float,
 ) -> None:
     from tests.unit.test_cw_contracts import _chain
 
@@ -594,6 +596,7 @@ def test_keyed_capture_is_ready_before_process_is_armed(
             assert arguments
             assert calls == []
             prepared_arguments.append(arguments)
+            time.sleep(preparation_delay)
             calls.append("process_prepared")
             return FakeProcess()
 
@@ -611,23 +614,50 @@ def test_keyed_capture_is_ready_before_process_is_armed(
     providers.analysis_evidence = {}
     providers.capture_diagnostics = {}
     providers.capture_tasks = {}
-    started = time.monotonic()
-    assert providers.start_process(("wsprrypi",), 1) == "process-1"
-    assert time.monotonic() - started < 0.5
-    assert calls == ["process_prepared", "capture_ready", "process_armed"]
-    option_index = prepared_arguments[0].index("--rp1-development-confirmation-json")
-    confirmation = json.loads(prepared_arguments[0][option_index + 1])
-    assert confirmation == {
-        "attenuation_and_load_confirmed": True,
-        "bounded_operation_confirmed": True,
-        "enabled": True,
-        "experimental_status_acknowledged": True,
-        "non_radiating_topology_confirmed": True,
-        "operation_id": "keyed-session-001-operation-1",
-        "physical_connection_confirmed": True,
-        "route": "GPIO4",
-    }
-    release.set()
+    returned = threading.Event()
+    handles = []
+    failures = []
+
+    def start():
+        try:
+            handles.append(providers.start_process(("wsprrypi",), 1))
+        except BaseException as error:
+            failures.append(error)
+        finally:
+            returned.set()
+
+    starter = threading.Thread(target=start, daemon=True)
+    starter.start()
+    try:
+        assert returned.wait(5), "start_process waited for capture completion"
+        if failures:
+            raise failures[0]
+        assert handles == ["process-1"]
+        assert not release.is_set()
+        assert providers.capture_tasks[1][0].is_alive()
+        assert calls == ["process_prepared", "capture_ready", "process_armed"]
+        option_index = prepared_arguments[0].index("--rp1-development-confirmation-json")
+        confirmation = json.loads(prepared_arguments[0][option_index + 1])
+        assert confirmation == {
+            "attenuation_and_load_confirmed": True,
+            "bounded_operation_confirmed": True,
+            "enabled": True,
+            "experimental_status_acknowledged": True,
+            "non_radiating_topology_confirmed": True,
+            "operation_id": "keyed-session-001-operation-1",
+            "physical_connection_confirmed": True,
+            "route": "GPIO4",
+        }
+    finally:
+        release.set()
+        starter.join(5)
+        for worker, cancellation, _, _ in providers.capture_tasks.values():
+            worker.join(5)
+            if worker.is_alive():
+                cancellation.set()
+                worker.join(5)
+        assert not starter.is_alive()
+        assert all(not task[0].is_alive() for task in providers.capture_tasks.values())
     assert providers.capture(resolved, 1) is not None
 
 
