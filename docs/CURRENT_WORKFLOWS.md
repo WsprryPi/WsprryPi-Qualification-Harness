@@ -412,3 +412,5 @@ with the exact `--sdr` selector and either `--rehearse` or explicitly authorized
 `--enable-rf`. This route has its own Pico target, read-only setup/admission,
 production finite jobs, and result validator. It supports GPIO and Si5351 with
 explicit GPS/PPS and correction subcases. See [Pico RF campaigns](development/pico-rf-campaign.md).
+
+For the separately authorized, nonqualifying one-job governance gate, use the [bounded runner](development/pico-governance-gate.md#one-job-runner-and-the-physical-gate). Its offline connected checks use simulated scheduling; its physical route permits one short QRSS observation with separate operation, cleanup, analysis, and validation deadlines. It does not change campaign qualification counts.

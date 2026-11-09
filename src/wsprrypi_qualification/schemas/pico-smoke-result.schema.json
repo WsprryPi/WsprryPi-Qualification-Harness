@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pico-smoke-result.schema.json",
+  "title": "Nonqualifying one-job Pico governance result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_type", "qualification_claim", "outcome", "cleanup_verified", "settings_unchanged", "frame", "errors", "artifacts"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_type": {"const": "pico_one_job_governance"},
+    "qualification_claim": {"const": false},
+    "outcome": {"enum": ["passed", "failed", "blocked", "aborted", "inconclusive", "cleanup_failed"]},
+    "cleanup_verified": {"type": "boolean"},
+    "settings_unchanged": {"type": "boolean"},
+    "frame": {"type": ["object", "null"]},
+    "errors": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["phase", "kind", "detail"], "properties": {"phase": {"type": "string"}, "kind": {"type": "string"}, "detail": {"type": "string"}}}},
+    "artifacts": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "size_bytes", "sha256"], "properties": {"path": {"type": "string"}, "size_bytes": {"type": "integer", "minimum": 0}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}}
+  },
+  "allOf": [{"if": {"properties": {"outcome": {"const": "passed"}}}, "then": {"properties": {"cleanup_verified": {"const": true}, "settings_unchanged": {"const": true}, "frame": {"type": "object"}, "errors": {"maxItems": 0}}}}]
+}
