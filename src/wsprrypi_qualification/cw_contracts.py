@@ -460,9 +460,16 @@ def _validate_observations(
                 > 1e-6
                 or abs(unshifted_model["maximum_residual_hz"] - maximum_residual) > 1e-6
                 or unshifted_model["observation_count"] != len(active_frequencies)
-                or unshifted_model["acquisition_offset_gate_hz"] != 500.0
+                or unshifted_model["acquisition_offset_gate_hz"]
+                != float(thresholds["frequency_acquisition_half_width_hz"])
             ):
                 _fail("unshifted-frequency model contradicts measured active events")
+            if derived == "passed" and (
+                abs(measured_primary - commanded_primary)
+                > float(thresholds["frequency_acquisition_half_width_hz"])
+                or maximum_residual > float(thresholds["frequency_tolerance_hz"])
+            ):
+                _fail("passing unshifted observations exceed planned frequency bounds")
     elif shifted_model is None:
         if derived == "passed":
             _fail("passing shifted-CW observations require a frequency model")
@@ -485,6 +492,10 @@ def _validate_observations(
             )
         if not active_rows:
             _fail("shifted-frequency model requires measured active events")
+        if shifted_model["acquisition_offset_gate_hz"] != float(
+            thresholds["frequency_acquisition_half_width_hz"]
+        ):
+            _fail("shifted-frequency model acquisition bound differs from the plan")
         reference_s = sum(row[0] for row in active_rows) / len(active_rows)
         primary_hz = float(shifted_model["primary_frequency_hz"])
         spacing_hz = float(shifted_model["signed_spacing_hz"])
@@ -544,13 +555,10 @@ def _validate_observations(
             thresholds["spacing_tolerance_hz"]
         ):
             _fail("passing shifted-CW observations contradict planned tone spacing")
-        if (
-            abs(
-                float(shifted_model["primary_frequency_hz"])
-                - float(plan["protocol"]["primary_frequency_hz"])
-            )
-            > 500.0
-        ):
+        if abs(
+            float(shifted_model["primary_frequency_hz"])
+            - float(plan["protocol"]["primary_frequency_hz"])
+        ) > float(thresholds["frequency_acquisition_half_width_hz"]):
             _fail("passing shifted-CW observations contradict planned frequency")
         if max(
             float(shifted_model["maximum_drift_excursion_hz"]),

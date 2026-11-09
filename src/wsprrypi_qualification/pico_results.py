@@ -205,11 +205,12 @@ def _validate_wspr(directory: Path, plan: dict[str, Any], start_ns: int) -> str:
 def _validate_analysis_identity(
     plan: dict[str, Any], expected: dict[str, Any], measured: dict[str, Any]
 ) -> None:
+    validate_document(expected, "cw-expected-events.schema.json")
+    validate_document(measured, "cw-generated-observations.schema.json")
     revision = plan["analyzer_source"]["revision"]
     if (
         expected["generator"]["source_revision"] != revision
         or measured["analyzer"]["source_revision"] != revision
-        or measured["analyzer"]["synthetic"] is not False
         or measured["capture"]["synthetic"] is not False
     ):
         raise PicoWireError("Pico live analysis has synthetic or mismatched source evidence")
