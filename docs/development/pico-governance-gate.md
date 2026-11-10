@@ -143,3 +143,7 @@ The operation cancellation token has one 120-second absolute deadline shared by 
 The schema-backed result is distinct from campaign qualification evidence. Passing publication requires a fresh validator to accept the inventory, original authorized plan and permitted initial-revision binding, transaction completion and release, complete capture/analysis, final inactive unowned state, unchanged settings, and sealed USB audit. All four admission/settings snapshots are compared with their retained management GET response bodies and ACK sequence. A provisional passing result is kept separate until validation returns; validation failure publishes an unsuccessful result. Partial failure bundles preserve primary and cleanup errors separately and check retained transaction and receiver-failure evidence without inventing missing proof.
 
 Passing these offline checks establishes software readiness to attempt the single physical gate. Physical USB/UMP behavior, the installed image, actual backend/receiver admission, real capture, and physical cleanup remain the purpose of that gate. No broader RF campaign or firmware transmission qualification follows automatically.
+
+## Receiver-loss negative gate
+
+The maintained [receiver-loss development tool](pico-negative-gate.md) wraps this unchanged one-job runner with a single owned-child injection, read-only preparation, generated offline regressions, and independent retained assessment. Its physical path requires separate authorization and does not promote receiver cleanup failure into success.

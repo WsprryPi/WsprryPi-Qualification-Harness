@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.21)
+project(negative_gate_benign LANGUAGES CXX)
+find_package(Threads REQUIRED)
+add_executable(benign benign.cpp)
+target_compile_features(benign PRIVATE cxx_std_17)
+target_link_libraries(benign PRIVATE Threads::Threads)

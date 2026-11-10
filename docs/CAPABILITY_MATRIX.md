@@ -49,3 +49,5 @@ The separate `pico_smoke.py` runner uses `pico-smoke-result.schema.json`, `tests
 
 Guide: [Pico RF campaigns](development/pico-rf-campaign.md). Portable software
 checks are separate from installed-image, physical USB, timing, and RF evidence.
+
+The Linux-only receiver-loss development adapter is `scripts/pico_negative_gate.py`, documented in [Pico negative gate](development/pico-negative-gate.md). Its preparation and retained assessment regressions are `tests/unit/test_pico_negative_gate.py` and `test_pico_negative_preparation.py`; generated fixtures and bounded owned-process checks live in `tests/support/pico_negative_*`. This adapter does not change production admission, cleanup, qualification counts, or the portable core.
