@@ -135,6 +135,7 @@ int main(int argc, char** argv) {
         request.output_path = argv[14];
         request.metadata_path = argv[15];
         request.failure_metadata_path = std::string(argv[15]) + ".failure.json";
+        request.cancellation_path = std::filesystem::u8path(std::string(argv[15]) + ".cancel");
         request.capture_id = argv[16];
         SoapySource source(request.read_timeout_us);
         const auto result = wspq::capture_exact(source, request);

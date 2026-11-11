@@ -33,6 +33,7 @@ from wsprrypi_qualification.pico_campaign import (
     validate_measurement_binding,
     validate_pico_plan,
 )
+from wsprrypi_qualification.pico_clock import uses_holdover, validate_clock_admission
 from wsprrypi_qualification.pico_wire import PicoWireError, loads
 from wsprrypi_qualification.timing import sample_index_at_utc
 from wsprrypi_qualification.wtp_control import validate_transaction
@@ -238,6 +239,8 @@ def _validate_frame(
     job_ids.add(transaction["job"]["job_id"])
     before = _read(directory / "before.json")
     prepared = _read(directory / "prepared.json")
+    if uses_holdover(plan):
+        validate_clock_admission(_read(directory / "clock-admission.json"), prepared, transaction)
     check_admission(plan, before, purpose=purpose)
     check_admission(plan, prepared, owned=True, purpose=purpose)
     gps_observations = [before["gps"], prepared["gps"]]
@@ -476,7 +479,17 @@ def _validate_pico_bundle(
         ):
             raise PicoWireError("Pico passing aggregate has incomplete/failed coverage or cleanup")
         initial, final = (_read(root / name) for name in ("initial.json", "final.json"))
-        validate_wire_audit(root / "usb-io.jsonl", job_ids, initial["target"])
+        validate_wire_audit(
+            root / "usb-io.jsonl",
+            job_ids,
+            initial["target"],
+            time_evidence=root / "controller-time.jsonl"
+            if "controller_time_refresh" in plan
+            else None,
+            clock_admissions=[_read(path) for path in sorted(root.rglob("clock-admission.json"))]
+            if uses_holdover(plan)
+            else None,
+        )
         if (
             not settings_match(initial, final)
             or final["status"]["job"]["owner_id"] is not None

@@ -317,6 +317,12 @@ CaptureResult capture_exact(SampleSource& source, const CaptureRequest& request)
         append_unique(result.failure_causes, cause);
     };
     auto deadline = [&]() {
+        if (!request.cancellation_path.empty()) {
+            std::error_code error;
+            const bool stopping = std::filesystem::exists(request.cancellation_path, error);
+            if (error) { fail(capture_failed, "io_or_source_error"); return true; }
+            if (stopping) { fail(cancelled, "cancelled"); return true; }
+        }
         if (clock.monotonic_seconds() - started >= request.max_elapsed_duration_s) {
             fail(timed_out, "elapsed_time_limit");
             return true;

@@ -130,6 +130,11 @@ def run_case(source: Path, native: Path, wsprd: Path, output: Path, scenario: st
         plan = compose_pico_campaign(
             config, base.binary_path(native, "wspq-pico-compile"), modes=("qrss",)
         )
+        if scenario.startswith("legacy-"):
+            # These cases replay the historical governance contract, including
+            # absent atomic calibration input and legacy diagnostic fields.
+            # Do not opt that old evidence into a newly composed clock policy.
+            plan.pop("gps_clock_admission", None)
 
         def factory(plan, output, reporter, operation_cancel):
             stream = connected.EndpointStream(

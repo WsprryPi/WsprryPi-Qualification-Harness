@@ -11,10 +11,12 @@ import pytest
 
 from wsprrypi_qualification.progress_viewer import (
     MAX_COLUMNS,
+    WEB_PROGRESS_CSS,
     Renderer,
     Step,
     format_step,
     main,
+    render_progress_html,
     tracking_command,
     view,
 )
@@ -60,6 +62,18 @@ def test_format_step_bounds_untrusted_scope_and_state() -> None:
     step = Step("2026-08-24T19:08:04Z", "SCOPE" * 100, "label", "state" * 100, "failure")
 
     assert len(format_step(step, color=False)) == MAX_COLUMNS
+
+
+def test_web_projection_colors_complete_lines_and_escapes_log_content() -> None:
+    lines = "▶ running <script>\n✓ passed & retained\n✗ failed\n• observation"
+    rendered = render_progress_html(lines)
+    assert '<span class="log-running">▶ running &lt;script&gt;</span>' in rendered
+    assert '<span class="log-success">✓ passed &amp; retained</span>' in rendered
+    assert '<span class="log-failure">✗ failed</span>' in rendered
+    assert '<span class="log-neutral">• observation</span>' in rendered
+    assert "<script>" not in rendered
+    for role, color in (("running", "#000"), ("success", "#166534"), ("failure", "#b91c1c")):
+        assert f".log-{role}{{color:{color}}}" in WEB_PROGRESS_CSS
 
 
 def test_alias_updates_the_existing_logical_step() -> None:

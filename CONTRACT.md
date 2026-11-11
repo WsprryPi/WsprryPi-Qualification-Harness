@@ -92,6 +92,27 @@ The harness provides:
     Portable planning supports all control hosts; live USB requires native macOS
     or Linux with the selected USB device and SDR on the same host.
 
+Pico persisted settings remain read-only during a campaign. An explicitly
+selected controller-UTC route maintains bounded, qualified runtime time
+observations through the same owned USB management client. The coordinator
+refreshes them during preparation, slot waits, and running jobs; it does not
+freeze a setup-time sample, change NTP/GPS settings, or compete for USB
+ownership. Host qualification, transfer uncertainty, identity, ACKs, refresh
+coverage, and the fixed time-observation POST are retained and independently
+validated. Other management mutations remain forbidden. SNTP and GPS continue
+their normal arbitration and updates without being stopped for measurement.
+
+New GPS-selected Pico plans bind a clock-admission policy separately from
+input-acquisition health. Temporary loss of fresh UTC/PPS pairing does not revoke
+an otherwise usable retained clock or a valid job-frozen RF correction. The
+coordinator retains a near-ARM WTP GET_CLOCK response, bracketed source
+observations, and actual advertised/requested limits. Independent validation
+correlates those records with the sealed USB audit and accepted ARM. Expired or
+unusable clock authority, source disagreement, raw-clock faults, invalid
+calibration, and unverified cleanup still prevent qualification. Acquisition
+status and recovery remain operator-visible. Historical plans retain their
+original admission semantics; no stopped result is retroactively qualified.
+
 The keyed schema/validator layer is validation-only: it exposes no process,
 transport, receiver, transmitter, service, or RF operation. Its three
 transactions must have independent process, capture, acquisition, analysis, and

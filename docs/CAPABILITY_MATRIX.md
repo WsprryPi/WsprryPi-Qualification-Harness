@@ -47,6 +47,12 @@ See [the guide](development/lifecycle-release.md) for supported profiles and the
 
 The separate `pico_smoke.py` runner uses `pico-smoke-result.schema.json`, `tests/unit/test_pico_smoke.py`, and `tests/support/pico_smoke.py` for one nonqualifying QRSS observation, aggregate deadlines, deferred analysis, production UMP/WTP client fixtures, connected capture failures, and fresh retained validation. Its `pico_context.py` policy and `test_pico_context.py` distinguish governance requirements from calibration qualification, replay private captured management bytes offline, and check lifecycle identity, capability continuity, and strict consumed fields. See the [one-job guide](development/pico-governance-gate.md#one-job-runner-and-the-physical-gate).
 
+GPS clock admission uses `pico_clock.py` and
+`pico-clock-admission.schema.json`. `test_pico_clock.py` checks usable holdover,
+acquisition/recovery notices, frozen correction inputs, source/clock refusal,
+and receipt tampering against production clients and native inhibited endpoints.
+Plans without the versioned policy retain their historical admission rules.
+
 Guide: [Pico RF campaigns](development/pico-rf-campaign.md). Portable software
 checks are separate from installed-image, physical USB, timing, and RF evidence.
 

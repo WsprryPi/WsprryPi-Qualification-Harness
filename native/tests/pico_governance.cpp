@@ -72,11 +72,15 @@ std::string hex(std::span<const std::uint8_t> bytes) {
   }
   return result;
 }
-int main() {
+int main(int argc, char **argv) {
   FixtureClock clock;
   Identity identity;
   RecordingEngine engine(clock);
   ServiceConfig config;
+  if (argc == 2 && std::string_view(argv[1]) == "--gps-holdover")
+    config.maximum_holdover_age_ns = 3'600'000'000'000ULL;
+  else if (argc != 1)
+    return 4;
   config.capability_engine = "pio-dma-gp2";
   JobService service(clock, engine, identity, config);
   Endpoint endpoint(service, "1a528102027ce5a44fcb0b2d85b5e9e9",
@@ -93,8 +97,26 @@ int main() {
     if (action == "connect")
       endpoint.connect("usb-physical");
     else if (action == "clock") {
+      const auto previous = clock.value.monotonic_now_ns;
       if (!json::decimal(get("now_ns"), clock.value.monotonic_now_ns))
         return 3;
+      if (clock.value.state == ClockState::Holdover &&
+          clock.value.monotonic_now_ns >= previous)
+        clock.value.sync_age_ns += clock.value.monotonic_now_ns - previous;
+      if (value->get("sync_age_ns") &&
+          !json::decimal(get("sync_age_ns"), clock.value.sync_age_ns))
+        return 3;
+      if (value->get("clock_state")) {
+        const auto state = get("clock_state").string();
+        if (state == "holdover")
+          clock.value.state = ClockState::Holdover;
+        else if (state == "synchronized")
+          clock.value.state = ClockState::Synchronized;
+        else if (state == "unsynchronized")
+          clock.value.state = ClockState::Unsynchronized;
+        else
+          return 3;
+      }
       clock.value.utc_now_ns = epoch + clock.value.monotonic_now_ns;
     } else if (action == "disconnect")
       endpoint.disconnect();

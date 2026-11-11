@@ -436,6 +436,23 @@
           }
         }
       }
+    },
+    "controller_time_refresh": {
+      "type": "object",
+      "const": {
+        "version": 1,
+        "refresh_seconds": 30,
+        "source_lifetime_seconds": 90,
+        "exchange_seconds": 1,
+        "processing_margin_ns": 100000
+      }
+    },
+    "gps_clock_admission": {
+      "const": {
+        "version": 1,
+        "authority": "wtp-clock",
+        "acquisition": "diagnostic"
+      }
     }
   }
 }

@@ -89,6 +89,8 @@ struct CaptureRequest {
     std::filesystem::path output_path;
     std::filesystem::path metadata_path;
     std::filesystem::path failure_metadata_path;
+    // Optional, plan-derived cooperative stop request; portable across hosts.
+    std::filesystem::path cancellation_path;
     Settings requested;
     std::size_t sample_count{0};
     std::size_t chunk_samples{65536};

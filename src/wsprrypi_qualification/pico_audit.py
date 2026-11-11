@@ -125,7 +125,13 @@ def _frames(data: bytes, carrier: str, direction: str) -> list[dict[str, Any]]:
     return result
 
 
-def _validate_wire_audit(path: Path, job_ids: set[str], target: dict[str, Any]) -> None:
+def _validate_wire_audit(
+    path: Path,
+    job_ids: set[str],
+    target: dict[str, Any],
+    time_evidence: Path | None = None,
+    clock_admissions: list[dict[str, Any]] | None = None,
+) -> None:
     raw = path.read_bytes()
     if not raw.endswith(b"\n"):
         raise PicoWireError("USB evidence is unsealed or truncated")
@@ -136,6 +142,8 @@ def _validate_wire_audit(path: Path, job_ids: set[str], target: dict[str, Any]) 
     pending: set[tuple[str, int]] = set()
     seen_io: set[tuple[str, int]] = set()
     previous_ns = 0
+    armed_at: int | None = None
+    owned_intervals: list[tuple[int, int]] = []
     for index, record in enumerate(records, 1):
         validate_contract(record, "usb-io")
         if (
@@ -171,6 +179,17 @@ def _validate_wire_audit(path: Path, job_ids: set[str], target: dict[str, Any]) 
                 raise PicoWireError("USB write identity reused")
             pending.add(key)
             streams[(carrier, "out")].extend(bytes.fromhex(record["data_hex"]))
+            if carrier == "wtp":
+                frame = _frames(bytes.fromhex(record["data_hex"]), carrier, "out")
+                if len(frame) != 1:
+                    raise PicoWireError("WTP request write does not contain exactly one frame")
+                if frame[0].get("op") == "ARM":
+                    if armed_at is not None:
+                        raise PicoWireError("Overlapping armed jobs in controller time evidence")
+                    armed_at = int(record["monotonic_ns"])
+                elif frame[0].get("op") == "RELEASE" and armed_at is not None:
+                    owned_intervals.append((armed_at, int(record["monotonic_ns"])))
+                    armed_at = None
         elif phase == "write_complete":
             if key not in pending:
                 raise PicoWireError("USB write completion has no matching request")
@@ -208,6 +227,7 @@ def _validate_wire_audit(path: Path, job_ids: set[str], target: dict[str, Any]) 
         raise PicoWireError("Management response/ACK coverage is incomplete")
     session = received[0]["session"]
     awaiting_ack = False
+    time_exchanges: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for index, (request, response) in enumerate(zip(sent, received, strict=True)):
         operation = request["operation"]
         if operation != ("hello" if index == 0 else "ack" if awaiting_ack else "request"):
@@ -225,8 +245,15 @@ def _validate_wire_audit(path: Path, job_ids: set[str], target: dict[str, Any]) 
             or response["status"] != 200
         ):
             raise PicoWireError("Management response binding differs")
-        if request["operation"] == "request" and request["method"] != "GET":
-            raise PicoWireError("Read-only Pico campaign contains a management mutation")
+        if request["operation"] == "request":
+            if request["path"] in {"/api/usb/v1/time/sample", "/api/usb/v1/time/submit"}:
+                time_exchanges.append((request, response))
+                if time_evidence is None:
+                    raise PicoWireError("USB time observations lack bound host-clock evidence")
+            if request["method"] != "GET" and (
+                request["method"] != "POST" or request["path"] != "/api/usb/v1/time/submit"
+            ):
+                raise PicoWireError("Pico campaign contains a forbidden settings mutation")
         if request["operation"] == "ack" and (
             response["delivery_required"] is not False
             or loads(response["body"]) != {"acknowledged": True}
@@ -235,10 +262,113 @@ def _validate_wire_audit(path: Path, job_ids: set[str], target: dict[str, Any]) 
 
     if awaiting_ack:
         raise PicoWireError("Management delivery remains unacknowledged")
+    if clock_admissions is not None:
+        _validate_clock_wire(
+            clock_admissions, records, outgoing, responses, sent, received, job_ids
+        )
+    if time_evidence is not None:
+        from wsprrypi_qualification.pico_time import validate_time_evidence
+
+        if armed_at is not None or len(owned_intervals) != len(job_ids):
+            raise PicoWireError("Controller time evidence lacks complete owned RF intervals")
+        validate_time_evidence(time_evidence, target, time_exchanges, received[0], owned_intervals)
 
 
-def validate_wire_audit(path: Path, job_ids: set[str], target: dict[str, Any]) -> None:
+def _validate_clock_wire(
+    evidence: list[dict[str, Any]],
+    records: list[dict[str, Any]],
+    outgoing: list[dict[str, Any]],
+    responses: list[dict[str, Any]],
+    sent: list[dict[str, Any]],
+    received: list[dict[str, Any]],
+    job_ids: set[str],
+) -> None:
+    """Correlate actual source brackets and one owned GET_CLOCK before each ARM."""
+    if len(evidence) != len(job_ids) or {e["job_id"] for e in evidence} != job_ids:
+        raise PicoWireError("Clock admission coverage differs from armed jobs")
+    writes = {}
+    for record in records:
+        if record["phase"] == "write_requested":
+            for frame in _frames(bytes.fromhex(record["data_hex"]), record["carrier"], "out"):
+                if record["carrier"] == "wtp":
+                    key = ("wtp", frame["request_id"])
+                elif frame["operation"] == "request":
+                    key = ("management", frame["id"])
+                else:
+                    continue
+                writes[key] = record
+    replies = {m["request_id"]: m for m in responses}
+    resources = {
+        q["id"]: (q, r) for q, r in zip(sent, received, strict=True) if q["operation"] == "request"
+    }
+    seen: set[str] = set()
+    for entry in evidence:
+        request_id = entry["clock_request_id"]
+        if request_id in seen:
+            raise PicoWireError("Clock request reused across jobs")
+        seen.add(request_id)
+        position = next((i for i, q in enumerate(outgoing) if q["request_id"] == request_id), -1)
+        if (
+            position < 0
+            or outgoing[position]["op"] != "GET_CLOCK"
+            or replies[request_id]["body"] != entry["clock"]
+        ):
+            raise PicoWireError("Clock admission does not match audited GET_CLOCK")
+        preceding_loads = [q for q in outgoing[:position] if q["op"] == "LOAD"]
+        capability_reads = [q for q in outgoing[:position] if q["op"] == "CAPS"]
+        if (
+            not capability_reads
+            or replies[capability_reads[-1]["request_id"]]["body"] != entry["capabilities"]
+        ):
+            raise PicoWireError("Clock limits differ from audited capabilities")
+        following = next(
+            (q for q in outgoing[position + 1 :] if q["op"] in {"LOAD", "ARM", "ABORT", "RELEASE"}),
+            None,
+        )
+        if (
+            not preceding_loads
+            or preceding_loads[-1]["body"]["job_id"] != entry["job_id"]
+            or following is None
+            or following["op"] != "ARM"
+            or following["body"]["job_id"] != entry["job_id"]
+            or following["body"]["max_start_uncertainty_ns"]
+            != entry["maximum_start_uncertainty_ns"]
+        ):
+            raise PicoWireError("Clock sample is outside its loaded-to-ARM job interval")
+        before_id, after_id = entry["source_before_id"], entry["source_after_id"]
+        for field, identity in (("source_before", before_id), ("source_after", after_id)):
+            query, response = resources[identity]
+            if (
+                query["method"] != "GET"
+                or query["path"] != "/api/control/v1/ntp-observations"
+                or loads(response["body"]) != entry[field]
+            ):
+                raise PicoWireError("Clock source differs from audited management response")
+        before = writes[("management", before_id)]
+        clock = writes[("wtp", request_id)]
+        after = writes[("management", after_id)]
+        arm = writes[("wtp", following["request_id"])]
+        if not before["sequence"] < clock["sequence"] < after["sequence"] < arm["sequence"]:
+            raise PicoWireError("Clock/source collection order differs from wire evidence")
+        if (
+            not int(entry["started_monotonic_ns"])
+            <= int(clock["monotonic_ns"])
+            <= int(after["monotonic_ns"])
+            <= int(entry["completed_monotonic_ns"])
+            <= int(arm["monotonic_ns"])
+        ):
+            raise PicoWireError("Clock collection timing differs from wire evidence")
+
+
+def validate_wire_audit(
+    path: Path,
+    job_ids: set[str],
+    target: dict[str, Any],
+    *,
+    time_evidence: Path | None = None,
+    clock_admissions: list[dict[str, Any]] | None = None,
+) -> None:
     try:
-        _validate_wire_audit(path, job_ids, target)
+        _validate_wire_audit(path, job_ids, target, time_evidence, clock_admissions)
     except (KeyError, TypeError, IndexError, OverflowError, struct.error, UnicodeError) as error:
         raise PicoWireError("Malformed Pico USB evidence") from error

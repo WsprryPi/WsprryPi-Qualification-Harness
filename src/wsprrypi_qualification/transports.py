@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import os
 import subprocess
 import tempfile
@@ -34,10 +35,13 @@ class CommandPlan:
     working_directory: Path | None = None
     timeout_s: float = 60.0
     environment: Mapping[str, str] | None = None
+    cooperative_cancel_path: Path | None = None
+    cooperative_stop_timeout_s: float = 5.0
 
     def validate(self) -> None:
         if (
             self.timeout_s <= 0
+            or not math.isfinite(self.timeout_s)
             or not self.executable.is_absolute()
             or not self.executable.is_file()
         ):
@@ -46,6 +50,15 @@ class CommandPlan:
             raise TransportError("command working directory does not exist")
         if any("\x00" in item for item in self.arguments):
             raise TransportError("command arguments may not contain NUL")
+        if self.cooperative_cancel_path is not None and (
+            not self.cooperative_cancel_path.is_absolute()
+            or self.cooperative_cancel_path.exists()
+            or self.cooperative_cancel_path.is_symlink()
+            or not self.cooperative_cancel_path.parent.is_dir()
+            or not math.isfinite(self.cooperative_stop_timeout_s)
+            or not 0 < self.cooperative_stop_timeout_s <= 15
+        ):
+            raise TransportError("invalid cooperative cancellation path or stop deadline")
 
 
 @dataclass(frozen=True)
@@ -183,6 +196,17 @@ class LocalCommandTransport:
         environment = sanitized_environment(plan.environment)
         started = datetime.now(UTC)
         with tempfile.TemporaryFile(mode="w+b") as out, tempfile.TemporaryFile(mode="w+b") as err:
+            cooperative_requested = False
+            if (
+                plan.cooperative_cancel_path is not None
+                and cancellation is not None
+                and cancellation.is_set()
+            ):
+                with plan.cooperative_cancel_path.open("x", encoding="ascii") as stop:
+                    stop.write("cancelled\n")
+                    stop.flush()
+                    os.fsync(stop.fileno())
+                cooperative_requested = True
             process = subprocess.Popen(
                 [str(plan.executable), *plan.arguments],
                 cwd=str(plan.working_directory) if plan.working_directory else None,
@@ -199,6 +223,22 @@ class LocalCommandTransport:
                 elif time.monotonic() >= deadline:
                     timed_out = True
                 if timed_out or cancelled:
+                    if plan.cooperative_cancel_path is not None:
+                        # Give only this owned helper a bounded chance to publish
+                        # its native resource cleanup receipt before termination.
+                        try:
+                            if not cooperative_requested:
+                                with plan.cooperative_cancel_path.open(
+                                    "x", encoding="ascii"
+                                ) as stop:
+                                    stop.write("cancelled\n" if cancelled else "timed_out\n")
+                                    stop.flush()
+                                    os.fsync(stop.fileno())
+                            process.wait(timeout=plan.cooperative_stop_timeout_s)
+                        except (OSError, subprocess.TimeoutExpired):
+                            pass  # Escalation below never fabricates native cleanup.
+                    if process.poll() is not None:
+                        break
                     process.terminate()
                     with suppress(subprocess.TimeoutExpired):
                         process.wait(timeout=min(0.25, plan.timeout_s))

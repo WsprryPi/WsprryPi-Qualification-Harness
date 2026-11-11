@@ -1,8 +1,8 @@
 """Production Pico USB/Soapy coordinator used by complete-test.
 
-Setup is deliberately read-only. Every selected configuration must already be
-active; no flash, engine switching, service operation, or implicit clock input
-is hidden in a measurement. All waveform jobs execute locally on RP2350.
+Persisted setup remains read-only. Controller UTC explicitly maintains qualified
+runtime observations through the same owned management channel; GPS and SNTP
+continue independently. All waveform jobs execute locally on RP2350.
 """
 
 from __future__ import annotations
@@ -45,9 +45,13 @@ from wsprrypi_qualification.pico_campaign import (
     plan_digest,
     validate_pico_plan,
 )
+from wsprrypi_qualification.pico_clock import uses_holdover, validate_clock_admission
 from wsprrypi_qualification.pico_results import settings_match, validate_pico_bundle
 from wsprrypi_qualification.pico_serial import PicoCleanupError, PicoUsb, require_supported_platform
+from wsprrypi_qualification.pico_time import TIME_POLICY, ChronyClock, ControllerTimeRefresh
 from wsprrypi_qualification.pico_wire import (
+    MANAGEMENT_REQUEST_TIMEOUT_S,
+    WTP_REQUEST_TIMEOUT_S,
     ManagementClient,
     PicoWireError,
     WtpClient,
@@ -95,7 +99,13 @@ def _error_outcome(error: BaseException) -> str:
     return "blocked"
 
 
-def _snapshot(client: ManagementClient, *, require_idle: bool = False) -> dict[str, Any]:
+def _snapshot(
+    client: ManagementClient,
+    *,
+    require_idle: bool = False,
+    service_time: Callable[[], None] = lambda: None,
+    holdover: bool = False,
+) -> dict[str, Any]:
     result: dict[str, Any] = {}
     gps_deadline: float | None = None
 
@@ -103,7 +113,7 @@ def _snapshot(client: ManagementClient, *, require_idle: bool = False) -> dict[s
         nonlocal gps_deadline
         value = client.get("gps", "gps")
         active = value["boot_active"]
-        if active is None or active["enabled"] is not True:
+        if holdover or active is None or active["enabled"] is not True:
             return value
         if gps_deadline is None:
             gps_deadline = time.monotonic() + 2
@@ -120,6 +130,7 @@ def _snapshot(client: ManagementClient, *, require_idle: bool = False) -> dict[s
             if remaining <= 0:
                 return value  # Admission retains its strict refusal and reason.
             time.sleep(min(0.02, remaining))
+            service_time()
             value = client.get("gps", "gps")
 
     for resource, definition in (
@@ -133,6 +144,7 @@ def _snapshot(client: ManagementClient, *, require_idle: bool = False) -> dict[s
         ("rf-calibration", "diagnostic"),
         ("message-schedule", "diagnostic"),
     ):
+        service_time()
         result[resource] = (
             gps_observation() if resource == "gps" else client.get(resource, definition)
         )
@@ -148,7 +160,7 @@ def _snapshot(client: ManagementClient, *, require_idle: bool = False) -> dict[s
                 )
     # GPS estimates can advance between separate read-only resources. Retain
     # one matching current pair; never relax generation equality at admission.
-    for _ in range(3):
+    for _ in range(0 if holdover else 3):
         selection = result["rf-calibration"]["selection"]
         if selection is None or selection["next_source"] != "gps":
             break
@@ -222,6 +234,11 @@ def _private_destination(parent: Path) -> Path:
 
 
 def _authenticate_plan(plan: dict[str, Any]) -> None:
+    if (
+        plan["configuration"]["pico"]["utc_source"] == "controller"
+        and plan.get("controller_time_refresh") != TIME_POLICY
+    ):
+        raise PicoWireError("Live controller UTC requires the maintained refresh policy")
     validate_document(plan, "pico-campaign-plan.schema.json")
     for item in (
         plan["compiler"],
@@ -300,9 +317,20 @@ class PicoLiveAdapter:
             )
             self.discovery = self.management.connect()
             self._wtp: WtpClient | None = None
+            self.time_refresh: ControllerTimeRefresh | None = None
+            if plan.get("controller_time_refresh") == TIME_POLICY:
+                self.time_refresh = ControllerTimeRefresh(
+                    self.management, output / "controller-time.jsonl", ChronyClock()
+                )
             self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         except BaseException as primary:
             errors = []
+            refresh = getattr(self, "time_refresh", None)
+            try:
+                if refresh is not None:
+                    refresh.close()
+            except BaseException as cleanup:
+                errors.append(cleanup)
             try:
                 if hasattr(self, "usb"):
                     self.usb.close()
@@ -321,7 +349,13 @@ class PicoLiveAdapter:
         self.receiver_cleanup_failed = False
 
     def snapshot(self, *, initial: bool = False) -> dict[str, Any]:
-        value = _snapshot(self.management, require_idle=initial)
+        self._service_time()
+        value = _snapshot(
+            self.management,
+            require_idle=initial,
+            service_time=self._service_time,
+            holdover=uses_holdover(self.plan),
+        )
         if self.validation_purpose == "governance":
             from wsprrypi_qualification.pico_context import check_transition
 
@@ -330,6 +364,42 @@ class PicoLiveAdapter:
                 check_transition(previous, value)
             self._context_previous = value
         return value
+
+    def _service_time(self) -> None:
+        refresh = getattr(self, "time_refresh", None)
+        if refresh is None or self.audit.cleaning_up or not refresh.due():
+            return
+        status = self.management.get("status", "status")
+        owner = status["job"]["owner_id"]
+        expected = getattr(self._wtp, "owner_id", None)
+        standalone = status["standalone"]
+        # The product projects an owned WTP job into standalone status too.
+        # Active output is ours only when both projections identify that job.
+        owned_output = (
+            owner is not None
+            and owner == expected
+            and status["job"]["job_id"] is not None
+            and status["job"]["output_active"]
+            and standalone["owner_id"] == owner
+            and standalone["job_id"] == status["job"]["job_id"]
+        )
+        if (
+            self.management.hello is None
+            or status["job"]["boot_id"] != self.management.hello["target"]["boot_id"]
+            or status["standalone"]["boot_id"] != self.management.hello["target"]["boot_id"]
+            or owner != expected
+            or (standalone["output_active"] and not owned_output)
+            or (
+                owner is None
+                and (
+                    status["job"]["output_active"]
+                    or status["job"]["state"] not in {"empty", "complete", "aborted", "missed"}
+                )
+            )
+            or not status["standalone"]["configured"]
+        ):
+            raise PicoWireError("Controller time refresh refuses foreign or unresolved ownership")
+        refresh.refresh(owned_job=owner is not None)
 
     @property
     def wtp(self) -> WtpClient:
@@ -435,6 +505,10 @@ class PicoLiveAdapter:
             carrier_result = self.observe("tone", carrier_job, directory / "carrier")
             if carrier_result["outcome"] != "passed":
                 raise PicoMeasurementError(carrier_result["outcome"])
+            # The nested carrier transaction finished its own cleanup. Resume
+            # the parent operation before snapshots, slot waits, and clock input.
+            self.audit.cleaning_up = False
+            self.usb.begin_operations(self.cancel)
             acquired_frequency = loads((directory / "carrier/carrier.json").read_bytes())[
                 "metrics"
             ]["strongest_transmitter_added_frequency_hz"]
@@ -487,6 +561,7 @@ class PicoLiveAdapter:
             slot = datetime.fromtimestamp(slot_ns / 1e9, UTC)
             wait_deadline = time.monotonic() + (160 if gps_wspr else 130)
             while time.time_ns() < slot_ns - capture_lead_ns:
+                self._service_time()
                 if time.monotonic() >= wait_deadline:
                     raise PicoFixtureError("Controller UTC moved during WSPR slot preparation")
                 if self.cancel.wait(0.1):
@@ -508,6 +583,7 @@ class PicoLiveAdapter:
                 raise PicoFixtureError(
                     "Receiver ended before the complete transaction and quiet margin"
                 )
+            self._service_time()
 
         record: dict[str, Any] | None = None
         try:
@@ -606,6 +682,79 @@ class PicoLiveAdapter:
                     purpose=self.validation_purpose,
                     owner_id=getattr(self.wtp, "owner_id", None),
                 )
+                if uses_holdover(self.plan):
+                    # Acquisition may be reacquiring while the retained clock
+                    # and the correction frozen by LOAD remain usable.
+                    # Bound collection by the existing capture/ARM interval.
+                    deadline = capture_requested_monotonic + duration
+                    if slot is not None:
+                        deadline = min(
+                            deadline,
+                            time.monotonic()
+                            + (start_ns - time.time_ns() - int(caps["minimum_arm_lead_ns"])) / 1e9,
+                        )
+                    source_before_id = self.management.resource_request_ids["ntp-observations"]
+                    started = time.monotonic_ns()
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise PicoFixtureError(
+                            "Clock collection missed the existing preparation bound"
+                        )
+                    clock = self.wtp.request(
+                        "GET_CLOCK", {}, timeout=min(remaining, WTP_REQUEST_TIMEOUT_S)
+                    )
+                    clock_id = f"{self.wtp.sequence:032x}"
+                    source_after = self.management.get(
+                        "ntp-observations",
+                        "diagnostic",
+                        deadline=min(deadline, time.monotonic() + MANAGEMENT_REQUEST_TIMEOUT_S),
+                    )
+                    evidence = dict(
+                        schema_version=1,
+                        target=value["target"],
+                        job_id=loaded_job_id,
+                        clock=clock,
+                        capabilities=caps,
+                        maximum_start_uncertainty_ns=caps["maximum_arm_uncertainty_ns"],
+                        source_before=value["ntp-observations"],
+                        source_after=source_after,
+                        clock_request_id=clock_id,
+                        source_before_id=source_before_id,
+                        source_after_id=self.management.resource_request_ids["ntp-observations"],
+                        started_monotonic_ns=str(started),
+                        completed_monotonic_ns=str(time.monotonic_ns()),
+                    )
+                    write_json_new(directory / "clock-admission.json", evidence)
+                    validate_clock_admission(
+                        evidence,
+                        value,
+                        dict(
+                            job=dict(job_id=loaded_job_id),
+                            hello=hello,
+                        ),
+                    )
+                    gps = value["gps"]["runtime"]
+                    acquisition = tuple(
+                        gps[key] for key in ("serial_present", "pps_present", "time_valid")
+                    )
+                    health = (clock["state"], *acquisition, gps["error"])
+                    if health != getattr(self, "_clock_health", None):
+                        self.reporter.emit(
+                            "clock",
+                            "verified",
+                            (
+                                f"GPS clock {clock['state']}; "
+                                f"source age {clock['sync_age_ns']} ns; "
+                                f"uncertainty {clock['uncertainty_ns']} ns; acquisition "
+                                + (
+                                    gps["error"]
+                                    or ("current" if all(acquisition) else "not current")
+                                )
+                                + f"; serial/PPS/time={acquisition}"
+                            ),
+                            mode=mode.upper(),
+                        )
+                        self._clock_health = health
                 return dict(value["ntp-observations"])
 
             self.jobs_attempted = True
@@ -851,7 +1000,12 @@ class PicoLiveAdapter:
             try:
                 self.usb.close()
             finally:
-                self.audit.close()
+                try:
+                    self.audit.close()
+                finally:
+                    refresh = getattr(self, "time_refresh", None)
+                    if refresh is not None:
+                        refresh.close()
         finally:
             if pending or self.receiver_cleanup_failed:
                 raise PicoFixtureError("Receiver cleanup is still pending; qualification refused")

@@ -10,6 +10,7 @@ from jsonschema import Draft202012Validator
 
 MODULES = (
     "wsprrypi_qualification.pico_campaign",
+    "wsprrypi_qualification.pico_clock",
     "wsprrypi_qualification.pico_live",
     "wsprrypi_qualification.pico_results",
     "wsprrypi_qualification.pico_audit",
@@ -30,6 +31,7 @@ SCHEMAS = (
     "pico-campaign-configuration.schema.json",
     "pico-campaign-plan.schema.json",
     "pico-campaign-result.schema.json",
+    "pico-clock-admission.schema.json",
     "pico-usb-io.schema.json",
     "pico-control.schema.json",
     "pico-wtp.schema.json",

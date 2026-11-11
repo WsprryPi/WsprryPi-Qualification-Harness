@@ -16,6 +16,7 @@
 namespace {
 class Source final : public wspq::SampleSource, public wspq::Clock {
   std::filesystem::path input;
+  std::filesystem::path cancellation;
   std::int64_t epoch_ms{};
   double rate{1};
   std::size_t retained{}, sequence{};
@@ -27,7 +28,8 @@ class Source final : public wspq::SampleSource, public wspq::Clock {
   }
 
 public:
-  explicit Source(std::filesystem::path path) : input(std::move(path)) {
+  Source(std::filesystem::path path, std::filesystem::path stop)
+      : input(std::move(path)), cancellation(std::move(stop)) {
     std::ifstream start(input / "start-ms");
     if (!(start >> epoch_ms))
       throw std::runtime_error("missing fixture epoch");
@@ -55,6 +57,8 @@ public:
                  std::chrono::steady_clock::now() + std::chrono::seconds(5));
     const auto chunk = input / ("chunk-" + std::to_string(sequence));
     while (!std::filesystem::exists(chunk)) {
+      if (std::filesystem::exists(cancellation))
+        return {wspq::ReadKind::cancelled, 0};
       if (std::filesystem::exists(input / "crash")) {
         std::cerr << "fixture: abrupt exit after confirmed running; no native "
                      "cleanup\n"
@@ -90,6 +94,9 @@ public:
     return {wspq::ReadKind::samples, static_cast<std::size_t>(bytes / 8)};
   }
   wspq::CleanupReport cleanup() noexcept override {
+    std::error_code error;
+    if (std::filesystem::exists(input / "cleanup-fail", error))
+      return {{"release_fixture_source"}, {"release_fixture_source"}};
     return {{"release_fixture_source"}, {}};
   }
   double monotonic_seconds() override {
@@ -136,7 +143,9 @@ int main(int argc, char **argv) {
     request.failure_metadata_path =
         std::filesystem::u8path(std::string(argv[15]) + ".failure.json");
     request.capture_id = argv[16];
-    Source source(std::filesystem::u8path(std::string(argv[14]) + ".source"));
+    request.cancellation_path = std::filesystem::u8path(std::string(argv[15]) + ".cancel");
+    Source source(std::filesystem::u8path(std::string(argv[14]) + ".source"),
+                  request.cancellation_path);
     request.clock = &source;
     const auto result = wspq::capture_exact(source, request);
     return result.exit_code;

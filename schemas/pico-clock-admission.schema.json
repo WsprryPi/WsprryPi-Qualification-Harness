@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "target",
+    "job_id",
+    "clock",
+    "source_before",
+    "source_after",
+    "clock_request_id",
+    "source_before_id",
+    "source_after_id",
+    "started_monotonic_ns",
+    "completed_monotonic_ns",
+    "capabilities",
+    "maximum_start_uncertainty_ns"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "target": {
+      "$ref": "pico-control.schema.json#/$defs/application/$defs/target"
+    },
+    "job_id": {
+      "$ref": "pico-wtp.schema.json#/$defs/id"
+    },
+    "clock": {
+      "$ref": "pico-wtp.schema.json#/$defs/clock"
+    },
+    "source_before": {
+      "$ref": "pico-observation.schema.json"
+    },
+    "source_after": {
+      "$ref": "pico-observation.schema.json"
+    },
+    "clock_request_id": {
+      "$ref": "pico-wtp.schema.json#/$defs/id"
+    },
+    "source_before_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "source_after_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "started_monotonic_ns": {
+      "$ref": "pico-wtp.schema.json#/$defs/u64"
+    },
+    "completed_monotonic_ns": {
+      "$ref": "pico-wtp.schema.json#/$defs/u64"
+    },
+    "capabilities": {
+      "$ref": "pico-wtp.schema.json#/$defs/capsResponse"
+    },
+    "maximum_start_uncertainty_ns": {
+      "$ref": "pico-wtp.schema.json#/$defs/u64"
+    }
+  }
+}

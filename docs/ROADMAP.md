@@ -31,6 +31,17 @@ Improve preflight guidance, confirmation, progress presentation, failure
 explanations, recovery guidance, and result discovery without weakening the
 existing authorization, evidence, or cleanup boundaries.
 
+Persist the local web progress viewer as a maintained capability. Reuse the
+existing JSONL progress viewer's parser and renderer for consistent terminal
+and browser interpretation. The maintained HTML line renderer in
+`progress_viewer.py` colors ▶ lines black, ✓ lines green, and ✗ lines red,
+while escaping log-derived text. Browser observers must reuse it. Print the exact terminal follow command and local
+browser URL before execution, retain durable logs and a final static view, and
+keep the browser tab available across chat turns. Bind only to loopback and
+expose read-only progress; monitoring must not control hardware or replace
+validated qualification evidence. This is a follow-up requirement, not a claim
+that the temporary viewer is already integrated.
+
 ## Phase 4 — Qualification campaigns
 
 **Status: planned**

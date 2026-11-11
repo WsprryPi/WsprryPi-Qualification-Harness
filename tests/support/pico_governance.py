@@ -65,6 +65,9 @@ class Clock:
     def monotonic(self):
         return self.ns / 1e9
 
+    def monotonic_ns(self):
+        return self.ns
+
     def advance(self, seconds):
         self.ns += round(seconds * 1e9)
         if self.stream is not None:
@@ -92,7 +95,7 @@ class Cancellation:
 class EndpointStream:
     """Application-bounded subprocess; only its pipe waits use wall time."""
 
-    def __init__(self, executable, directory, clock, cancel_running=False):
+    def __init__(self, executable, directory, clock, cancel_running=False, *, arguments=()):
         self.clock = clock
         self.pending = bytearray()
         self.cancel_running = cancel_running
@@ -100,7 +103,7 @@ class EndpointStream:
         self.log = (directory / "endpoint.jsonl").open("x", encoding="utf-8")
         self.stderr = (directory / "endpoint.stderr").open("xb")
         self.process = subprocess.Popen(
-            [str(executable)],
+            [str(executable), *arguments],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=self.stderr,

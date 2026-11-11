@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import shlex
@@ -58,6 +59,25 @@ _COLORS = {
     "neutral": "\x1b[34m",
 }
 _RESET = "\x1b[0m"
+
+# Shared by read-only browser observers; terminal ANSI colors are independent.
+WEB_PROGRESS_CSS = (
+    ".wspq-progress{white-space:pre-wrap;overflow-wrap:anywhere;color:#17202a;"
+    "background:#fafafa}"
+    ".wspq-progress .log-running{color:#000}"
+    ".wspq-progress .log-success{color:#166534}"
+    ".wspq-progress .log-failure{color:#b91c1c}"
+)
+
+
+def render_progress_html(text: str) -> str:
+    """Escape and color complete lines from this module's plain-text renderer."""
+    roles = {"▶": "running", "✓": "success", "✗": "failure"}
+    lines = []
+    for line in text.splitlines():
+        role = roles.get(line.lstrip()[:1], "neutral")
+        lines.append(f'<span class="log-{role}">{html.escape(line)}</span>')
+    return '<pre class="wspq-progress">' + "\n".join(lines) + "</pre>"
 
 
 @dataclass(frozen=True)

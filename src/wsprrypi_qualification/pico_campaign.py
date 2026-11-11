@@ -21,6 +21,8 @@ from typing import Any
 
 from wsprrypi_qualification.cw_reference import generate_expected_events
 from wsprrypi_qualification.offline import artifact, validate_document
+from wsprrypi_qualification.pico_clock import CLOCK_POLICY, uses_holdover
+from wsprrypi_qualification.pico_time import TIME_POLICY
 from wsprrypi_qualification.pico_wire import (
     PicoWireError,
     loads,
@@ -233,12 +235,25 @@ def compose_pico_campaign(
         receiver_calibration=calibration,
         modes=rows,
     )
+    if config["pico"]["utc_source"] == "controller":
+        plan["controller_time_refresh"] = dict(TIME_POLICY)
+    if config["pico"]["utc_source"] == "gps":
+        plan["gps_clock_admission"] = dict(CLOCK_POLICY)
     validate_pico_plan(plan)
     return plan
 
 
 def validate_pico_plan(plan: dict[str, Any]) -> None:
     validate_document(plan, "pico-campaign-plan.schema.json")
+    if "gps_clock_admission" in plan and (
+        not uses_holdover(plan) or plan["configuration"]["pico"]["utc_source"] != "gps"
+    ):
+        raise PicoWireError("GPS clock admission policy differs from selected UTC route")
+    if "controller_time_refresh" in plan and (
+        plan["controller_time_refresh"] != TIME_POLICY
+        or plan["configuration"]["pico"]["utc_source"] != "controller"
+    ):
+        raise PicoWireError("Controller time refresh policy differs from selected UTC route")
     validate_configuration(plan["configuration"])
     modes = [row["mode"] for row in plan["modes"]]
     if len(set(modes)) != len(modes) or modes != [m for m in MODE_ORDER if m in modes]:
@@ -426,9 +441,17 @@ def check_admission(
     utc = snapshot["ntp-observations"]
     if utc["active_source"] != expected["utc_source"] or utc["source_disagreement"]:
         raise PicoWireError("UTC source missing, mismatched, or conflicting")
+    holdover = uses_holdover(plan)
+    clock = status["standalone"]
+    maximum_age = int(snapshot["capabilities"]["wtp"]["maximum_holdover_age_ns"])
     if (
-        status["standalone"]["clock_state"] not in {"synchronized", "holdover"}
-        or int(status["standalone"]["sync_age_ns"]) > 3_600_000_000_000
+        clock["clock_state"] not in {"synchronized", "holdover"}
+        or (
+            holdover
+            and clock["clock_state"] == "holdover"
+            and (maximum_age == 0 or int(clock["sync_age_ns"]) > maximum_age)
+        )
+        or (not holdover and int(clock["sync_age_ns"]) > 3_600_000_000_000)
     ):
         raise PicoWireError("Pico UTC is unqualified or stale")
     if enabled:
@@ -436,10 +459,15 @@ def check_admission(
         if (
             not active["pairing_qualified"]
             or runtime is None
-            or not all(runtime[k] for k in ("serial_present", "pps_present", "time_valid"))
+            or (
+                not holdover
+                and not all(runtime[k] for k in ("serial_present", "pps_present", "time_valid"))
+            )
         ):
             raise PicoWireError("GPS serial/PPS pairing is not usable")
-        if int(runtime["age_ns"]) > 3_000_000_000 or runtime["error"]:
+        if runtime["error"] == "pps_capture_clock_changed" or (
+            not holdover and (int(runtime["age_ns"]) > 3_000_000_000 or runtime["error"])
+        ):
             raise PicoWireError("GPS observation stale or refused")
         if (
             active["rx_gp"] == active["pps_gp"]
@@ -479,6 +507,15 @@ def check_admission(
     if configured_auto != automatic or manual != expected["manual_correction_ppb"]:
         raise PicoWireError("Automatic/manual correction differs from the selected subcase")
     selection = snapshot["rf-calibration"]["selection"]
+    if holdover and owned:
+        # LOAD has frozen its own input. The caller checks that job-bound
+        # provenance, rather than requiring subsequent learning to stand still.
+        if (
+            snapshot["rf-calibration"]["execution_engine"] != expected["engine"]
+            or not snapshot["rf-calibration"]["storage_healthy"]
+        ):
+            raise PicoWireError("Prepared calibration engine/storage differs")
+        return
     if (
         selection is None
         or selection["next_source"] != ("gps" if automatic else "manual")
@@ -494,7 +531,11 @@ def check_admission(
         if (
             estimate is None
             or not estimate["fresh"]
-            or estimate["generation"] != selection["next_generation"]
+            or (
+                int(estimate["generation"]) > int(selection["next_generation"])
+                if holdover
+                else estimate["generation"] != selection["next_generation"]
+            )
             or int(estimate["age_ns"]) > active["calibration_maximum_age_s"] * 1_000_000_000
         ):
             raise PicoWireError("Correction observation missing, stale, or generation-mismatched")
@@ -503,7 +544,9 @@ def check_admission(
         correction = estimate["oscillator_error_ppb"] + manual + residual
     else:
         correction = manual
-    if selection["next_ppb"] != correction:
+    if selection["next_ppb"] != correction and not (
+        holdover and automatic and estimate["generation"] != selection["next_generation"]
+    ):
         raise PicoWireError("Effective correction contradicts its independent manual/GPS inputs")
 
 
@@ -634,7 +677,7 @@ def check_prepared_correction(
         raise PicoWireError("Prepared correction provenance missing")
     manual = plan["configuration"]["pico"]["manual_correction_ppb"]
     expected = manual
-    if purpose == "governance":
+    if purpose == "governance" or uses_holdover(plan):
         status = prepared["status"]["job"]
         if (
             status["job_id"] != job_id
@@ -644,12 +687,10 @@ def check_prepared_correction(
             or status["state"] != "loaded"
             or status["output_active"]
         ):
-            raise PicoWireError(
-                "Prepared governance evidence is not bound to the accepted inactive job"
-            )
+            raise PicoWireError("Prepared evidence is not bound to the accepted inactive job")
         if selection["prepared_ppb"] is None:
             raise PicoWireError("Prepared governance correction is missing")
-        if "prepared_input" not in selection and automatic:
+        if purpose == "governance" and "prepared_input" not in selection and automatic:
             # Corroborate the legacy summary without inventing atomic provenance.
             # Intervening GPS generations may be skipped by separate reads.
             if len(load_bracket) != 2:

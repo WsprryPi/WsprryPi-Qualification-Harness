@@ -13,7 +13,7 @@ import struct
 import time
 import uuid
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from functools import lru_cache
 from importlib.resources import files
 from typing import Any, Protocol, cast
@@ -172,6 +172,10 @@ def read_exact(stream: ByteStream, count: int, deadline: float) -> bytes:
     return bytes(result)
 
 
+WTP_REQUEST_TIMEOUT_S = 8
+MANAGEMENT_REQUEST_TIMEOUT_S = 10
+
+
 class WtpClient:
     """One explicit WTP connection; responses and events share a bounded stream."""
 
@@ -181,6 +185,7 @@ class WtpClient:
         self.pending: deque[dict[str, Any]] = deque()
         self.sequence = 0
         self._received = bytearray()
+        self.owner_id: str | None = None
 
     def _fill(self, count: int, deadline: float) -> None:
         # A polling deadline can split either header or payload. Keep consumed
@@ -215,7 +220,9 @@ class WtpClient:
         del self._received[: 16 + size]
         return value
 
-    def request(self, operation: str, body: dict[str, Any], timeout: float = 8) -> dict[str, Any]:
+    def request(
+        self, operation: str, body: dict[str, Any], timeout: float = WTP_REQUEST_TIMEOUT_S
+    ) -> dict[str, Any]:
         self.sequence += 1
         request_id = f"{self.sequence:032x}"
         request = dict(
@@ -240,6 +247,10 @@ class WtpClient:
                 raise PicoWireError("WTP request/operation mismatch; outcome uncertain")
             if not message["ok"]:
                 raise PicoWireError("Pico WTP refusal: " + message["error"]["code"])
+            if operation == "CLAIM":
+                self.owner_id = body["owner_id"]
+            elif operation == "RELEASE":
+                self.owner_id = None
             return dict(message["body"])
 
     def next_message(self, timeout: float) -> dict[str, Any]:
@@ -252,7 +263,7 @@ class WtpClient:
 
 
 class ManagementClient:
-    """Read-only current Control/1 over UMP1, with mandatory resource ACKs."""
+    """Control/1 reads and supported UTC observations, with mandatory ACKs."""
 
     def __init__(
         self, stream: ByteStream, device_id: str, *, purpose: str = "qualification"
@@ -264,6 +275,7 @@ class ManagementClient:
         self.sequence = 0
         self.hello: dict[str, Any] | None = None
         self.etags: dict[str, str] = {}
+        self.resource_request_ids: dict[str, int] = {}
 
     def _exchange(self, fields: dict[str, Any], deadline: float) -> dict[str, Any]:
         request = dict(schema="usb-management/1", id=self.sequence, **fields)
@@ -329,33 +341,52 @@ class ManagementClient:
         self.hello = value
         return body
 
-    def get(self, resource: str, definition: str) -> dict[str, Any]:
+    def _request(
+        self,
+        path: str,
+        *,
+        method: str = "GET",
+        body: dict[str, Any] | None = None,
+        deadline: float | None = None,
+        observed: Callable[[], None] | None = None,
+    ) -> dict[str, Any]:
         if self.hello is None or self.sequence >= 2147483647:
             raise PicoWireError("Management session unavailable")
         self.sequence += 1
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + MANAGEMENT_REQUEST_TIMEOUT_S if deadline is None else deadline
         response = self._exchange(
             dict(
                 operation="request",
-                method="GET",
-                path="/api/control/v1/" + resource,
-                body="",
+                method=method,
+                path=path,
+                body="" if body is None else encode(body).decode(),
                 if_match="",
             ),
             deadline,
         )
         if response["delivery_required"] is not True:
             raise PicoWireError("Resource response omitted delivery requirement")
-        ack = self._exchange({"operation": "ack"}, deadline)
-        if (
-            ack["status"] != 200
-            or ack["delivery_required"] is not False
-            or loads(ack["body"]) != {"acknowledged": True}
-        ):
-            raise PicoWireError("UMP1 resource ACK unconfirmed")
+        try:
+            if observed is not None:
+                observed()
+        finally:
+            ack = self._exchange({"operation": "ack"}, deadline)
+            if (
+                ack["status"] != 200
+                or ack["delivery_required"] is not False
+                or loads(ack["body"]) != {"acknowledged": True}
+            ):
+                raise PicoWireError("UMP1 resource ACK unconfirmed")
         if response["status"] != 200:
-            raise PicoWireError("Required Pico resource unavailable: " + resource)
-        value = loads(response["body"])
+            raise PicoWireError("Required Pico operation refused: " + path)
+        self.etags[path.rsplit("/", 1)[-1]] = response["etag"]
+        return loads(response["body"])
+
+    def get(
+        self, resource: str, definition: str, *, deadline: float | None = None
+    ) -> dict[str, Any]:
+        value = self._request("/api/control/v1/" + resource, deadline=deadline)
+        self.resource_request_ids[resource] = self.sequence
         if definition == "diagnostic":
             if value.get("schema") != resource:
                 raise PicoWireError("Diagnostic response does not match the requested resource")
@@ -364,8 +395,65 @@ class ManagementClient:
             validate_contract(value, "control", definition)
             if value.get("contract") != "Wsprry-Control/1":
                 raise PicoWireError("Control resource omitted its current contract")
-        self.etags[resource] = response["etag"]
         return value
+
+    def time_sample(self, deadline: float, observed: Callable[[], None]) -> dict[str, Any]:
+        value = self._request("/api/usb/v1/time/sample", deadline=deadline, observed=observed)
+        if (
+            set(value) != {"sample", "monotonic_ns"}
+            or not isinstance(value["sample"], str)
+            or not 0 < len(value["sample"].encode()) <= 64
+        ):
+            raise PicoWireError("Invalid USB time sample")
+        wire_uint64(value["monotonic_ns"])
+        return value
+
+    def time_submit(self, value: dict[str, Any], deadline: float) -> dict[str, Any]:
+        validate_time_submission(value)
+        response = self._request(
+            "/api/usb/v1/time/submit", method="POST", body=value, deadline=deadline
+        )
+        validate_time_response(response)
+        return response
+
+
+def wire_uint64(value: Any) -> int:
+    if (
+        not isinstance(value, str)
+        or not value.isascii()
+        or not value.isdecimal()
+        or len(value) > 20
+        or str(int(value)) != value
+        or int(value) >= 2**64
+    ):
+        raise PicoWireError("Invalid USB time decimal")
+    return int(value)
+
+
+def validate_time_submission(value: dict[str, Any]) -> None:
+    if (
+        set(value) != {"sample", "utc_ns", "uncertainty_ns", "leap"}
+        or not isinstance(value["sample"], str)
+        or not 0 < len(value["sample"].encode()) <= 64
+        or value["leap"] != "normal"
+    ):
+        raise PicoWireError("Invalid USB time submission")
+    if wire_uint64(value["utc_ns"]) == 0:
+        raise PicoWireError("Missing USB UTC")
+    wire_uint64(value["uncertainty_ns"])
+
+
+def validate_time_response(value: dict[str, Any]) -> None:
+    if (
+        set(value) != {"accepted", "selected", "source", "uncertainty_ns", "age_ns"}
+        or type(value["accepted"]) is not bool
+        or type(value["selected"]) is not bool
+        or value["accepted"] != value["selected"]
+        or value["source"] not in ({"controller"} if value["accepted"] else {"sntp", "gps"})
+    ):
+        raise PicoWireError("Invalid USB time acceptance/source")
+    wire_uint64(value["uncertainty_ns"])
+    wire_uint64(value["age_ns"])
 
 
 def _identifier(value: Any) -> bool:

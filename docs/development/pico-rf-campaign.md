@@ -60,8 +60,110 @@ revision alone does not establish which bytes are installed on a board.
 
 Install or upgrade firmware separately through Pico's shared USB installer and
 retain the exact developer/release bundle and same-board reference. Campaigns
-never flash, restart, provision, set the clock, change an engine, or rewrite
-settings. The selected configuration must already be active and usable.
+never flash, restart, provision, change an engine, or rewrite saved settings.
+The selected configuration must already be active and usable.
+
+### Continuous UTC observations
+
+Leave existing NTP services and Pico SNTP/GPS updates running. A recorded
+snapshot is an observation, not a request to freeze the clock. GPS-enabled
+rows continue using GPS; an already operational SNTP source may be selected
+for GPS-disabled rows without a controller-time dependency.
+
+An explicitly selected `controller` route binds refresh policy version 1 into
+the composed plan. Firmware controller observations expire after 90 seconds;
+the harness refreshes them every 30 seconds through its single owned management
+client. It services the existing main-thread preparation/polling path during
+WSPR slot waits, capture readiness, and armed/running jobs, and reacquires time
+before admission or the next job after lengthy offline analysis. It creates no
+competing USB owner or unsynchronized background reader. A competing job owner
+blocks a time submission. Cleanup does not depend on another clock update.
+
+The current host-time capability discovers `chronyc`, pins its executable
+identity, and observes bounded tracking CSV without changing the service.
+Missing host capability fails before WTP/RF; portable planning is unaffected,
+and SNTP/GPS routes do not require this adapter. The submitted bound includes
+chrony's conditional offset/dispersion/delay error, collection time, the full
+USB sample midpoint radius, wall/monotonic disagreement across response and
+ACK, and the maintained processing margin. ACK delay never recenters the
+sample. Every exchange has a one-second outer bound and no mutation retry.
+
+`controller-time.jsonl` retains raw host observations, exact sample/submission
+identities, outcomes, policy, and tool identity. The bundle validator recomputes
+the arithmetic, correlates it with the sealed USB byte audit, and checks time
+coverage across owned ARM-to-RELEASE intervals. Only the fixed supported
+`POST /api/usb/v1/time/submit` is permitted alongside management reads; settings
+mutations remain rejected. Late/unqualified observations, clock steps, lost
+ACKs, changed identity, or expired owned-job coverage cannot qualify. Healthy
+SNTP/GPS arbitration retains priority; controller input does not force a switch.
+
+### GPS acquisition and usable clock holdover
+
+New GPS-selected plans bind `gps_clock_admission` version 1. GPS acquisition
+health, usable UTC, and RF correction have separate lifetimes. A transient
+capture rejection or pairing reacquisition remains visible but does not by
+itself invalidate a retained synchronized/holdover clock. No recovery sleep,
+three-second pairing gate, or polling for a green acquisition flag participates
+in this policy. Plans without this field retain their historical rules for
+reviewing old evidence.
+
+Before a job, saved/active GPS policy, boot identity, selected source, clock
+state, advertised holdover age, and required retained calibration are checked.
+A cold unsynchronized clock, raw-clock-domain fault, source disagreement,
+expired calibration, or unsupported state still refuses. Acquisition flags and
+error strings retain their original values. The snapshot takes each resource
+once; it does not force learning generations to remain equal. A pre-LOAD
+calibration observation may precede a newer selection generation. LOAD remains
+authoritative, and the actual job-frozen input must independently corroborate
+its selection, arithmetic, age, uncertainty, and LOAD brackets before ARM.
+Subsequent learning or temporary acquisition loss cannot replace that input.
+
+After the prepared resource snapshot, the owned WTP client obtains GET_CLOCK,
+then the same management client reads the selected source again. This records
+an observed source bracket, not an atomic multi-resource snapshot. Both source
+observations must report GPS without disagreement on the same boot; normal
+forward model generations are permitted. `clock-admission.json` records the
+clock, source observations and request IDs, actual capabilities and ARM limit,
+job/target identity, and collection interval. Collection remains within the
+existing capture/ARM preparation interval and the existing transport timeouts.
+The actual ARM response and the firmware's pre-launch checks remain authoritative.
+
+Clock state, source age, and uncertainty are checked against advertised WTP
+holdover rules and the actual ARM request. A UINT64_MAX uncertainty limit is
+retained as advertised and is not described as a finite precision guarantee.
+This policy adds no arbitrary precision or freshness threshold. Mode analysis
+requirements remain unchanged. NTP/GPS updates continue normally.
+
+The result validator rechecks the clock decision and actual ARM clock, and
+correlates every passing job's clock receipt with GET_CLOCK, CAPS, management
+GET/ACK, LOAD, and ARM in the sealed USB audit. Duplicate samples, altered clock
+values/limits/source bodies, wrong job/boot, unrecorded jobs, or reordered
+collection cannot qualify. The terminal and web progress consumers receive the
+same clock/acquisition transitions through the maintained progress stream;
+repeated unchanged health states do not produce repeated notices.
+
+Historical results keep their original outcome. Source inspection or a
+hardware-free holdover replay does not qualify an untransmitted observation.
+
+### Receiver cancellation receipts
+
+The native capture helper observes a cooperative stop file at its metadata
+path plus `.cancel`. The local capture launcher exclusively creates that
+plan-derived file on cancellation or its outer timeout, then gives the owned
+helper at most five seconds to finish cleanup and publish native failure
+metadata. A cancellation already requested before launch is published before
+the helper can configure a receiver. The native capture loop checks the stop
+request around configuration and bounded reads, closes/releases its actual
+resources, removes incomplete IQ, and writes the existing failure receipt.
+
+An unresponsive helper is still terminated within the bounded stop deadline.
+Process exit alone never proves native SDR cleanup: a missing, malformed, or
+failed native receipt continues to make cleanup unsuccessful. Preserve both
+the process-execution diagnostic and the native receipt, including their
+distinct timeout/cancellation causes. This protocol requires the corrected
+native helper; stage and bind its newly built executable rather than reusing
+an older helper that ignores cooperative cancellation. No firmware, clock
+service, or receiver-service change is involved.
 
 ## Prepare a configuration
 
@@ -89,7 +191,7 @@ owner's job.
 A GPS-disabled row observes firmware disablement; cable removal is unnecessary.
 The selected Pico source also supplies the closed network-diagnostics schema used inside `ntp-observations`. Its platform network, μChrony, memory, and packet observations are validated with exact integer types and decimal bounds across schema references. Missing fields, unknown fields and malformed nested diagnostics refuse before a campaign starts.
 
-GPS-enabled rows require fresh paired serial/PPS/time observations. UTC source, GPS use, manual correction in PPB, and automatic RF correction are independent inputs. Correction-on requires fresh matching product observations and retained generation provenance, including the correction frozen at preparation. Missing or conflicting qualification refuses the job without manual fallback. Snapshot acquisition allows at most two seconds of read-only GPS readiness sampling for a fresh qualified observation; an uncleared pairing error, stale observation or missing PPS/time still refuses. The deadline is shared across the snapshot, including generation-coherence rereads. Non-WSPR jobs request a whole UTC second. GPS-enabled jobs select that start once after LOAD and the final resource snapshot, seven seconds ahead; GPS-disabled jobs retain the five-second pre-preparation lead. GPS-enabled non-WSPR capture retains ten additional seconds of RF-off preparation allowance. Before selecting a start, the controller conservatively checks that the finite capture still contains the complete job and at least two seconds of post-job quiet. Exhausted capture allowance refuses before ARM. Rounding adds less than one second, remains inside the existing nine-second controller ARM bound after preparation, and preserves the full requested UTC-second launch window. Fractional starts near the end of a second can leave only milliseconds before the product’s exclusive deadline. The deadline itself is unchanged, and WSPR stays at its original UTC slot plus two seconds. GPS-enabled WSPR begins its fixed 140-second capture twenty seconds before the slot to allow the complete LOAD and GPS reads; after retaining the immediate post-LOAD correction input, it waits until nine seconds before the requested start for the final resource snapshot. This wait checks receiver readiness and cancellation and has a separate 45-second monotonic deadline; missed preparation still refuses before ARM. GPS inputs are retained immediately before and after LOAD, in addition to the general snapshots. The Pico retains the complete automatic calibration input atomically with the accepted job: job ID, manual residual, oscillator error, base uncertainty, observation time, span, generation, and selection time. Live admission and offline result validation require the closed current diagnostic shape, exact job/device/boot binding, correction arithmetic, freshness and uncertainty at selection, and generation/timestamp bounds from both LOAD bracket observations. An exact matching live generation, when observed, must corroborate that input. The GPS reads may advance past an intervening frozen generation; they do not replace the retained input. Missing, stale, conflicting, or unbound evidence refuses before ARM without replaying LOAD. The prepared snapshot is retained before admission validation so failures preserve their inputs.
+GPS-enabled rows require qualified GPS-derived UTC and the selected correction policy. The holdover policy above governs new plans; historical plans require fresh paired serial/PPS/time observations. UTC source, GPS use, manual correction in PPB, and automatic RF correction are independent inputs. Correction-on requires fresh matching product observations and retained generation provenance, including the correction frozen at preparation. Missing or conflicting qualification refuses the job without manual fallback. For historical plans only, snapshot acquisition allows at most two seconds of read-only GPS readiness sampling for a fresh qualified observation; an uncleared pairing error, stale observation or missing PPS/time still refuses. The deadline is shared across the snapshot, including generation-coherence rereads. Non-WSPR jobs request a whole UTC second. GPS-enabled jobs select that start once after LOAD and the final resource snapshot, seven seconds ahead; GPS-disabled jobs retain the five-second pre-preparation lead. GPS-enabled non-WSPR capture retains ten additional seconds of RF-off preparation allowance. Before selecting a start, the controller conservatively checks that the finite capture still contains the complete job and at least two seconds of post-job quiet. Exhausted capture allowance refuses before ARM. Rounding adds less than one second, remains inside the existing nine-second controller ARM bound after preparation, and preserves the full requested UTC-second launch window. Fractional starts near the end of a second can leave only milliseconds before the product’s exclusive deadline. The deadline itself is unchanged, and WSPR stays at its original UTC slot plus two seconds. GPS-enabled WSPR begins its fixed 140-second capture twenty seconds before the slot to allow the complete LOAD and GPS reads; after retaining the immediate post-LOAD correction input, it waits until nine seconds before the requested start for the final resource snapshot. This wait checks receiver readiness and cancellation and has a separate 45-second monotonic deadline; missed preparation still refuses before ARM. GPS inputs are retained immediately before and after LOAD, in addition to the general snapshots. The Pico retains the complete automatic calibration input atomically with the accepted job: job ID, manual residual, oscillator error, base uncertainty, observation time, span, generation, and selection time. Live admission and offline result validation require the closed current diagnostic shape, exact job/device/boot binding, correction arithmetic, freshness and uncertainty at selection, and generation/timestamp bounds from both LOAD bracket observations. An exact matching live generation, when observed, must corroborate that input. The GPS reads may advance past an intervening frozen generation; they do not replace the retained input. Missing, stale, conflicting, or unbound evidence refuses before ARM without replaying LOAD. The prepared snapshot is retained before admission validation so failures preserve their inputs.
 Receiver calibration is a separate frozen profile/request binding and affects
 receiver interpretation only. It never adjusts transmitted frequency.
 

@@ -312,10 +312,33 @@ class LocalTransportLauncher:
     def launch(
         self, arguments: tuple[str, ...], timeout_s: float, cancellation: threading.Event | None
     ) -> LaunchResult:
+        return self._launch(arguments, timeout_s, cancellation)
+
+    def launch_capture(
+        self,
+        arguments: tuple[str, ...],
+        timeout_s: float,
+        cancellation: threading.Event | None,
+        cancel_path: Path,
+    ) -> LaunchResult:
+        return self._launch(arguments, timeout_s, cancellation, cancel_path)
+
+    def _launch(
+        self,
+        arguments: tuple[str, ...],
+        timeout_s: float,
+        cancellation: threading.Event | None,
+        cancel_path: Path | None = None,
+    ) -> LaunchResult:
         if not arguments:
             raise CapabilityError("external launch arguments are empty")
         record = LocalCommandTransport().execute(
-            CommandPlan(Path(arguments[0]), arguments[1:], timeout_s=timeout_s),
+            CommandPlan(
+                Path(arguments[0]),
+                arguments[1:],
+                timeout_s=timeout_s,
+                cooperative_cancel_path=cancel_path,
+            ),
             cancellation=cancellation,
         )
         return LaunchResult(
@@ -753,7 +776,15 @@ class SoapyCaptureCapability:
             str(plan.metadata_path),
             plan.output_path.stem,
         )
-        result = self._launcher.launch(arguments, plan.maximum_elapsed_s, cancellation)
+        if isinstance(self._launcher, LocalTransportLauncher):
+            result = self._launcher.launch_capture(
+                arguments,
+                plan.maximum_elapsed_s,
+                cancellation,
+                Path(f"{plan.metadata_path}.cancel"),
+            )
+        else:
+            result = self._launcher.launch(arguments, plan.maximum_elapsed_s, cancellation)
         if result.return_code != 0 or result.timed_out or result.cancelled:
             diagnostic = _retain_capture_failure(plan, arguments, result, "helper_execution_failed")
             raise CaptureCapabilityError(
